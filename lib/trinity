@@ -7,6 +7,7 @@
     i_prop    (X,Y, intern,     WGPUDevice,          device) \
     i_prop    (X,Y, intern,     WGPUQueue,           queue) \
     i_prop    (X,Y, intern,     WGPUPipelineLayout,  layout) \
+    i_prop    (X,Y, intern,     WGPUShaderModule,    module) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef trinity_intern

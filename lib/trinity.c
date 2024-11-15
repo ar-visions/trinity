@@ -10,59 +10,47 @@
 #endif
 #include <GLFW/glfw3native.h>
 #include <wgpu.h>
-
-static WGPUInstance inst;
-
 #include <import>
 
-#define LOG_PREFIX "[triangle]"
-
-static void handle_request_adapter(WGPURequestAdapterStatus status,
-                                   WGPUAdapter adapter, char const *message,
-                                   void *userdata) {
-  if (status == WGPURequestAdapterStatus_Success) {
-    trinity t = userdata;
-    t->adapter = adapter;
-  } else {
-    printf(LOG_PREFIX " request_adapter status=%#.8x message=%s\n", status,
-           message);
-  }
+static void handle_request_adapter(
+    WGPURequestAdapterStatus status, WGPUAdapter adapter,
+    char const *message, void *userdata) {
+    if (status == WGPURequestAdapterStatus_Success) {
+        trinity t = userdata;
+        t->adapter = adapter;
+    } else {
+        printf("request_adapter status=%#.8x message=%s\n", status,
+            message);
+    }
 }
-static void handle_request_device(WGPURequestDeviceStatus status,
-                                  WGPUDevice device, char const *message,
-                                  void *userdata) {
-  if (status == WGPURequestDeviceStatus_Success) {
-    trinity t = userdata;
-    t->device = device;
-  } else {
-    printf(LOG_PREFIX " request_device status=%#.8x message=%s\n", status,
-           message);
-  }
+
+static void handle_request_device(
+        WGPURequestDeviceStatus status, WGPUDevice device,
+        char const *message, void *userdata) {
+    if (status == WGPURequestDeviceStatus_Success) {
+        trinity t = userdata;
+        t->device = device;
+    } else {
+        printf("request_device status=%#.8x message=%s\n", status,
+            message);
+    }
 }
 
 static void handle_glfw_key(
-        GLFWwindow *glfw_window, int key, int scancode, int action, int mods)
-{
+    GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        window  w = glfwGetWindowUserPointer(glfw_window);
-        trinity t = w->t;
+        window w = glfwGetWindowUserPointer(glfw_window);
         WGPUGlobalReport report;
-        wgpuGenerateReport(t->instance, &report);
+        wgpuGenerateReport(w->t->instance, &report);
     }
 }
 
 static void handle_glfw_framebuffer_size(
-    GLFWwindow *glfw_window, int width, int height)
-{
-    if (width == 0 && height == 0)
-        return;
-
-    window  w = glfwGetWindowUserPointer(glfw_window);
-    trinity t = w->t;
+    GLFWwindow *glfw_window, int width, int height) {
+    if (width == 0 && height == 0) return;
+    window w = glfwGetWindowUserPointer(glfw_window);
     w->config.width  = width;
     w->config.height = height;
-    w->width         = width;
-    w->height        = height;
     wgpuSurfaceConfigure(w->surface, &w->config);
 }
 
@@ -91,42 +79,42 @@ static void log_callback(WGPULogLevel level, char const *message, void *userdata
 }
 
 void print_adapter_info(WGPUAdapter adapter) {
-  struct WGPUAdapterInfo info = {0};
-  wgpuAdapterGetInfo(adapter, &info);
-  printf("description:  %s\n", info.description);
-  printf("vendor:       %s\n", info.vendor);
-  printf("architecture: %s\n", info.architecture);
-  printf("device:       %s\n", info.device);
-  printf("backend type: %u\n", info.backendType);
-  printf("adapter type: %u\n", info.adapterType);
-  printf("vendorID:     %x\n", info.vendorID);
-  printf("deviceID:     %x\n", info.deviceID);
-  wgpuAdapterInfoFreeMembers(info);
+    struct WGPUAdapterInfo info = {0};
+    wgpuAdapterGetInfo(adapter, &info);
+    printf("description:  %s\n", info.description);
+    printf("vendor:       %s\n", info.vendor);
+    printf("architecture: %s\n", info.architecture);
+    printf("device:       %s\n", info.device);
+    printf("backend type: %u\n", info.backendType);
+    printf("adapter type: %u\n", info.adapterType);
+    printf("vendorID:     %x\n", info.vendorID);
+    printf("deviceID:     %x\n", info.deviceID);
+    wgpuAdapterInfoFreeMembers(info);
 }
 
 void window_init_surface(window w) {
     trinity t = w->t;
 #if defined(GLFW_EXPOSE_NATIVE_COCOA)
-  {
-    id metal_layer = NULL;
-    NSWindow *ns_window = glfwGetCocoaWindow(w->window);
-    [ns_window.contentView setWantsLayer:YES];
-    metal_layer = [CAMetalLayer layer];
-    [ns_window.contentView setLayer:metal_layer];
-    t->surface = wgpuInstanceCreateSurface(
-        t->instance,
-        &(const WGPUSurfaceDescriptor){
-            .nextInChain =
-                (const WGPUChainedStruct *)&(
-                    const WGPUSurfaceDescriptorFromMetalLayer){
-                    .chain =
-                        (const WGPUChainedStruct){
-                            .sType = WGPUSType_SurfaceDescriptorFromMetalLayer,
-                        },
-                    .layer = metal_layer,
-                },
-        });
-  }
+    {
+        id metal_layer = NULL;
+        NSWindow *ns_window = glfwGetCocoaWindow(w->window);
+        [ns_window.contentView setWantsLayer:YES];
+        metal_layer = [CAMetalLayer layer];
+        [ns_window.contentView setLayer:metal_layer];
+        w->surface = wgpuInstanceCreateSurface(
+            t->instance,
+            &(const WGPUSurfaceDescriptor){
+                .nextInChain =
+                    (const WGPUChainedStruct *)&(
+                        const WGPUSurfaceDescriptorFromMetalLayer){
+                        .chain =
+                            (const WGPUChainedStruct){
+                                .sType = WGPUSType_SurfaceDescriptorFromMetalLayer,
+                            },
+                        .layer = metal_layer,
+                    },
+            });
+    }
 #elif defined(GLFW_EXPOSE_NATIVE_X11)
     if (glfwGetPlatform() == GLFW_PLATFORM_X11) {
         Display *x11_display = glfwGetX11Display();
@@ -192,48 +180,31 @@ void window_init_surface(window w) {
 
 void window_init(window w) {
     trinity t = w->t;
-    // create window
-    w->window = glfwCreateWindow(w->width, w->height, "triangle [wgpu-native + glfw]", NULL, NULL);
+    shader  s = w->shader;
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    w->window = glfwCreateWindow(
+        w->width, w->height, "triangle [wgpu-native + glfw]", NULL, NULL);
     verify(w->window, "window");
-
-    // set window callbacks
-    glfwSetWindowUserPointer(w->window, (void *)&t);
+    glfwSetWindowUserPointer(w->window, (void *)w);
     glfwSetKeyCallback(w->window, handle_glfw_key);
     glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
-    
-    // create surface
     window_init_surface(w);
     verify(w->surface, "surface");
     wgpuSurfaceGetCapabilities(w->surface, t->adapter, &w->surface_caps);
 
-    w->config = (const WGPUSurfaceConfiguration){
-        .device      = t->device,
-        .usage       = WGPUTextureUsage_RenderAttachment,
-        .format      = w->surface_caps.formats[0],
-        .presentMode = WGPUPresentMode_Fifo,
-        .alphaMode   = w->surface_caps.alphaModes[0],
-    };
-
-    int width, height;
-    glfwGetWindowSize(w->window, &width, &height);
-    w->config.width  = width;
-    w->config.height = height;
-
-    if (!w->shader) w->shader = shader(t, t, name, str("shader.wgsl"));
-    
     w->render = wgpuDeviceCreateRenderPipeline(
         t->device,
         &(const WGPURenderPipelineDescriptor){
-            .label = "render",
+            .label = "render_pipeline",
             .layout = t->layout,
             .vertex =
                 (const WGPUVertexState){
-                    .module = w->shader,
+                    .module = s->module,
                     .entryPoint = "vs_main",
                 },
             .fragment =
                 &(const WGPUFragmentState){
-                    .module = w->shader,
+                    .module = s->module,
                     .entryPoint = "fs_main",
                     .targetCount = 1,
                     .targets =
@@ -255,7 +226,24 @@ void window_init(window w) {
                 },
         });
 
-    verify(w->render, "render");
+    verify(w->render, "render pipeline");
+
+    w->config = (const WGPUSurfaceConfiguration){
+        .device = t->device,
+        .usage = WGPUTextureUsage_RenderAttachment,
+        .format = w->surface_caps.formats[0],
+        .presentMode = WGPUPresentMode_Fifo,
+        .alphaMode = w->surface_caps.alphaModes[0],
+    };
+
+    {
+        int width, height;
+        glfwGetWindowSize(w->window, &width, &height);
+        w->config.width = width;
+        w->config.height = height;
+    }
+
+    wgpuSurfaceConfigure(w->surface, &w->config);
 }
 
 void window_loop(window w) {
@@ -267,22 +255,20 @@ void window_loop(window w) {
         wgpuSurfaceGetCurrentTexture(w->surface, &surface_texture);
         switch (surface_texture.status) {
         case WGPUSurfaceGetCurrentTextureStatus_Success:
-            // could check for `surface_texture.suboptimal` here.
+            // All good, could check for `surface_texture.suboptimal` here.
             break;
         case WGPUSurfaceGetCurrentTextureStatus_Timeout:
         case WGPUSurfaceGetCurrentTextureStatus_Outdated:
         case WGPUSurfaceGetCurrentTextureStatus_Lost: {
-            // skip this frame, and re-configure surface.
+            // Skip this frame, and re-configure surface.
             if (surface_texture.texture != NULL) {
                 wgpuTextureRelease(surface_texture.texture);
             }
             int width, height;
             glfwGetWindowSize(w->window, &width, &height);
             if (width != 0 && height != 0) {
-                w->config.width  = width;
+                w->config.width = width;
                 w->config.height = height;
-                w->width         = width;
-                w->height        = height;
                 wgpuSurfaceConfigure(w->surface, &w->config);
             }
             continue;
@@ -290,8 +276,8 @@ void window_loop(window w) {
         case WGPUSurfaceGetCurrentTextureStatus_OutOfMemory:
         case WGPUSurfaceGetCurrentTextureStatus_DeviceLost:
         case WGPUSurfaceGetCurrentTextureStatus_Force32:
-            // fatal error
-            fault(LOG_PREFIX " get_current_texture status=%#.8x",
+            // Fatal error
+            fault("get_current_texture status=%#.8x",
                 surface_texture.status);
             break;
         }
@@ -303,8 +289,8 @@ void window_loop(window w) {
 
         WGPUCommandEncoder command_encoder = wgpuDeviceCreateCommandEncoder(
             t->device, &(const WGPUCommandEncoderDescriptor){
-                            .label = "command_encoder",
-                        });
+                .label = "command_encoder",
+            });
         verify(command_encoder, "command encoder");
 
         WGPURenderPassEncoder render_pass_encoder =
@@ -330,57 +316,45 @@ void window_loop(window w) {
                             },
                         },
                 });
-        
         verify(render_pass_encoder, "render_pass_encoder");
-
         wgpuRenderPassEncoderSetPipeline(render_pass_encoder, w->render);
         wgpuRenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(render_pass_encoder);
         wgpuRenderPassEncoderRelease(render_pass_encoder);
-
         WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(
             command_encoder, &(const WGPUCommandBufferDescriptor){
-                                .label = "command_buffer",
-                            });
+                .label = "command_buffer",
+            });
         verify(command_buffer, "command buffer");
-
         wgpuQueueSubmit(t->queue, 1, (const WGPUCommandBuffer[]){command_buffer});
         wgpuSurfacePresent(w->surface);
-
         wgpuCommandBufferRelease(command_buffer);
         wgpuCommandEncoderRelease(command_encoder);
         wgpuTextureViewRelease(frame);
         wgpuTextureRelease(surface_texture.texture);
     }
-
-    wgpuRenderPipelineRelease(w->render);
 }
 
 void window_destructor(window w) {
-    wgpuSurfaceRelease(w->surface);
+    wgpuRenderPipelineRelease(w->render);
     wgpuSurfaceCapabilitiesFreeMembers(w->surface_caps);
-    glfwDestroyWindow(w->window);
+    wgpuSurfaceRelease (w->surface);
+    glfwDestroyWindow  (w->window);
 }
 
-
-
 void shader_init(shader s) {
-    trinity t    = s->t;
-    FILE   *file = fopen(cstring(s->name), "rb");
-
-    verify(file,                          "fopen");
-    verify(fseek(file, 0, SEEK_END) == 0, "fseek");
-    long   length  = ftell(file);
-    verify(length != -1,                  "ftell");
-    verify(fseek(file, 0, SEEK_SET) == 0, "fseek");
-
+    FILE* file = fopen(s->name->chars, "rb");
+    verify (file, "file");
+    verify (fseek(file, 0, SEEK_END) == 0, "fseek");
+    long length = ftell(file);
+    verify (length != -1, "length");
+    verify (fseek(file, 0, SEEK_SET) == 0, "fseek2");
     char* buf = calloc(1, length + 1);
-    fread(buf, 1, length, file);
+    fread  (buf, 1, length, file);
     buf[length] = 0;
-
     s->module = wgpuDeviceCreateShaderModule(
-        t->device, &(const WGPUShaderModuleDescriptor){
-        .label = cstring(s->name),
+    s->t->device, &(const WGPUShaderModuleDescriptor){
+        .label = s->name->chars,
         .nextInChain =
             (const WGPUChainedStruct *)&(
                 const WGPUShaderModuleWGSLDescriptor){
@@ -391,20 +365,15 @@ void shader_init(shader s) {
                 .code = buf,
             },
     });
-
-    verify(s->module, "shader module");
-
-    fclose(file);
-    free  (buf);
+    fclose (file);
+    free   (buf);
 }
 
 void shader_destructor(shader s) {
     wgpuShaderModuleRelease(s->module);
 }
 
-
-trinity trinity_init(trinity t) {
-    // initialize glfw
+void trinity_init(trinity t) {
     verify (glfwInit(), "glfw init");
     wgpuSetLogCallback(log_callback, NULL);
     wgpuSetLogLevel(WGPULogLevel_Warn);
@@ -412,17 +381,10 @@ trinity trinity_init(trinity t) {
     t->instance = wgpuCreateInstance(NULL);
     verify(t->instance, "instance");
 
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-    // create adapter
     wgpuInstanceRequestAdapter(t->instance,
-        &(const WGPURequestAdapterOptions) {
-            //.compatibleSurface = w->surface,
-        },
+        &(const WGPURequestAdapterOptions){ },
         handle_request_adapter, t);
     verify(t->adapter, "adapter");
-
-    print_adapter_info(t->adapter);
 
     wgpuAdapterRequestDevice(t->adapter, NULL, handle_request_device, t);
     verify(t->device, "device");
@@ -431,11 +393,10 @@ trinity trinity_init(trinity t) {
     verify(t->queue, "queue");
 
     t->layout = wgpuDeviceCreatePipelineLayout(
-        t->device, &(const WGPUPipelineLayoutDescriptor) {
-        .label = "layout",
-    });
-    verify(t->layout, "layout");
-    return 0;
+        t->device, &(const WGPUPipelineLayoutDescriptor){
+                        .label = "layout",
+                    });
+    verify(t->layout, "pipeline layout");
 }
 
 void trinity_destructor(trinity t) {
@@ -444,6 +405,7 @@ void trinity_destructor(trinity t) {
     wgpuDeviceRelease  (t->device);
     wgpuAdapterRelease (t->adapter);
     wgpuInstanceRelease(t->instance);
+    glfwTerminate();
 }
 
 define_class(trinity)
