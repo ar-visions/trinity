@@ -2,6 +2,7 @@ A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
 wgpu-native https://github.com/ar-visions/wgpu-native trunk
-
 lib:
 	A wgpu_native glfw3 m
+app:
+	A

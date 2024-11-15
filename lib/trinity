@@ -1,3 +1,46 @@
-#include <A>
+#ifndef _TRINITY_
+#define _TRINITY_
 
-void test1();
+#define trinity_schema(X,Y) \
+    i_prop    (X,Y, intern,     WGPUInstance,        instance) \
+    i_prop    (X,Y, intern,     WGPUAdapter,         adapter) \
+    i_prop    (X,Y, intern,     WGPUDevice,          device) \
+    i_prop    (X,Y, intern,     WGPUQueue,           queue) \
+    i_prop    (X,Y, intern,     WGPUPipelineLayout,  layout) \
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     destructor)
+#ifndef trinity_intern
+#define trinity_intern
+#endif
+declare_class(trinity)
+
+#define shader_schema(X,Y) \
+    i_prop    (X,Y, intern,     WGPUShaderModule,   module) \
+    i_prop    (X,Y, required,   trinity,            t) \
+    i_prop    (X,Y, required,   string,             name)  \
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     destructor)
+#ifndef shader_intern
+#define shader_intern
+#endif
+declare_class(shader)
+
+#define window_schema(X,Y) \
+    i_prop    (X,Y, intern,     GLFWwindow*,                window) \
+    i_prop    (X,Y, intern,     WGPUSurface,                surface) \
+    i_prop    (X,Y, intern,     WGPUSurfaceConfiguration,   config) \
+    i_prop    (X,Y, intern,     WGPURenderPipeline,         render) \
+    i_prop    (X,Y, intern,     WGPUSurfaceCapabilities,    surface_caps) \
+    i_prop    (X,Y, required,   trinity,                    t) \
+    i_prop    (X,Y, required,   u32,                width)  \
+    i_prop    (X,Y, required,   u32,                height) \
+    i_prop    (X,Y, required,   shader,             shader) \
+    i_method  (X,Y, public,     none,               loop) \
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     destructor)
+#ifndef window_intern
+#define window_intern
+#endif
+declare_class(window)
+
+#endif
