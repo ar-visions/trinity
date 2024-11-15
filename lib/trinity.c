@@ -204,6 +204,7 @@ void window_init(window w) {
     // create surface
     window_init_surface(w);
     verify(w->surface, "surface");
+    wgpuSurfaceGetCapabilities(w->surface, t->adapter, &w->surface_caps);
 
     w->config = (const WGPUSurfaceConfiguration){
         .device      = t->device,
@@ -217,9 +218,9 @@ void window_init(window w) {
     glfwGetWindowSize(w->window, &width, &height);
     w->config.width  = width;
     w->config.height = height;
+
+    if (!w->shader) w->shader = shader(t, t, name, str("shader.wgsl"));
     
-    wgpuSurfaceConfigure(w->surface, &w->config);
-    wgpuSurfaceGetCapabilities(w->surface, t->adapter, &w->surface_caps);
     w->render = wgpuDeviceCreateRenderPipeline(
         t->device,
         &(const WGPURenderPipelineDescriptor){

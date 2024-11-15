@@ -34,7 +34,7 @@ declare_class(shader)
     i_prop    (X,Y, required,   trinity,                    t) \
     i_prop    (X,Y, required,   u32,                width)  \
     i_prop    (X,Y, required,   u32,                height) \
-    i_prop    (X,Y, required,   shader,             shader) \
+    i_prop    (X,Y, public,     shader,             shader) \
     i_method  (X,Y, public,     none,               loop) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
