@@ -1,3 +1,31 @@
+/*
+import something, something-else
+
+# this file is simply a module and that module is a class, and this file has public and private members
+# its more like reflective modular programming and probably more exciting to teach
+# yes, you have file system expression here so you cannot put anything you want in code to the end of any model combination
+# thats a limiting factor, but, its also about as clear as we can muster for navigating
+# and its not functionally restrictive but more a model language
+
+static int something : 20 # mutable static, in public access
+       int a-public  = 24 # constant instance member on this mod
+
+intern int a-priv    : 2  # instance member that starts at 2
+
+# modules are instanced the same as classes.. thats just another word for them
+# we say mod because its in a singular translation unit and its coupled to a data type
+# this is more debuggable and enumerable than traditional struct / class / enum / etc
+# i do think we try an enum module next
+# the very cool thing is everything in the file is about that type, and nothing else
+
+public string cast [
+    return 'anything'
+]
+
+public void a-function[ string arg, int a ] [
+    print[ 'this is easier, so we can do {this}...' ]
+]
+*/
 
 #include <GLFW/glfw3.h>
 #if defined(_WIN32)
@@ -9,39 +37,53 @@
     #define GLFW_EXPOSE_NATIVE_X11
 #endif
 #include <GLFW/glfw3native.h>
-#include <wgpu.h>
+#include <dawn/webgpu.h>
 #include <import>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Wcompare-distinct-pointer-types"
+#pragma GCC diagnostic error "-Wincompatible-pointer-types"
+#pragma GCC diagnostic error "-Wincompatible-library-redeclaration"
+#pragma GCC diagnostic error "-Wwrite-strings"
+#pragma GCC diagnostic error "-Wint-conversion"
+#pragma GCC diagnostic error "-Wall"
+
+static void handle_device_error(
+    WGPUErrorType type, struct WGPUStringView message, void * userdata) {
+    printf("device error: message=%s\n", message.data);
+}
 
 static void handle_request_adapter(
     WGPURequestAdapterStatus status, WGPUAdapter adapter,
-    char const *message, void *userdata) {
+    WGPUStringView message, void *userdata) {
+    print("user data = %p", userdata);
     if (status == WGPURequestAdapterStatus_Success) {
         trinity t = userdata;
         t->adapter = adapter;
     } else {
         printf("request_adapter status=%#.8x message=%s\n", status,
-            message);
+            message.data);
     }
 }
 
 static void handle_request_device(
         WGPURequestDeviceStatus status, WGPUDevice device,
-        char const *message, void *userdata) {
+        WGPUStringView message, void *userdata) {
     if (status == WGPURequestDeviceStatus_Success) {
         trinity t = userdata;
         t->device = device;
     } else {
         printf("request_device status=%#.8x message=%s\n", status,
-            message);
+            message.data);
     }
 }
 
 static void handle_glfw_key(
     GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        window w = glfwGetWindowUserPointer(glfw_window);
-        WGPUGlobalReport report;
-        wgpuGenerateReport(w->t->instance, &report);
+        //window w = glfwGetWindowUserPointer(glfw_window);
+        //WGPUGlobalReport report;
+        //wgpuGenerateReport(w->t->instance, &report);
     }
 }
 
@@ -54,6 +96,7 @@ static void handle_glfw_framebuffer_size(
     wgpuSurfaceConfigure(w->surface, &w->config);
 }
 
+/*
 static void log_callback(WGPULogLevel level, char const *message, void *userdata) {
     char *level_str;
     switch (level) {
@@ -77,14 +120,15 @@ static void log_callback(WGPULogLevel level, char const *message, void *userdata
     }
     error("[wgpu] [%s] %s", level_str, message);
 }
+*/
 
 void print_adapter_info(WGPUAdapter adapter) {
     struct WGPUAdapterInfo info = {0};
     wgpuAdapterGetInfo(adapter, &info);
-    printf("description:  %s\n", info.description);
-    printf("vendor:       %s\n", info.vendor);
-    printf("architecture: %s\n", info.architecture);
-    printf("device:       %s\n", info.device);
+    printf("description:  %s\n", (cstr)info.description.data);
+    printf("vendor:       %s\n", (cstr)info.vendor.data);
+    printf("architecture: %s\n", (cstr)info.architecture.data);
+    printf("device:       %s\n", (cstr)info.device.data);
     printf("backend type: %u\n", info.backendType);
     printf("adapter type: %u\n", info.adapterType);
     printf("vendorID:     %x\n", info.vendorID);
@@ -124,10 +168,10 @@ void window_init_surface(window w) {
             &(const WGPUSurfaceDescriptor){
                 .nextInChain =
                     (const WGPUChainedStruct *)&(
-                        const WGPUSurfaceDescriptorFromXlibWindow){
+                        const WGPUSurfaceSourceXlibWindow){
                         .chain =
                             (const WGPUChainedStruct){
-                                .sType = WGPUSType_SurfaceDescriptorFromXlibWindow,
+                                .sType = WGPUSType_SurfaceSourceXlibWindow
                             },
                         .display = x11_display,
                         .window = x11_window,
@@ -195,17 +239,17 @@ void window_init(window w) {
     w->render = wgpuDeviceCreateRenderPipeline(
         t->device,
         &(const WGPURenderPipelineDescriptor){
-            .label = "render_pipeline",
+            .label = (WGPUStringView) { "render_pipeline", 15 },
             .layout = t->layout,
             .vertex =
                 (const WGPUVertexState){
                     .module = s->module,
-                    .entryPoint = "vs_main",
+                    .entryPoint = (WGPUStringView) { "vs_main", 7 },
                 },
             .fragment =
                 &(const WGPUFragmentState){
                     .module = s->module,
-                    .entryPoint = "fs_main",
+                    .entryPoint = (WGPUStringView) { "fs_main", 7 },
                     .targetCount = 1,
                     .targets =
                         (const WGPUColorTargetState[]){
@@ -273,6 +317,7 @@ void window_loop(window w) {
             }
             continue;
         }
+        case WGPUSurfaceGetCurrentTextureStatus_Error:
         case WGPUSurfaceGetCurrentTextureStatus_OutOfMemory:
         case WGPUSurfaceGetCurrentTextureStatus_DeviceLost:
         case WGPUSurfaceGetCurrentTextureStatus_Force32:
@@ -289,7 +334,7 @@ void window_loop(window w) {
 
         WGPUCommandEncoder command_encoder = wgpuDeviceCreateCommandEncoder(
             t->device, &(const WGPUCommandEncoderDescriptor){
-                .label = "command_encoder",
+                .label = (WGPUStringView) { "command_encoder", 15 },
             });
         verify(command_encoder, "command encoder");
 
@@ -297,7 +342,7 @@ void window_loop(window w) {
             wgpuCommandEncoderBeginRenderPass(
                 command_encoder,
                 &(const WGPURenderPassDescriptor){
-                    .label = "render_pass_encoder",
+                    .label = (WGPUStringView) { "render_pass_encoder", 19 },
                     .colorAttachmentCount = 1,
                     .colorAttachments =
                         (const WGPURenderPassColorAttachment[]){
@@ -323,7 +368,7 @@ void window_loop(window w) {
         wgpuRenderPassEncoderRelease(render_pass_encoder);
         WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(
             command_encoder, &(const WGPUCommandBufferDescriptor){
-                .label = "command_buffer",
+                .label = (WGPUStringView) { "command_buffer", 14 }
             });
         verify(command_buffer, "command buffer");
         wgpuQueueSubmit(t->queue, 1, (const WGPUCommandBuffer[]){command_buffer});
@@ -354,15 +399,15 @@ void shader_init(shader s) {
     buf[length] = 0;
     s->module = wgpuDeviceCreateShaderModule(
     s->t->device, &(const WGPUShaderModuleDescriptor){
-        .label = s->name->chars,
+        .label = (WGPUStringView) { s->name->chars, s->name->len },
         .nextInChain =
             (const WGPUChainedStruct *)&(
-                const WGPUShaderModuleWGSLDescriptor){
+                const WGPUShaderSourceWGSL){
                 .chain =
                     (const WGPUChainedStruct){
-                        .sType = WGPUSType_ShaderModuleWGSLDescriptor,
+                        .sType = WGPUSType_ShaderSourceWGSL,
                     },
-                .code = buf,
+                .code = (WGPUStringView) { buf, length }
             },
     });
     fclose (file);
@@ -373,12 +418,23 @@ void shader_destructor(shader s) {
     wgpuShaderModuleRelease(s->module);
 }
 
+/// this is so one can optimize per system and have the function auto-linked
+num trinity_compute_neon64(trinity t, num a, num b) {
+    return a * b;
+}
+
+num trinity_compute_avx512(trinity t, num a, num b) {
+    return a * b;
+}
+
+#define trinity_compute trinity_compute_avx512
+
 void trinity_init(trinity t) {
     verify (glfwInit(), "glfw init");
-    wgpuSetLogCallback(log_callback, NULL);
-    wgpuSetLogLevel(WGPULogLevel_Warn);
-
+    //wgpuSetLogCallback(log_callback, NULL);
+    //wgpuSetLogLevel(WGPULogLevel_Warn);
     t->instance = wgpuCreateInstance(NULL);
+
     verify(t->instance, "instance");
 
     wgpuInstanceRequestAdapter(t->instance,
@@ -388,13 +444,14 @@ void trinity_init(trinity t) {
 
     wgpuAdapterRequestDevice(t->adapter, NULL, handle_request_device, t);
     verify(t->device, "device");
+    wgpuDeviceSetUncapturedErrorCallback(t->device, handle_device_error, t);
 
     t->queue = wgpuDeviceGetQueue(t->device);
     verify(t->queue, "queue");
 
     t->layout = wgpuDeviceCreatePipelineLayout(
         t->device, &(const WGPUPipelineLayoutDescriptor){
-                        .label = "layout",
+                        .label = (WGPUStringView) { "layout", 6 }
                     });
     verify(t->layout, "pipeline layout");
 }
@@ -407,6 +464,8 @@ void trinity_destructor(trinity t) {
     wgpuInstanceRelease(t->instance);
     glfwTerminate();
 }
+
+#pragma GCC diagnostic pop
 
 define_class(trinity)
 define_class(window)
