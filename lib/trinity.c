@@ -418,21 +418,8 @@ void shader_destructor(shader s) {
     wgpuShaderModuleRelease(s->module);
 }
 
-/// this is so one can optimize per system and have the function auto-linked
-num trinity_compute_neon64(trinity t, num a, num b) {
-    return a * b;
-}
-
-num trinity_compute_avx512(trinity t, num a, num b) {
-    return a * b;
-}
-
-#define trinity_compute trinity_compute_avx512
-
 void trinity_init(trinity t) {
     verify (glfwInit(), "glfw init");
-    //wgpuSetLogCallback(log_callback, NULL);
-    //wgpuSetLogLevel(WGPULogLevel_Warn);
     t->instance = wgpuCreateInstance(NULL);
 
     verify(t->instance, "instance");
@@ -450,9 +437,9 @@ void trinity_init(trinity t) {
     verify(t->queue, "queue");
 
     t->layout = wgpuDeviceCreatePipelineLayout(
-        t->device, &(const WGPUPipelineLayoutDescriptor){
-                        .label = (WGPUStringView) { "layout", 6 }
-                    });
+        t->device, &(const WGPUPipelineLayoutDescriptor) {
+        .label = (WGPUStringView) { "layout", 6 }
+    });
     verify(t->layout, "pipeline layout");
 }
 
