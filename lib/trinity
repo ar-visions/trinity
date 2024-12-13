@@ -44,4 +44,5 @@ declare_class(shader)
 #endif
 declare_class(window)
 
+
 #endif

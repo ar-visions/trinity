@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>WebGPU Volumetric Cylinder</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #1a1a1a;
+        }
+        canvas {
+            border: 1px solid #333;
+        }
+        #error {
+            display: none;
+            color: red;
+            padding: 20px;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="error">WebGPU is not supported in your browser. Please use Chrome Canary with WebGPU flags enabled.</div>
+    <script>
+        // Check for WebGPU support
+        if (!navigator.gpu) {
+            document.getElementById('error').style.display = 'block';
+        }
+    </script>
+    <script src="volumetric.js"></script>
+</body>
+</html>
