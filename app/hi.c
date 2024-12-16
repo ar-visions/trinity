@@ -37,25 +37,25 @@ struct demo {
 // WGPURequestAdapterStatus status, WGPUAdapter adapter, struct WGPUStringView message, void * userdata
 
 static void handle_request_adapter(WGPURequestAdapterStatus status,
-                                   WGPUAdapter adapter, struct WGPUStringView message,
+                                   WGPUAdapter adapter, const char* message,
                                    void *userdata) {
   if (status == WGPURequestAdapterStatus_Success) {
     struct demo *demo = userdata;
     demo->adapter = adapter;
   } else {
     printf(LOG_PREFIX " request_adapter status=%#.8x message=%s\n", status,
-           message.data);
+           message);
   }
 }
 static void handle_request_device(WGPURequestDeviceStatus status,
-                                  WGPUDevice device, struct WGPUStringView message,
+                                  WGPUDevice device, const char* message,
                                   void *userdata) {
   if (status == WGPURequestDeviceStatus_Success) {
     struct demo *demo = userdata;
     demo->device = device;
   } else {
     printf(LOG_PREFIX " request_device status=%#.8x message=%s\n", status,
-           message.data);
+           message);
   }
 }
 static void handle_glfw_key(GLFWwindow *window, int key, int scancode,
@@ -85,10 +85,10 @@ static void handle_glfw_framebuffer_size(GLFWwindow *window, int width,
 void print_adapter_info(WGPUAdapter adapter) {
   struct WGPUAdapterInfo info = {0};
   wgpuAdapterGetInfo(adapter, &info);
-  printf("description: %s\n", info.description.data);
-  printf("vendor: %s\n", info.vendor.data);
-  printf("architecture: %s\n", info.architecture.data);
-  printf("device: %s\n", info.device.data);
+  printf("description: %s\n", info.description);
+  printf("vendor: %s\n", info.vendor);
+  printf("architecture: %s\n", info.architecture);
+  printf("device: %s\n", info.device);
   printf("backend type: %u\n", info.backendType);
   printf("adapter type: %u\n", info.adapterType);
   printf("vendorID: %x\n", info.vendorID);
@@ -132,10 +132,10 @@ WGPUShaderModule frmwrk_load_shader_module(WGPUDevice device,
                   .label = name,
                   .nextInChain =
                       (const WGPUChainedStruct *)&(
-                          const WGPUShaderSourceWGSL){
+                          const WGPUShaderModuleWGSLDescriptor){
                           .chain =
                               (const WGPUChainedStruct){
-                                  .sType = WGPUSType_ShaderSourceWGSL,
+                                  .sType = WGPUSType_ShaderModuleWGSLDescriptor,
                               },
                           .code = buf,
                       },
@@ -159,10 +159,9 @@ void log_callback(WGPULoggingType level, char const* message, void* userdata) {
     }
     fprintf(stderr, "[%s] %s\n", level_str, message);
 }
-
 int main(int argc, char *argv[]) {
     A_start();
-    verify (glfwInit(), "glfw init");
+    verify(glfwInit(), "glfw init");
 
     struct demo demo = {0};
     demo.instance = wgpuCreateInstance(NULL);
@@ -177,7 +176,6 @@ int main(int argc, char *argv[]) {
     glfwSetKeyCallback(window, handle_glfw_key);
     glfwSetFramebufferSizeCallback(window, handle_glfw_framebuffer_size);
 
-#if defined(GLFW_EXPOSE_NATIVE_X11)
     if (glfwGetPlatform() == GLFW_PLATFORM_X11) {
         Display *x11_display = glfwGetX11Display();
         Window x11_window = glfwGetX11Window(window);
@@ -186,59 +184,19 @@ int main(int argc, char *argv[]) {
             &(const WGPUSurfaceDescriptor){
                 .nextInChain =
                     (const WGPUChainedStruct *)&(
-                        const WGPUSurfaceSourceXlibWindow){
+                        const WGPUSurfaceDescriptorFromXlibWindow){
                         .chain =
                             (const WGPUChainedStruct){
-                                .sType = WGPUSType_SurfaceSourceXlibWindow,
+                                .sType = WGPUSType_SurfaceDescriptorFromXlibWindow,
                             },
                         .display = x11_display,
                         .window = x11_window,
                     },
             });
     }
-#elif defined(GLFW_EXPOSE_NATIVE_WAYLAND)
-    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
-        struct wl_display *wayland_display = glfwGetWaylandDisplay();
-        struct wl_surface *wayland_surface = glfwGetWaylandWindow(window);
-        demo.surface = wgpuInstanceCreateSurface(
-            demo.instance,
-            &(const WGPUSurfaceDescriptor){
-                .nextInChain =
-                    (const WGPUChainedStruct *)&(
-                        const WGPUSurfaceDescriptorFromWaylandSurface){
-                        .chain =
-                            (const WGPUChainedStruct){
-                                .sType =
-                                    WGPUSType_SurfaceDescriptorFromWaylandSurface,
-                            },
-                        .display = wayland_display,
-                        .surface = wayland_surface,
-                    },
-            });
-    }
-#elif defined(GLFW_EXPOSE_NATIVE_WIN32)
-    {
-        HWND hwnd = glfwGetWin32Window(window);
-        HINSTANCE hinstance = GetModuleHandle(NULL);
-        demo.surface = wgpuInstanceCreateSurface(
-            demo.instance,
-            &(const WGPUSurfaceDescriptor){
-                .nextInChain =
-                    (const WGPUChainedStruct *)&(
-                        const WGPUSurfaceDescriptorFromWindowsHWND){
-                        .chain =
-                            (const WGPUChainedStruct){
-                                .sType = WGPUSType_SurfaceDescriptorFromWindowsHWND,
-                            },
-                        .hinstance = hinstance,
-                        .hwnd = hwnd,
-                    },
-            });
-    }
-#else
-#error "Unsupported GLFW native platform"
-#endif
 
+    wgpuInstanceProcessEvents(demo.instance);
+    
     verify(demo.surface, "surface");
 
     wgpuInstanceRequestAdapter(demo.instance,
@@ -258,60 +216,14 @@ int main(int argc, char *argv[]) {
     WGPUQueue queue = wgpuDeviceGetQueue(demo.device);
     verify(queue, "queue");
 
-    WGPUShaderModule shader_module =
-        frmwrk_load_shader_module(demo.device, "shader.wgsl");
-    verify(shader_module, "shader module");
-
-    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
-        demo.device, &(const WGPUPipelineLayoutDescriptor){
-                        .label = "pipeline_layout",
-                    });
-    verify(pipeline_layout, "pipeline layout");
-
     WGPUSurfaceCapabilities surface_capabilities = {0};
     wgpuSurfaceGetCapabilities(demo.surface, demo.adapter, &surface_capabilities);
-
-    WGPURenderPipeline render_pipeline = wgpuDeviceCreateRenderPipeline(
-        demo.device,
-        &(const WGPURenderPipelineDescriptor){
-            .label = "render_pipeline",
-            .layout = pipeline_layout,
-            .vertex =
-                (const WGPUVertexState){
-                    .module = shader_module,
-                    .entryPoint = "vs_main",
-                },
-            .fragment =
-                &(const WGPUFragmentState){
-                    .module = shader_module,
-                    .entryPoint = "fs_main",
-                    .targetCount = 1,
-                    .targets =
-                        (const WGPUColorTargetState[]){
-                            (const WGPUColorTargetState){
-                                .format = surface_capabilities.formats[0],
-                                .writeMask = WGPUColorWriteMask_All,
-                            },
-                        },
-                },
-            .primitive =
-                (const WGPUPrimitiveState){
-                    .topology = WGPUPrimitiveTopology_TriangleList,
-                },
-            .multisample =
-                (const WGPUMultisampleState){
-                    .count = 1,
-                    .mask = 0xFFFFFFFF,
-                },
-        });
-
-    verify(render_pipeline, "render pipeline");
 
     demo.config = (const WGPUSurfaceConfiguration){
         .device = demo.device,
         .usage = WGPUTextureUsage_RenderAttachment,
         .format = surface_capabilities.formats[0],
-        .presentMode = WGPUPresentMode_Fifo,
+        .presentMode = WGPUPresentMode_Immediate,  // Changed from Fifo
         .alphaMode = surface_capabilities.alphaModes[0],
     };
 
@@ -322,6 +234,7 @@ int main(int argc, char *argv[]) {
         demo.config.height = height;
     }
 
+    printf("Using format: %d\n", demo.config.format);  // Debug print
     wgpuSurfaceConfigure(demo.surface, &demo.config);
 
     while (!glfwWindowShouldClose(window)) {
@@ -329,97 +242,66 @@ int main(int argc, char *argv[]) {
 
         WGPUSurfaceTexture surface_texture;
         wgpuSurfaceGetCurrentTexture(demo.surface, &surface_texture);
-        switch (surface_texture.status) {
-        case WGPUSurfaceGetCurrentTextureStatus_Success:
-            // All good, could check for `surface_texture.suboptimal` here.
-            break;
-        case WGPUSurfaceGetCurrentTextureStatus_Timeout:
-        case WGPUSurfaceGetCurrentTextureStatus_Outdated:
-        case WGPUSurfaceGetCurrentTextureStatus_Lost: {
-            // Skip this frame, and re-configure surface.
-            if (surface_texture.texture != NULL) {
-                wgpuTextureRelease(surface_texture.texture);
-            }
-            int width, height;
-            glfwGetWindowSize(window, &width, &height);
-            if (width != 0 && height != 0) {
-                demo.config.width = width;
-                demo.config.height = height;
-                wgpuSurfaceConfigure(demo.surface, &demo.config);
-            }
+        if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
+            printf("Failed to acquire next texture: %d\n", surface_texture.status);
             continue;
         }
-        case WGPUSurfaceGetCurrentTextureStatus_OutOfMemory:
-        case WGPUSurfaceGetCurrentTextureStatus_DeviceLost:
-        case WGPUSurfaceGetCurrentTextureStatus_Force32:
-            // Fatal error
-            fault(LOG_PREFIX " get_current_texture status=%#.8x",
-                surface_texture.status);
-            break;
-        default:
-            exit(0);
-            break;
+
+        WGPUTextureView frame = wgpuTextureCreateView(
+            surface_texture.texture, 
+            &(WGPUTextureViewDescriptor){
+                .format = demo.config.format,
+                .dimension = WGPUTextureViewDimension_2D,
+                .mipLevelCount = 1,
+                .arrayLayerCount = 1,
+            });
+        
+        if (!frame) {
+            printf("Failed to create texture view\n");
+            wgpuTextureRelease(surface_texture.texture);
+            continue;
         }
-        verify(surface_texture.texture, "surface texture");
 
-        WGPUTextureView frame =
-            wgpuTextureCreateView(surface_texture.texture, NULL);
-        verify(frame, "texture view");
+        WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
+            demo.device, &(WGPUCommandEncoderDescriptor){
+                .label = "Command Encoder",
+            });
 
-        WGPUCommandEncoder command_encoder = wgpuDeviceCreateCommandEncoder(
-            demo.device, &(const WGPUCommandEncoderDescriptor){
-                            .label = "command_encoder",
-                        });
-        verify(command_encoder, "command encoder");
+        WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
+            encoder,
+            &(WGPURenderPassDescriptor){
+                .colorAttachmentCount = 1,
+                .colorAttachments = &(WGPURenderPassColorAttachment){
+                    .view = frame,
+                    .loadOp = WGPULoadOp_Clear,
+                    .storeOp = WGPUStoreOp_Store,
+                    .clearValue = (WGPUColor){
+                        .r = 1.0f,  // Changed to bright white for testing
+                        .g = 1.0f,
+                        .b = 1.0f,
+                        .a = 1.0f,
+                    },
+                },
+            });
 
-        WGPURenderPassEncoder render_pass_encoder =
-            wgpuCommandEncoderBeginRenderPass(
-                command_encoder,
-                &(const WGPURenderPassDescriptor){
-                    .label = "render_pass_encoder",
-                    .colorAttachmentCount = 1,
-                    .colorAttachments =
-                        (const WGPURenderPassColorAttachment[]){
-                            (const WGPURenderPassColorAttachment){
-                                .view = frame,
-                                .loadOp = WGPULoadOp_Clear,
-                                .storeOp = WGPUStoreOp_Store,
-                                .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
-                                .clearValue =
-                                    (const WGPUColor){
-                                        .r = 0.2,
-                                        .g = 0.0,
-                                        .b = 0.5,
-                                        .a = 1.0,
-                                    },
-                            },
-                        },
-                });
-        verify(render_pass_encoder, "render_pass_encoder");
+        wgpuRenderPassEncoderEnd(render_pass);
+        
+        WGPUCommandBuffer commands = wgpuCommandEncoderFinish(
+            encoder, &(WGPUCommandBufferDescriptor){
+                .label = "Command Buffer",
+            });
 
-        wgpuRenderPassEncoderSetPipeline(render_pass_encoder, render_pipeline);
-        wgpuRenderPassEncoderDraw(render_pass_encoder, 3, 1, 0, 0);
-        wgpuRenderPassEncoderEnd(render_pass_encoder);
-        wgpuRenderPassEncoderRelease(render_pass_encoder);
-
-        WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(
-            command_encoder, &(const WGPUCommandBufferDescriptor){
-                                .label = "command_buffer",
-                            });
-        verify(command_buffer, "command buffer");
-
-        wgpuQueueSubmit(queue, 1, (const WGPUCommandBuffer[]){command_buffer});
+        wgpuQueueSubmit(queue, 1, &commands);
         wgpuSurfacePresent(demo.surface);
 
-        wgpuCommandBufferRelease(command_buffer);
-        wgpuCommandEncoderRelease(command_encoder);
+        // Cleanup
+        wgpuCommandBufferRelease(commands);
+        wgpuRenderPassEncoderRelease(render_pass);
+        wgpuCommandEncoderRelease(encoder);
         wgpuTextureViewRelease(frame);
         wgpuTextureRelease(surface_texture.texture);
     }
 
-    wgpuRenderPipelineRelease(render_pipeline);
-    wgpuPipelineLayoutRelease(pipeline_layout);
-    wgpuShaderModuleRelease(shader_module);
     wgpuSurfaceCapabilitiesFreeMembers(surface_capabilities);
     wgpuQueueRelease(queue);
     wgpuDeviceRelease(demo.device);

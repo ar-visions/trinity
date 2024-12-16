@@ -1,7 +1,7 @@
 A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
-dawn https://github.com/ar-visions/dawn f78a5e2e7681b88967d8d3f3721edb450492826a
+dawn https://dawn.googlesource.com/dawn 063fb60
 	-DDAWN_ENABLE_INSTALL=1
 	-DBUILD_SHARED_LIBS=0
 	-DTINT_BUILD_TESTS=0

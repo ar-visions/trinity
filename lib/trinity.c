@@ -57,26 +57,26 @@ public void a-function[ string arg, int a ] [
 
 static void handle_request_adapter(
     WGPURequestAdapterStatus status, WGPUAdapter adapter,
-    WGPUStringView message, void *userdata) {
+    const char* message, void *userdata) {
     print("user data = %p", userdata);
     if (status == WGPURequestAdapterStatus_Success) {
         trinity t = userdata;
         t->adapter = adapter;
     } else {
         printf("request_adapter status=%#.8x message=%s\n", status,
-            message.data);
+            message);
     }
 }
 
 static void handle_request_device(
         WGPURequestDeviceStatus status, WGPUDevice device,
-        WGPUStringView message, void *userdata) {
+        const char* message, void *userdata) {
     if (status == WGPURequestDeviceStatus_Success) {
         trinity t = userdata;
         t->device = device;
     } else {
         printf("request_device status=%#.8x message=%s\n", status,
-            message.data);
+            message);
     }
 }
 
@@ -127,10 +127,10 @@ static void log_callback(WGPULogLevel level, char const *message, void *userdata
 void print_adapter_info(WGPUAdapter adapter) {
     struct WGPUAdapterInfo info = {0};
     wgpuAdapterGetInfo(adapter, &info);
-    printf("description:  %s\n", (cstr)info.description.data);
-    printf("vendor:       %s\n", (cstr)info.vendor.data);
-    printf("architecture: %s\n", (cstr)info.architecture.data);
-    printf("device:       %s\n", (cstr)info.device.data);
+    printf("description:  %s\n", (cstr)info.description);
+    printf("vendor:       %s\n", (cstr)info.vendor);
+    printf("architecture: %s\n", (cstr)info.architecture);
+    printf("device:       %s\n", (cstr)info.device);
     printf("backend type: %u\n", info.backendType);
     printf("adapter type: %u\n", info.adapterType);
     printf("vendorID:     %x\n", info.vendorID);
@@ -170,10 +170,10 @@ void window_init_surface(window w) {
             &(const WGPUSurfaceDescriptor){
                 .nextInChain =
                     (const WGPUChainedStruct *)&(
-                        const WGPUSurfaceSourceXlibWindow){
+                        const WGPUSurfaceDescriptorFromXlibWindow){
                         .chain =
                             (const WGPUChainedStruct){
-                                .sType = WGPUSType_SurfaceSourceXlibWindow
+                                .sType = WGPUSType_SurfaceDescriptorFromXlibWindow
                             },
                         .display = x11_display,
                         .window = x11_window,
@@ -241,17 +241,17 @@ void window_init(window w) {
     w->render = wgpuDeviceCreateRenderPipeline(
         t->device,
         &(const WGPURenderPipelineDescriptor){
-            .label = (WGPUStringView) { "render_pipeline", 15 },
+            .label = "render_pipeline",
             .layout = t->layout,
             .vertex =
                 (const WGPUVertexState){
                     .module = s->module,
-                    .entryPoint = (WGPUStringView) { "vs_main", 7 },
+                    .entryPoint = "vs_main",
                 },
             .fragment =
                 &(const WGPUFragmentState){
                     .module = s->module,
-                    .entryPoint = (WGPUStringView) { "fs_main", 7 },
+                    .entryPoint = "fs_main",
                     .targetCount = 1,
                     .targets =
                         (const WGPUColorTargetState[]){
@@ -294,6 +294,7 @@ void window_init(window w) {
 
 void window_loop(window w) {
     trinity t = w->t;
+
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
 
@@ -336,7 +337,7 @@ void window_loop(window w) {
 
         WGPUCommandEncoder command_encoder = wgpuDeviceCreateCommandEncoder(
             t->device, &(const WGPUCommandEncoderDescriptor){
-                .label = (WGPUStringView) { "command_encoder", 15 },
+                .label = "command_encoder",
             });
         verify(command_encoder, "command encoder");
 
@@ -344,7 +345,7 @@ void window_loop(window w) {
             wgpuCommandEncoderBeginRenderPass(
                 command_encoder,
                 &(const WGPURenderPassDescriptor){
-                    .label = (WGPUStringView) { "render_pass_encoder", 19 },
+                    .label = "render_pass_encoder",
                     .colorAttachmentCount = 1,
                     .colorAttachments =
                         (const WGPURenderPassColorAttachment[]){
@@ -370,7 +371,7 @@ void window_loop(window w) {
         wgpuRenderPassEncoderRelease(render_pass_encoder);
         WGPUCommandBuffer command_buffer = wgpuCommandEncoderFinish(
             command_encoder, &(const WGPUCommandBufferDescriptor){
-                .label = (WGPUStringView) { "command_buffer", 14 }
+                .label = "command_buffer"
             });
         verify(command_buffer, "command buffer");
         wgpuQueueSubmit(t->queue, 1, (const WGPUCommandBuffer[]){command_buffer});
@@ -401,19 +402,19 @@ void shader_init(shader s) {
     buf[length] = 0;
     s->module = wgpuDeviceCreateShaderModule(
     s->t->device, &(const WGPUShaderModuleDescriptor){
-        .label = (WGPUStringView) { s->name->chars, s->name->len },
+        .label = s->name->chars,
         .nextInChain =
             (const WGPUChainedStruct *)&(
-                const WGPUShaderSourceWGSL){
+                const WGPUShaderModuleWGSLDescriptor){
                 .chain =
                     (const WGPUChainedStruct){
-                        .sType = WGPUSType_ShaderSourceWGSL,
+                        .sType = WGPUSType_ShaderModuleWGSLDescriptor,
                     },
-                .code = (WGPUStringView) { buf, length }
+                .code = buf
             },
     });
     fclose (file);
-    free   (buf);
+    //free   (buf);
 }
 
 void shader_destructor(shader s) {
@@ -440,7 +441,7 @@ void trinity_init(trinity t) {
 
     t->layout = wgpuDeviceCreatePipelineLayout(
         t->device, &(const WGPUPipelineLayoutDescriptor) {
-        .label = (WGPUStringView) { "layout", 6 }
+        .label = "layout"
     });
     verify(t->layout, "pipeline layout");
 }
