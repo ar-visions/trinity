@@ -1,0 +1,11 @@
+[package]
+name = "webgpu-triangle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.16"
+winit = "0.28"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
+glam = { version = "0.24", features = ["bytemuck"] }

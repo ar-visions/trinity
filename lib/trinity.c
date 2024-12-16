@@ -27,6 +27,8 @@ public void a-function[ string arg, int a ] [
 ]
 */
 
+#if 0
+
 #include <GLFW/glfw3.h>
 #if defined(_WIN32)
     #include <windows.h>
@@ -48,10 +50,10 @@ public void a-function[ string arg, int a ] [
 #pragma GCC diagnostic error "-Wint-conversion"
 #pragma GCC diagnostic error "-Wall"
 
-static void handle_device_error(
+/*static void handle_device_error(
     WGPUErrorType type, struct WGPUStringView message, void * userdata) {
     printf("device error: message=%s\n", message.data);
-}
+}*/
 
 static void handle_request_adapter(
     WGPURequestAdapterStatus status, WGPUAdapter adapter,
@@ -431,7 +433,7 @@ void trinity_init(trinity t) {
 
     wgpuAdapterRequestDevice(t->adapter, NULL, handle_request_device, t);
     verify(t->device, "device");
-    wgpuDeviceSetUncapturedErrorCallback(t->device, handle_device_error, t);
+    //wgpuDeviceSetUncapturedErrorCallback(t->device, handle_device_error, t);
 
     t->queue = wgpuDeviceGetQueue(t->device);
     verify(t->queue, "queue");
@@ -1257,3 +1259,5 @@ none spc_player_key_off(spc_player player, u8 chan) {
 
 #endif
 */
+
+#endif

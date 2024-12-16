@@ -1,6 +1,7 @@
 #ifndef _TRINITY_
 #define _TRINITY_
 
+/*
 #define trinity_schema(X,Y) \
     i_prop    (X,Y, intern,     WGPUInstance,        instance) \
     i_prop    (X,Y, intern,     WGPUAdapter,         adapter) \
@@ -44,5 +45,6 @@ declare_class(shader)
 #endif
 declare_class(window)
 
+*/
 
 #endif
