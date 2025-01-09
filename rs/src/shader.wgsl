@@ -174,6 +174,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let step_size = dist / f32(num_steps);
         t = entry_t;
 
+        /// find the average location of the density
+        let hot_pos = ray_origin + ray_dir * (step_size * (f32(num_steps) * 0.7));
+        var total_dist_avg = 0.0;
         for(var i = 0; i < num_steps; i++) {
             let pos = ray_origin + ray_dir * t;
             let sample_pos = pos - vec3<f32>(0.0, 0.0, 3.0);
@@ -184,8 +187,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let twist = mat3x3<f32>(
                 cos(twist_amount), 0.0, -sin(twist_amount),
                 0.0, 1.0, 0.0,
-                sin(twist_amount), 0.0, cos(twist_amount)
-            );
+                sin(twist_amount), 0.0, cos(twist_amount));
 
             // Apply both twist and rotation
             let twisted_pos      = twist * sample_pos;
@@ -199,17 +201,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
             // Remap values with threshold
             let threshold    = 0.44;  // Adjust this value to control where black starts
-            let contrast     = center_f * 8.0;   // Adjust this to control how sharp the transition is
+            let contrast     = height_factor * center_f * 24.0;   // Adjust this to control how sharp the transition is
             var density      = max(0.0, (raw_density - threshold) * contrast);
             let sample_alpha = density;
             let sample_color = vec3<f32>(density);
             
             accumulated_color += distance_to_wall * (1.0 - accumulated_alpha) * sample_color * sample_alpha;
             accumulated_alpha += distance_to_wall * (1.0 - accumulated_alpha) * sample_alpha;
-
             t += step_size;
         }
     }
     
-    return vec4<f32>(accumulated_color, accumulated_alpha);
+    let a = accumulated_color;
+    return vec4<f32>(vec3<f32>(a.x * 0.4, a.y * 0.2, a.z), accumulated_alpha);
 }

@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+gltf = "0.16"
 wgpu = "0.16"
 winit = "0.28"
+image = "0.24"
 pollster = "0.3"
 bytemuck = { version = "1.14", features = ["derive"] }
 glam = { version = "0.24", features = ["bytemuck"] }
