@@ -222,45 +222,33 @@ int main(int argc, char *argv[]) {
     demo.config = (const WGPUSurfaceConfiguration){
         .device = demo.device,
         .usage = WGPUTextureUsage_RenderAttachment,
-        .format = surface_capabilities.formats[0],
-        .presentMode = WGPUPresentMode_Immediate,  // Changed from Fifo
-        .alphaMode = surface_capabilities.alphaModes[0],
+        .format = WGPUTextureFormat_BGRA8Unorm,
+        .presentMode = WGPUPresentMode_Fifo,  // Changed from Fifo
+        .alphaMode = WGPUCompositeAlphaMode_Opaque,
     };
 
-    {
-        int width, height;
-        glfwGetWindowSize(window, &width, &height);
-        demo.config.width = width;
-        demo.config.height = height;
-    }
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    demo.config.width = width;
+    demo.config.height = height;
 
     printf("Using format: %d\n", demo.config.format);  // Debug print
-    wgpuSurfaceConfigure(demo.surface, &demo.config);
+    //wgpuSurfaceConfigure(demo.surface, &demo.config);
+
+    WGPUSwapChain swap_chain = wgpuDeviceCreateSwapChain(demo.device, demo.surface, &(WGPUSwapChainDescriptor){
+      .label = "swap_chain",
+      .usage = WGPUTextureUsage_RenderAttachment,
+      .format = WGPUTextureFormat_BGRA8Unorm,
+      .presentMode = WGPUPresentMode_Fifo,
+      .width = demo.config.width,
+      .height = demo.config.height
+    });
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        wgpuDeviceTick(demo.device); // ?
 
-        WGPUSurfaceTexture surface_texture;
-        wgpuSurfaceGetCurrentTexture(demo.surface, &surface_texture);
-        if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_Success) {
-            printf("Failed to acquire next texture: %d\n", surface_texture.status);
-            continue;
-        }
-
-        WGPUTextureView frame = wgpuTextureCreateView(
-            surface_texture.texture, 
-            &(WGPUTextureViewDescriptor){
-                .format = demo.config.format,
-                .dimension = WGPUTextureViewDimension_2D,
-                .mipLevelCount = 1,
-                .arrayLayerCount = 1,
-            });
-        
-        if (!frame) {
-            printf("Failed to create texture view\n");
-            wgpuTextureRelease(surface_texture.texture);
-            continue;
-        }
+        WGPUTextureView frame = wgpuSwapChainGetCurrentTextureView(swap_chain);
 
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
             demo.device, &(WGPUCommandEncoderDescriptor){
@@ -292,14 +280,14 @@ int main(int argc, char *argv[]) {
             });
 
         wgpuQueueSubmit(queue, 1, &commands);
-        wgpuSurfacePresent(demo.surface);
+
+        wgpuSwapChainPresent(swap_chain);
+        //wgpuSurfacePresent(demo.surface); /// do i still need this call?  does it go above the prior?
 
         // Cleanup
         wgpuCommandBufferRelease(commands);
         wgpuRenderPassEncoderRelease(render_pass);
         wgpuCommandEncoderRelease(encoder);
-        wgpuTextureViewRelease(frame);
-        wgpuTextureRelease(surface_texture.texture);
     }
 
     wgpuSurfaceCapabilitiesFreeMembers(surface_capabilities);
