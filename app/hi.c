@@ -1,4 +1,4 @@
-#include <A>
+
 #include <GLFW/glfw3.h>
 #if defined(_WIN32)
     #include <windows.h>
@@ -8,10 +8,20 @@
 #elif defined(__linux__)
     #define GLFW_EXPOSE_NATIVE_X11
 #endif
-#include <GL/gl.h>
 #include <GLFW/glfw3native.h>
 #include <dawn/webgpu.h>
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 
+#undef bool
+#undef true
+#undef false
+#undef log
+#undef nil
+#undef format
+#include <A>
 
 #define LOG_PREFIX "[triangle]"
 
@@ -127,6 +137,67 @@ cleanup:
   return shader_module;
 }
 
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+
+// Define selectors as static strings to avoid repeated lookups
+static SEL sel_contentView = NULL;
+static SEL sel_setWantsLayer = NULL;
+static SEL sel_layer = NULL;
+static SEL sel_setLayer = NULL;
+static SEL sel_frame = NULL;
+static SEL sel_setFrame = NULL;
+
+// Initialize selectors once
+void init_selectors() {
+    if (!sel_contentView) {
+        sel_contentView = sel_registerName("contentView");
+        sel_setWantsLayer = sel_registerName("setWantsLayer:");
+        sel_layer = sel_registerName("layer");
+        sel_setLayer = sel_registerName("setLayer:");
+        sel_frame = sel_registerName("frame");
+        sel_setFrame = sel_registerName("setFrame:");
+    }
+}
+
+// Helper to make objc_msgSend calls cleaner
+id msg_send_id(id self, SEL cmd) {
+    return ((id (*)(id, SEL))objc_msgSend)(self, cmd);
+}
+
+void msg_send_void_bool(id self, SEL cmd, BOOL arg) {
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, cmd, arg);
+}
+
+void msg_send_void_id(id self, SEL cmd, id arg) {
+    ((void (*)(id, SEL, id))objc_msgSend)(self, cmd, arg);
+}
+
+void* setup_metal_layer(void* window) {
+    init_selectors();
+    
+    id nsWindow = (id)window;
+    id contentView = msg_send_id(nsWindow, sel_contentView);
+    
+    // Set wantsLayer to YES
+    msg_send_void_bool(contentView, sel_setWantsLayer, YES);
+    
+    // Create metal layer
+    Class metalLayerClass = objc_getClass("CAMetalLayer");
+    id metalLayer = msg_send_id((id)metalLayerClass, sel_layer);
+    
+    // Get frame and set it
+    CGRect frame = ((CGRect (*)(id, SEL))objc_msgSend)(contentView, sel_frame);
+    ((void (*)(id, SEL, CGRect))objc_msgSend)(metalLayer, sel_setFrame, frame);
+    
+    // Set the layer
+    msg_send_void_id(contentView, sel_setLayer, metalLayer);
+    
+    return metalLayer;
+}
+#endif
+
 int main(int argc, char *argv[]) {    
     A_start();
 
@@ -136,12 +207,30 @@ int main(int argc, char *argv[]) {
     demo.instance = wgpuCreateInstance(NULL);
     verify(demo.instance, "instance");
 
-    //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    //glfwWindowHint(GLFW_COCOA_METAL_LAYER, GLFW_TRUE);
     GLFWwindow *window = glfwCreateWindow(640, 480, "triangle", NULL, NULL);
     verify(window, "window");
 
     glfwSetWindowUserPointer(window, (void *)&demo);
 
+#ifdef __APPLE__             
+    void *ns_window = glfwGetCocoaWindow(window);
+
+    demo.surface = wgpuInstanceCreateSurface(
+        demo.instance,
+        &(const WGPUSurfaceDescriptor){
+            .nextInChain =
+                (const WGPUChainedStruct *)&(
+                    const WGPUSurfaceDescriptorFromMetalLayer){
+                    .chain =
+                        (const WGPUChainedStruct){
+                            .sType = WGPUSType_SurfaceSourceMetalLayer,
+                        },
+                    .layer = setup_metal_layer(ns_window),
+                },
+        });
+#else
     if (glfwGetPlatform() == GLFW_PLATFORM_X11) {
         Display *x11_display = glfwGetX11Display();
         Window x11_window = glfwGetX11Window(window);
@@ -160,6 +249,7 @@ int main(int argc, char *argv[]) {
                     },
             });
     }
+#endif
     int width, height;
     glfwGetWindowSize(window, &width, &height);
     

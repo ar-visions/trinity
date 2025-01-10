@@ -8,6 +8,6 @@ dawn https://github.com/google/dawn main
 	-DDAWN_BUILD_SAMPLES=1
 	-DBUILD_SAMPLES=1
 lib:
-	A webgpu_dawn glfw3 GL glut GLU m
+	A webgpu_dawn glfw3 Foundation AppKit IOKit CoreGraphics CoreFoundation m
 app:
-	A webgpu_dawn glfw3 GL glut GLU m
+	A webgpu_dawn glfw3 Foundation AppKit IOKit CoreGraphics CoreFoundation m
