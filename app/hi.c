@@ -160,7 +160,9 @@ int main(int argc, char *argv[]) {
                     },
             });
     }
-
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    
     wgpuInstanceProcessEvents(demo.instance);
     verify(demo.surface, "surface");
 
@@ -180,13 +182,48 @@ int main(int argc, char *argv[]) {
     WGPUQueue queue = wgpuDeviceGetQueue(demo.device);
     verify(queue, "queue");
 
+    WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
+        demo.device, &(const WGPUPipelineLayoutDescriptor){
+            .label = "pipeline_layout",
+        });
+
     WGPUSurfaceCapabilities surface_capabilities = {0};
     wgpuSurfaceGetCapabilities(demo.surface, demo.adapter, &surface_capabilities);
 
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
-
-    WGPUShaderModule shader = load_shader(demo.device, "shader.wgsl");
+    WGPUShaderModule   shader          = load_shader(demo.device, "shader.wgsl");
+    WGPURenderPipeline render_pipeline = wgpuDeviceCreateRenderPipeline(
+        demo.device,
+        &(const WGPURenderPipelineDescriptor){
+            .label = "render_pipeline",
+            .layout = pipeline_layout,
+            .vertex =
+                (const WGPUVertexState){
+                  .module = shader,
+                  .entryPoint = "vs_main",
+                },
+            .fragment =
+                &(const WGPUFragmentState){
+                  .module = shader,
+                  .entryPoint = "fs_main",
+                  .targetCount = 1,
+                  .targets =
+                      (const WGPUColorTargetState[]){
+                          (const WGPUColorTargetState){
+                              .format = surface_capabilities.formats[0],
+                              .writeMask = WGPUColorWriteMask_All,
+                          },
+                      },
+                },
+            .primitive =
+                (const WGPUPrimitiveState){
+                    .topology = WGPUPrimitiveTopology_TriangleList,
+                },
+            .multisample =
+                (const WGPUMultisampleState){
+                    .count = 1,
+                    .mask = 0xFFFFFFFF,
+                },
+    });
 
     //WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(demo.surface, demo.adapter);
     //verify(surface_format != WGPUTextureFormat_Undefined, "surface format");
@@ -203,7 +240,6 @@ int main(int argc, char *argv[]) {
 
     wgpuSurfaceConfigure(demo.surface, &demo.config);
 
-
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         
@@ -214,7 +250,6 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        // Create view from the surface texture
         WGPUTextureViewDescriptor view_desc = {
             .format = demo.config.format,
             .dimension = WGPUTextureViewDimension_2D,
@@ -224,9 +259,7 @@ int main(int argc, char *argv[]) {
             .arrayLayerCount = 1,
             .aspect = WGPUTextureAspect_All
         };
-        WGPUTextureView frame = wgpuTextureCreateView(surface_texture.texture, &view_desc);
-
-        /// transitioning to wgpuSurface API from swapchain:  How do I get the TextureView from this WGPUSurfaceTexture?
+        WGPUTextureView    frame   = wgpuTextureCreateView(surface_texture.texture, &view_desc);
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
             demo.device, &(WGPUCommandEncoderDescriptor){
                 .label = "Command Encoder",
@@ -234,28 +267,25 @@ int main(int argc, char *argv[]) {
 
         WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
             encoder,
-            &(WGPURenderPassDescriptor){
+            &(const WGPURenderPassDescriptor) {
+                .label = "render_pass_encoder",
                 .colorAttachmentCount = 1,
-                .colorAttachments = &(WGPURenderPassColorAttachment){
-                    .view       = frame,
-                    .loadOp     = WGPULoadOp_Clear,
-                    .storeOp    = WGPUStoreOp_Store,
-                    .clearValue = (WGPUColor){
-                        .r = 1.0f,  // Changed to bright white for testing
-                        .g = 0.0f,
-                        .b = 1.0f,
-                        .a = 1.0f,
-                    },
-                },
+                .colorAttachments =
+                    (const WGPURenderPassColorAttachment[]){
+                        (const WGPURenderPassColorAttachment){
+                            .view       = frame,
+                            .loadOp     = WGPULoadOp_Clear,
+                            .storeOp    = WGPUStoreOp_Store,
+                            .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
+                            .clearValue = (const WGPUColor){ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 }
+                        }
+                }
             });
 
+        wgpuRenderPassEncoderSetPipeline(render_pass, render_pipeline);
+        wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(render_pass);
-
-        // dont we put it above commands = ?
-        WGPUComputePassEncoder compute_pass = wgpuCommandEncoderBeginComputePass(
-            encoder, &(WGPUComputePassDescriptor){.label = "Barrier Pass"});
-        wgpuComputePassEncoderEnd(compute_pass);
-        wgpuComputePassEncoderRelease(compute_pass);
+        wgpuRenderPassEncoderRelease(render_pass);
 
         WGPUCommandBuffer commands = wgpuCommandEncoderFinish(
             encoder, &(WGPUCommandBufferDescriptor){
@@ -266,7 +296,6 @@ int main(int argc, char *argv[]) {
         wgpuSurfacePresent(demo.surface);
         wgpuTextureViewRelease(frame);
         wgpuCommandBufferRelease(commands);
-        wgpuRenderPassEncoderRelease(render_pass);
         wgpuCommandEncoderRelease(encoder);
         wgpuDeviceTick(demo.device);
     }

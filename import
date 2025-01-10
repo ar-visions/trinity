@@ -1,13 +1,13 @@
 A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
-dawn https://github.com/google/dawn main
+dawn https://dawn.googlesource.com/dawn 063fb60
 	-DDAWN_ENABLE_INSTALL=1
 	-DBUILD_SHARED_LIBS=0
 	-DTINT_BUILD_TESTS=0
-	-DDAWN_BUILD_SAMPLES=1
-	-DBUILD_SAMPLES=1
+	-DDAWN_BUILD_SAMPLES=0
+	-DBUILD_SAMPLES=0
 lib:
-	A webgpu_dawn glfw3 GL glut GLU m
+	A webgpu_dawn glfw3 m
 app:
-	A webgpu_dawn glfw3 GL glut GLU m
+	A webgpu_dawn glfw3 m
