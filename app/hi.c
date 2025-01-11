@@ -25,6 +25,20 @@
 
 #define LOG_PREFIX "[triangle]"
 
+
+// Vertex structure
+typedef struct {
+    float position[2]; // X, Y coordinates
+} Vertex;
+
+// Define triangle vertices
+const Vertex vertices[] = {
+    {{-1.0f, -1.0f}}, // Bottom-left
+    {{ 0.0f,  1.0f}}, // Top-center
+    {{ 1.0f, -1.0f}}, // Bottom-right
+};
+
+
 struct demo {
     WGPUInstance    instance;
     WGPUSurface     surface;
@@ -81,10 +95,6 @@ void log_callback(WGPULoggingType level, struct WGPUStringView message, void* us
     fprintf(stdout, "[%s] %s\n", level_str, message.data);
 }
 
-void handle_device_lost(WGPUDeviceLostReason reason, struct WGPUStringView message, void* userdata) {
-    fprintf(stdout, "Device lost: %s\n", message.data);
-}
-
 
 WGPUShaderModule load_shader(WGPUDevice device, const char *name) {
   FILE *file = NULL;
@@ -117,7 +127,6 @@ WGPUShaderModule load_shader(WGPUDevice device, const char *name) {
 
   shader_module = wgpuDeviceCreateShaderModule(
       device, &(const WGPUShaderModuleDescriptor){
-                  .label = name,
                   .nextInChain =
                       (const WGPUChainedStruct *)&(
                           const WGPUShaderSourceWGSL){
@@ -252,7 +261,6 @@ int main(int argc, char *argv[]) {
 #endif
     int width, height;
     glfwGetWindowSize(window, &width, &height);
-    
     wgpuInstanceProcessEvents(demo.instance);
     verify(demo.surface, "surface");
 
@@ -260,22 +268,15 @@ int main(int argc, char *argv[]) {
                                 &(const WGPURequestAdapterOptions){
                                     .compatibleSurface = demo.surface,
                                 },
-                                handle_request_adapter, &demo);
-    verify(demo.adapter, "adapter");
+                                handle_request_adapter, &demo);   verify(demo.adapter, "adapter");
     print_adapter_info(demo.adapter);
 
-    wgpuAdapterRequestDevice(demo.adapter, NULL, handle_request_device, &demo);
-    verify(demo.device, "device");
+    wgpuAdapterRequestDevice    (demo.adapter, NULL, handle_request_device, &demo);   verify(demo.device, "device");
     wgpuDeviceSetLoggingCallback(demo.device, log_callback, NULL);
-    //wgpuDeviceSetDeviceLostCallback(demo.device, handle_device_lost, NULL);
 
-    WGPUQueue queue = wgpuDeviceGetQueue(demo.device);
-    verify(queue, "queue");
-
+    WGPUQueue queue = wgpuDeviceGetQueue(demo.device);  verify(queue, "queue");
     WGPUPipelineLayout pipeline_layout = wgpuDeviceCreatePipelineLayout(
-        demo.device, &(const WGPUPipelineLayoutDescriptor){
-            .label = "pipeline_layout",
-        });
+        demo.device, &(const WGPUPipelineLayoutDescriptor){});
 
     WGPUSurfaceCapabilities surface_capabilities = {0};
     wgpuSurfaceGetCapabilities(demo.surface, demo.adapter, &surface_capabilities);
@@ -284,12 +285,22 @@ int main(int argc, char *argv[]) {
     WGPURenderPipeline render_pipeline = wgpuDeviceCreateRenderPipeline(
         demo.device,
         &(const WGPURenderPipelineDescriptor){
-            .label = "render_pipeline",
             .layout = pipeline_layout,
             .vertex =
                 (const WGPUVertexState){
-                  .module = shader,
-                  .entryPoint = "vs_main",
+                    .module = shader,
+                    .entryPoint = "vs_main",
+                    .bufferCount = 1, // We have one vertex buffer
+                    .buffers = &(WGPUVertexBufferLayout){
+                        .arrayStride = sizeof(Vertex),                // Size of one vertex
+                        .stepMode = WGPUVertexStepMode_Vertex,        // Step per vertex
+                        .attributeCount = 1,                         // One attribute: position
+                        .attributes = &(WGPUVertexAttribute){
+                            .shaderLocation = 0,                     // Matches @location(0) in WGSL
+                            .offset = offsetof(Vertex, position),     // Offset to the position attribute
+                            .format = WGPUVertexFormat_Float32x2,     // vec2<f32> format
+                        },
+                    },
                 },
             .fragment =
                 &(const WGPUFragmentState){
@@ -330,6 +341,23 @@ int main(int argc, char *argv[]) {
 
     wgpuSurfaceConfigure(demo.surface, &demo.config);
 
+    /// create vertex buffer of 1 triangle in Vertex format
+    int vsize_bytes = sizeof(vertices);
+    verify(vsize_bytes == 3 * sizeof(Vertex), "vsize wrong?");
+    WGPUBuffer vertex_buffer = wgpuDeviceCreateBuffer(
+        demo.device,
+        &(WGPUBufferDescriptor){
+            .label = "Vertex Buffer",
+            .usage = WGPUBufferUsage_Vertex,
+            .size = vsize_bytes,
+            .mappedAtCreation = true,
+        });
+
+    void *mapped_memory = wgpuBufferGetMappedRange(vertex_buffer, 0, sizeof(vertices));
+    memcpy(mapped_memory, vertices, sizeof(vertices));
+    wgpuBufferUnmap(vertex_buffer);
+
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         
@@ -351,14 +379,12 @@ int main(int argc, char *argv[]) {
         };
         WGPUTextureView    frame   = wgpuTextureCreateView(surface_texture.texture, &view_desc);
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(
-            demo.device, &(WGPUCommandEncoderDescriptor){
-                .label = "Command Encoder",
-            });
+            demo.device, &(WGPUCommandEncoderDescriptor){});
 
+        
         WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
             encoder,
             &(const WGPURenderPassDescriptor) {
-                .label = "render_pass_encoder",
                 .colorAttachmentCount = 1,
                 .colorAttachments =
                     (const WGPURenderPassColorAttachment[]){
@@ -367,20 +393,20 @@ int main(int argc, char *argv[]) {
                             .loadOp     = WGPULoadOp_Clear,
                             .storeOp    = WGPUStoreOp_Store,
                             .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED,
-                            .clearValue = (const WGPUColor){ .r = 0.0, .g = 1.0, .b = 0.0, .a = 1.0 }
+                            .clearValue = (const WGPUColor){ .r = 0.0, .g = 0.0, .b = 0.5, .a = 1.0 }
                         }
                 }
             });
-
+        
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, vertex_buffer, 0, vsize_bytes);
         wgpuRenderPassEncoderSetPipeline(render_pass, render_pipeline);
         wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
         wgpuRenderPassEncoderEnd(render_pass);
         wgpuRenderPassEncoderRelease(render_pass);
+        
 
         WGPUCommandBuffer commands = wgpuCommandEncoderFinish(
-            encoder, &(WGPUCommandBufferDescriptor){
-                .label = "Command Buffer",
-            });
+            encoder, &(WGPUCommandBufferDescriptor){});
 
         wgpuQueueSubmit(queue, 1, &commands);
         wgpuSurfacePresent(demo.surface);

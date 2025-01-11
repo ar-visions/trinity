@@ -247,14 +247,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        WGPUTextureView frame = wgpuTextureCreateView(
-            surface_texture.texture, 
-            &(WGPUTextureViewDescriptor){
-                .format = demo.config.format,
-                .dimension = WGPUTextureViewDimension_2D,
-                .mipLevelCount = 1,
-                .arrayLayerCount = 1,
-            });
+        WGPUTextureView frame = wgpuTextureCreateView(surface_texture.texture, null);
         
         if (!frame) {
             printf("Failed to create texture view\n");
