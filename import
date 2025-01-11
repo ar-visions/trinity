@@ -1,15 +1,10 @@
 A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
-dawn https://github.com/google/dawn main
-	-DDAWN_ENABLE_INSTALL=1
-	-DBUILD_SHARED_LIBS=0
-	-DTINT_BUILD_TESTS=0
-	-DDAWN_BUILD_SAMPLES=1
-	-DBUILD_SAMPLES=1
+wgpu-native https://github.com/gfx-rs/wgpu-native !506751845a486094089b927de57f2877f786beab
 lib:
 	A
-	webgpu_dawn
+	wgpu_native
 	glfw3
 	m
 	darwin:
@@ -20,7 +15,7 @@ lib:
 		CoreFoundation
 app:
 	A
-	webgpu_dawn
+	wgpu_native
 	glfw3
 	m
 	darwin:
