@@ -338,7 +338,7 @@ void pipeline_init(pipeline p) {
                     },
                 .primitive =
                     (const WGPUPrimitiveState){
-                        .topology = WGPUPrimitiveTopology_PointList, // WGPUPrimitiveTopology_TriangleList,
+                        .topology = WGPUPrimitiveTopology_LineList, // WGPUPrimitiveTopology_TriangleList,
                     },
                 .multisample =
                     (const WGPUMultisampleState){
@@ -634,4 +634,5 @@ define_class(shader)
 define_class(pipeline)
 define_class(window)
 
+define_class(vertex)
 define_class(particle)

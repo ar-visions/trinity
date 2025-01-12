@@ -105,5 +105,12 @@ declare_class(pipeline)
 #endif
 declare_struct(particle)
 
+#define vertex_schema(X,Y) \
+    i_inlay(X,Y, public, v3,  pos)
+#ifndef vertex_intern
+#define vertex_intern
+#endif
+declare_struct(vertex)
+
 
 #endif
