@@ -31,11 +31,15 @@ declare_struct(v4)
 declare_struct(v3)
 
 #define trinity_schema(X,Y) \
-    i_prop    (X,Y, intern,     WGPUInstance,        instance) \
-    i_prop    (X,Y, intern,     WGPUAdapter,         adapter) \
-    i_prop    (X,Y, intern,     WGPUDevice,          device) \
-    i_prop    (X,Y, intern,     WGPUQueue,           queue) \
+    i_prop    (X,Y, intern,     VkInstance,          instance) \
+    i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device) \
+    i_prop    (X,Y, intern,     VkDevice,            device) \
+    i_prop    (X,Y, intern,     VkQueue,             queue) \
+    i_prop    (X,Y, intern,     VkDebugUtilsMessengerEXT, debug) \
+    i_prop    (X,Y, intern,     VkCommandPool,       command_pool) \
+    i_prop    (X,Y, intern,     i32,                 queue_family_index) \
     i_prop    (X,Y, intern,     map,                 buffers) \
+    i_prop    (X,Y, intern,     map,                 device_memory) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef trinity_intern
@@ -44,9 +48,13 @@ declare_struct(v3)
 declare_class(trinity)
 
 #define shader_schema(X,Y) \
-    i_prop    (X,Y, intern,     WGPUShaderModule,   module) \
+    i_prop    (X,Y, intern,     VkShaderModule,     vert_module) \
+    i_prop    (X,Y, intern,     VkShaderModule,     frag_module) \
+    i_prop    (X,Y, intern,     VkShaderModule,     comp_module) \
     i_prop    (X,Y, required,   trinity,            t) \
-    i_prop    (X,Y, required,   string,             name)  \
+    i_prop    (X,Y, public,     string,             vert)  \
+    i_prop    (X,Y, public,     string,             frag)  \
+    i_prop    (X,Y, public,     string,             comp)  \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef shader_intern
@@ -57,16 +65,28 @@ declare_class(shader)
 typedef struct pipeline* pipeline;
 
 #define window_schema(X,Y) \
-    i_prop    (X,Y, intern,     GLFWwindow*,                window) \
-    i_prop    (X,Y, intern,     WGPUSurface,                surface) \
-    i_prop    (X,Y, intern,     WGPUSurfaceConfiguration,   config) \
-    i_prop    (X,Y, intern,     array,                      pipelines) \
-    i_prop    (X,Y, intern,     WGPUSurfaceCapabilities,    surface_caps) \
-    i_prop    (X,Y, required,   trinity,                    t) \
-    i_prop    (X,Y, required,   u32,                width)  \
-    i_prop    (X,Y, required,   u32,                height) \
-    i_method  (X,Y, public,     none,               loop) \
-    i_method  (X,Y, public,     none,               push, pipeline) \
+    i_prop    (X,Y, intern,     GLFWwindow*,            window) \
+    i_prop    (X,Y, intern,     VkSurfaceKHR,           surface) \
+    i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain) \
+    i_prop    (X,Y, intern,     array,                  pipelines) \
+    i_prop    (X,Y, intern,     VkSurfaceCapabilitiesKHR, surface_caps) \
+    i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format) \
+    i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode) \
+    i_prop    (X,Y, intern,     VkExtent2D,             extent) \
+    i_prop    (X,Y, intern,     VkRenderPass,           render_pass) \
+    i_prop    (X,Y, intern,     VkFramebuffer*,         framebuffers) \
+    i_prop    (X,Y, intern,     u32,                    image_count) \
+    i_prop    (X,Y, intern,     VkFence*,               command_fences) \
+    i_prop    (X,Y, intern,     VkCommandBuffer*,       command_buffers) \
+    i_prop    (X,Y, intern,     VkSemaphore*,           image_available_semaphore) \
+    i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore) \
+    i_prop    (X,Y, intern,     VkFence,                in_flight_fence) \
+    i_prop    (X,Y, intern,     VkSwapchainCreateInfoKHR, config) \
+    i_prop    (X,Y, required,   trinity,                t) \
+    i_prop    (X,Y, required,   u32,                    width) \
+    i_prop    (X,Y, required,   u32,                    height) \
+    i_method  (X,Y, public,     none,                   loop) \
+    i_method  (X,Y, public,     none,                   push, pipeline) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef window_intern
@@ -77,17 +97,17 @@ declare_class(window)
 #define pipeline_schema(X,Y) \
     i_prop    (X,Y, required,   trinity, t) \
     i_prop    (X,Y, required,   window,  w) \
-    i_prop    (X,Y, public,     object, read) \
-    i_prop    (X,Y, public,     object, read_write) \
-    i_prop    (X,Y, required,   shader, shader) \
-    i_prop    (X,Y, intern,     WGPUBuffer, buffer) \
-    i_prop    (X,Y, intern,     num,    vertex_count) \
-    i_prop    (X,Y, intern,     num,    total_size) \
-    i_prop    (X,Y, intern,     WGPUBindGroupLayout, bind_layout) \
-    i_prop    (X,Y, intern,     WGPUBindGroup,       bind) \
-    i_prop    (X,Y, intern,     WGPURenderPipeline,  render) \
-    i_prop    (X,Y, intern,     WGPUComputePipeline, compute) \
-    i_prop    (X,Y, intern,     WGPUPipelineLayout,  layout) \
+    i_prop    (X,Y, public,     object,  read) \
+    i_prop    (X,Y, public,     object,  read_write) \
+    i_prop    (X,Y, required,   shader,  shader) \
+    i_prop    (X,Y, intern,     VkBuffer,            buffer) \
+    i_prop    (X,Y, intern,     num,                 vertex_count) \
+    i_prop    (X,Y, intern,     num,                 total_size) \
+    i_prop    (X,Y, intern,     VkDescriptorSetLayout, bind_layout) \
+    i_prop    (X,Y, intern,     VkDescriptorSet,     bind) \
+    i_prop    (X,Y, intern,     VkPipeline,          render) \
+    i_prop    (X,Y, intern,     VkPipeline,          compute) \
+    i_prop    (X,Y, intern,     VkPipelineLayout,    layout) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     destructor)
 #ifndef pipeline_intern
@@ -111,6 +131,5 @@ declare_struct(particle)
 #define vertex_intern
 #endif
 declare_struct(vertex)
-
 
 #endif

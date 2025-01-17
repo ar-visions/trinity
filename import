@@ -1,13 +1,28 @@
 A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
-wgpu-native https://github.com/gfx-rs/wgpu-native !506751845a486094089b927de57f2877f786beab
+	-DGLFW_VULKAN=ON
+dawn https://github.com/google/dawn 777987d6d109a1632a0a413eca952cf6902e09fb
+	-DDAWN_ENABLE_INSTALL=1
+	-DBUILD_SHARED_LIBS=0
+	-DTINT_BUILD_TESTS=0
+	-DDAWN_BUILD_SAMPLES=1
+	-DBUILD_SAMPLES=1
+	-DDAWN_ENABLE_DESKTOP_GL=0
+	-DDAWN_ENABLE_OPENGLES=0
+	linux:
+		-DDAWN_ENABLE_VULKAN=1
 lib:
 	A
-	wgpu_native
+	webgpu_dawn
 	glfw3
 	m
+	linux:
+		vulkan
+	windows:
+		vulkan-1
 	darwin:
+		MoltenVK
 		Foundation
 		AppKit
 		IOKit
@@ -15,10 +30,15 @@ lib:
 		CoreFoundation
 app:
 	A
-	wgpu_native
+	webgpu_dawn
 	glfw3
 	m
+	linux:
+		vulkan
+	windows:
+		vulkan-1
 	darwin:
+		MoltenVK
 		Foundation
 		AppKit
 		IOKit

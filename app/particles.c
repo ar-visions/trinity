@@ -23,9 +23,9 @@ int main(int argc, char *argv[]) {
     window   w = window(t, t, width, 800, height, 600);
 
     /// load compute / render shaders
-    shader   fluid_shader = shader(t, t, name, string("fluid.wgsl"));
-    shader   apply_shader = shader(t, t, name, string("apply.wgsl"));
-    shader   draw_shader  = shader(t, t, name, string("draw.wgsl"));
+    shader   fluid_shader = shader(t, t, comp, string("fluid.comp"));
+    shader   apply_shader = shader(t, t, comp, string("apply.comp"));
+    shader   draw_shader  = shader(t, t, vert, string("draw.vert"), frag, string("draw.frag"));
 
     /// construct pipelines for each (fluid forces, apply forces, and draw particles)
     /// notice when fluid/apply is called, the VBO data should change for draw to make use of
