@@ -3,6 +3,145 @@
 
 #include <A>
 
+#define ComponentType_schema(X,Y) \
+    enum_value_v(X,Y, NONE,           0) \
+    enum_value_v(X,Y, BYTE,           5120) \
+    enum_value_v(X,Y, UNSIGNED_BYTE,  5121) \
+    enum_value_v(X,Y, SHORT,          5122) \
+    enum_value_v(X,Y, UNSIGNED_SHORT, 5123) \
+    enum_value_v(X,Y, UNSIGNED_INT,   5125) \
+    enum_value_v(X,Y, FLOAT,          5126)
+declare_enum(ComponentType)
+
+
+#define Key_schema(X, YY) \
+    enum_value_v(X, YY, Undefined,      0) \
+    enum_value_v(X, YY, Space,         32) \
+    enum_value_v(X, YY, Apostrophe,    39) \
+    enum_value_v(X, YY, Comma,         44) \
+    enum_value_v(X, YY, Minus,         45) \
+    enum_value_v(X, YY, Period,        46) \
+    enum_value_v(X, YY, Slash,         47) \
+    enum_value_v(X, YY, K0,            48) \
+    enum_value_v(X, YY, K1,            49) \
+    enum_value_v(X, YY, K2,            50) \
+    enum_value_v(X, YY, K3,            51) \
+    enum_value_v(X, YY, K4,            52) \
+    enum_value_v(X, YY, K5,            53) \
+    enum_value_v(X, YY, K6,            54) \
+    enum_value_v(X, YY, K7,            55) \
+    enum_value_v(X, YY, K8,            56) \
+    enum_value_v(X, YY, K9,            57) \
+    enum_value_v(X, YY, SemiColon,     59) \
+    enum_value_v(X, YY, Equal,         61) \
+    enum_value_v(X, YY, A,             65) \
+    enum_value_v(X, YY, B,             66) \
+    enum_value_v(X, YY, C,             67) \
+    enum_value_v(X, YY, D,             68) \
+    enum_value_v(X, YY, E,             69) \
+    enum_value_v(X, YY, F,             70) \
+    enum_value_v(X, YY, G,             71) \
+    enum_value_v(X, YY, H,             72) \
+    enum_value_v(X, YY, I,             73) \
+    enum_value_v(X, YY, J,             74) \
+    enum_value_v(X, YY, K,             75) \
+    enum_value_v(X, YY, L,             76) \
+    enum_value_v(X, YY, M,             77) \
+    enum_value_v(X, YY, N,             78) \
+    enum_value_v(X, YY, O,             79) \
+    enum_value_v(X, YY, P,             80) \
+    enum_value_v(X, YY, Q,             81) \
+    enum_value_v(X, YY, R,             82) \
+    enum_value_v(X, YY, S,             83) \
+    enum_value_v(X, YY, T,             84) \
+    enum_value_v(X, YY, U,             85) \
+    enum_value_v(X, YY, V,             86) \
+    enum_value_v(X, YY, W,             87) \
+    enum_value_v(X, YY, X,             88) \
+    enum_value_v(X, YY, Y,             89) \
+    enum_value_v(X, YY, Z,             90) \
+    enum_value_v(X, YY, LeftBracket,   91) \
+    enum_value_v(X, YY, BackSlash,     92) \
+    enum_value_v(X, YY, RightBracket,  93) \
+    enum_value_v(X, YY, GraveAccent,   96) \
+    enum_value_v(X, YY, World1,       161) \
+    enum_value_v(X, YY, World2,       162) \
+    enum_value_v(X, YY, Escape,       256) \
+    enum_value_v(X, YY, Enter,        257) \
+    enum_value_v(X, YY, Tab,          258) \
+    enum_value_v(X, YY, Backspace,    259) \
+    enum_value_v(X, YY, Insert,       260) \
+    enum_value_v(X, YY, Delete,       261) \
+    enum_value_v(X, YY, Right,        262) \
+    enum_value_v(X, YY, Left,         263) \
+    enum_value_v(X, YY, Down,         264) \
+    enum_value_v(X, YY, Up,           265) \
+    enum_value_v(X, YY, PageUp,       266) \
+    enum_value_v(X, YY, PageDown,     267) \
+    enum_value_v(X, YY, Home,         268) \
+    enum_value_v(X, YY, End,          269) \
+    enum_value_v(X, YY, CapsLock,     280) \
+    enum_value_v(X, YY, ScrollLock,   281) \
+    enum_value_v(X, YY, NumLock,      282) \
+    enum_value_v(X, YY, PrintScreen,  283) \
+    enum_value_v(X, YY, Pause,        284) \
+    enum_value_v(X, YY, F1,           290) \
+    enum_value_v(X, YY, F2,           291) \
+    enum_value_v(X, YY, F3,           292) \
+    enum_value_v(X, YY, F4,           293) \
+    enum_value_v(X, YY, F5,           294) \
+    enum_value_v(X, YY, F6,           295) \
+    enum_value_v(X, YY, F7,           296) \
+    enum_value_v(X, YY, F8,           297) \
+    enum_value_v(X, YY, F9,           298) \
+    enum_value_v(X, YY, F10,          299) \
+    enum_value_v(X, YY, F11,          300) \
+    enum_value_v(X, YY, F12,          301) \
+    enum_value_v(X, YY, F13,          302) \
+    enum_value_v(X, YY, F14,          303) \
+    enum_value_v(X, YY, F15,          304) \
+    enum_value_v(X, YY, F16,          305) \
+    enum_value_v(X, YY, F17,          306) \
+    enum_value_v(X, YY, F18,          307) \
+    enum_value_v(X, YY, F19,          308) \
+    enum_value_v(X, YY, F20,          309) \
+    enum_value_v(X, YY, F21,          310) \
+    enum_value_v(X, YY, F22,          311) \
+    enum_value_v(X, YY, F23,          312) \
+    enum_value_v(X, YY, F24,          313) \
+    enum_value_v(X, YY, F25,          314) \
+    enum_value_v(X, YY, Kp0,          320) \
+    enum_value_v(X, YY, Kp1,          321) \
+    enum_value_v(X, YY, Kp2,          322) \
+    enum_value_v(X, YY, Kp3,          323) \
+    enum_value_v(X, YY, Kp4,          324) \
+    enum_value_v(X, YY, Kp5,          325) \
+    enum_value_v(X, YY, Kp6,          326) \
+    enum_value_v(X, YY, Kp7,          327) \
+    enum_value_v(X, YY, Kp8,          328) \
+    enum_value_v(X, YY, Kp9,          329) \
+    enum_value_v(X, YY, KpDecimal,    330) \
+    enum_value_v(X, YY, KpDivide,     331) \
+    enum_value_v(X, YY, KpMultiply,   332) \
+    enum_value_v(X, YY, KpSubtract,   333) \
+    enum_value_v(X, YY, KpAdd,        334) \
+    enum_value_v(X, YY, KpEnter,      335) \
+    enum_value_v(X, YY, KpEqual,      336) \
+    enum_value_v(X, YY, LeftShift,    340) \
+    enum_value_v(X, YY, LeftControl,  341) \
+    enum_value_v(X, YY, LeftAlt,      342) \
+    enum_value_v(X, YY, LeftSuper,    343) \
+    enum_value_v(X, YY, RightShift,   344) \
+    enum_value_v(X, YY, RightControl, 345) \
+    enum_value_v(X, YY, RightAlt,     346) \
+    enum_value_v(X, YY, RightSuper,   347) \
+    enum_value_v(X, YY, Menu,         348)
+declare_enum(Key)
+
+
+
+
+
 #define v2_schema(X,Y) \
     i_prop    (X,Y, public, f32, x) \
     i_prop    (X,Y, public, f32, y)
@@ -65,7 +204,7 @@ declare_class(shader)
 typedef struct pipeline* pipeline;
 
 #define window_schema(X,Y) \
-    i_prop    (X,Y, intern,     GLFWwindow*,            window) \
+    i_prop    (X,Y, intern,     handle,                 window) \
     i_prop    (X,Y, intern,     VkSurfaceKHR,           surface) \
     i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain) \
     i_prop    (X,Y, intern,     array,                  pipelines) \
@@ -131,5 +270,339 @@ declare_struct(particle)
 #define vertex_intern
 #endif
 declare_struct(vertex)
+
+
+
+
+
+#define CompoundType_schema(X,Y) \
+    enum_value_v(X,Y, NONE,           0) \
+    enum_value_v(X,Y, SCALAR,         1) \
+    enum_value_v(X,Y, VEC2,           2) \
+    enum_value_v(X,Y, VEC3,           3) \
+    enum_value_v(X,Y, VEC4,           4) \
+    enum_value_v(X,Y, MAT2,           5) \
+    enum_value_v(X,Y, MAT3,           6) \
+    enum_value_v(X,Y, MAT4,           7)
+declare_enum(CompoundType)
+
+
+#define TargetType_schema(X,Y) \
+    enum_value_v(X,Y, NONE,           0) \
+    enum_value_v(X,Y, ARRAY_BUFFER,   34962) \
+    enum_value_v(X,Y, ELEMENT_BUFFER, 34963)
+declare_enum(TargetType)
+
+
+#define Mode_schema(X,Y) \
+    enum_value_v(X,Y, NONE,           0) \
+    enum_value_v(X,Y, LINES,          1) \
+    enum_value_v(X,Y, LINE_LOOP,      2) \
+    enum_value_v(X,Y, TRIANGLES,      4) \
+    enum_value_v(X,Y, TRIANGLE_STRIP, 5) \
+    enum_value_v(X,Y, TRIANGLE_FAN,   6) \
+    enum_value_v(X,Y, QUADS,          7)
+declare_enum(Mode)
+
+
+#define Interpolation_schema(X,Y) \
+    enum_value_v(X,Y, LINEAR,         0) \
+    enum_value_v(X,Y, STEP,           1) \
+    enum_value_v(X,Y, CUBICSPLINE,    2)
+declare_enum(Interpolation)
+
+
+#define Sampler_schema(X,Y) \
+    i_prop(X,Y, public, u64,            input) \
+    i_prop(X,Y, public, u64,            output) \
+    i_prop(X,Y, public, Interpolation,  interpolation) \
+    i_override(  X,Y, cast, string)
+#ifndef Sampler_intern
+#define Sampler_intern
+#endif
+declare_class(Sampler)
+
+
+#define ChannelTarget_schema(X,Y) \
+    i_prop(X,Y, public, u64,            node) \
+    i_prop(X,Y, public, string,         path)
+#ifndef ChannelTarget_intern
+#define ChannelTarget_intern
+#endif
+declare_class(ChannelTarget)
+
+
+#define Channel_schema(X,Y) \
+    i_prop(X,Y, public, u64,            sampler) \
+    i_prop(X,Y, public, ChannelTarget,  target)
+#ifndef Channel_intern
+#define Channel_intern
+#endif
+declare_class(Channel)
+
+/// type-safe container declarations; needed for proper json serialization
+/// the Model is given in the definition, in .c file
+/// this merely forms a type alias with an additional type_t slot used at meta[0]
+/// meta types are merely types with an array of types filled at index
+declare_meta(array_i64,        array)
+declare_meta(array_mat4f,      array)
+declare_meta(array_string,     array)
+declare_meta(array_Transform,  array)
+declare_meta(array_Sampler,    array)
+declare_meta(array_Channel,    array)
+declare_meta(array_map,        array)
+declare_meta(array_Primitive,  array)
+declare_meta(array_Node,       array)
+declare_meta(array_Skin,       array)
+declare_meta(array_Accessor,   array)
+declare_meta(array_BufferView, array)
+declare_meta(array_Mesh,       array)
+declare_meta(array_Scene,      array)
+declare_meta(array_Buffer,     array)
+declare_meta(array_Animation,  array)
+
+#define Animation_schema(X,Y) \
+    i_prop(X,Y, public, string,         name) \
+    i_prop(X,Y, public, array_Sampler,  samplers)
+#ifndef Animation_intern
+#define Animation_intern
+#endif
+declare_class(Animation)
+
+
+#define SparseInfo_schema(X, Y) \
+    i_prop(X, Y, public, u64,           bufferView) \
+    i_prop(X, Y, public, ComponentType, componentType)
+#ifndef SparseInfo_intern
+#define SparseInfo_intern
+#endif
+declare_class(SparseInfo)
+
+
+#define Sparse_schema(X, Y) \
+    i_prop(X, Y, public, u64, count) \
+    i_prop(X, Y, public, SparseInfo,    indices) \
+    i_prop(X, Y, public, SparseInfo,    values)
+#ifndef Sparse_intern
+#define Sparse_intern
+#endif
+declare_class(Sparse)
+
+
+#define Accessor_schema(X, Y) \
+    i_prop(X, Y, public, u64,           bufferView) \
+    i_prop(X, Y, public, ComponentType, componentType) \
+    i_prop(X, Y, public, CompoundType,  type) \
+    i_prop(X, Y, public, u64,           count) \
+    i_prop(X, Y, public, v3,            min) \
+    i_prop(X, Y, public, v3,            max) \
+    i_prop(X, Y, public, Sparse,        sparse) \
+    i_method(X, Y, public, u64,         vcount) \
+    i_method(X, Y, public, u64,         component_size)
+#ifndef Accessor_intern
+#define Accessor_intern
+#endif
+declare_class(Accessor)
+
+
+#define BufferView_schema(X, Y) \
+    i_prop(X, Y, public, u64, buffer) \
+    i_prop(X, Y, public, u64, byteLength) \
+    i_prop(X, Y, public, u64, byteOffset) \
+    i_prop(X, Y, public, TargetType, target)
+#ifndef BufferView_intern
+#define BufferView_intern
+#endif
+declare_class(BufferView)
+
+typedef struct veci64* veci64;
+
+#define Skin_schema(X, Y) \
+    i_prop(X, Y, public, string, name) \
+    i_prop(X, Y, public, array_i64, joints) \
+    i_prop(X, Y, public, i32, inverseBindMatrices) \
+    i_prop(X, Y, public, object, extras) \
+    i_prop(X, Y, public, object, extensions)
+#ifndef Skin_intern
+#define Skin_intern
+#endif
+declare_class(Skin)
+
+
+#define JData_schema(X, Y) \
+    i_prop(X, Y, public, array_mat4f,       states) \
+    i_prop(X, Y, public, array_Transform,   transforms) \
+    i_prop(X, Y, public, mat4f,             local)
+#ifndef JData_intern
+#define JData_intern
+#endif
+declare_class(JData)
+
+
+
+#define Transform_schema(X, Y) \
+    i_prop(X, Y, public, JData,             jdata) \
+    i_prop(X, Y, public, i32,               istate) \
+    i_prop(X, Y, public, mat4f,             local) \
+    i_prop(X, Y, public, mat4f,             local_default) \
+    i_prop(X, Y, public, i32,               iparent) \
+    i_prop(X, Y, public, array_i64,         ichildren) \
+    i_method(X, Y, public, none, multiply,  mat4f) \
+    i_method(X, Y, public, none, set,       mat4f) \
+    i_method(X, Y, public, none, set_default) \
+    i_method(X, Y, public, none, propagate)
+#ifndef Transform_intern
+#define Transform_intern
+#endif
+declare_class(Transform)
+
+
+#define Node_schema(X, Y) \
+    i_prop(X, Y, public, string,            name) \
+    i_prop(X, Y, public, i32,               skin) \
+    i_prop(X, Y, public, i32,               mesh) \
+    i_prop(X, Y, public, vec3f,             translation) \
+    i_prop(X, Y, public, quatf,             rotation) \
+    i_prop(X, Y, public, vec3f,             scale) \
+    i_prop(X, Y, public, vecf,              weights) \
+    i_prop(X, Y, public, array_i64,         children) \
+    i_prop(X, Y, public, i32,               joint_index) \
+    i_prop(X, Y, public, bool,              processed) \
+    i_prop(X, Y, public, object,            mx_joints)
+#ifndef Node_intern
+#define Node_intern
+#endif
+declare_class(Node)
+
+
+#define Primitive_schema(X, Y) \
+    i_prop(X, Y, public, map,               attributes) \
+    i_prop(X, Y, public, u64,               indices) \
+    i_prop(X, Y, public, i32,               material) \
+    i_prop(X, Y, public, Mode,              mode) \
+    i_prop(X, Y, public, array_map,         targets)
+#ifndef Primitive_intern
+#define Primitive_intern
+#endif
+declare_class(Primitive)
+
+
+#define MeshExtras_schema(X, Y) \
+    i_prop(X, Y, public, array_string,      target_names)
+#ifndef MeshExtras_intern
+#define MeshExtras_intern
+#endif
+declare_class(MeshExtras)
+
+
+#define Mesh_schema(X, Y) \
+    i_prop(X, Y, public, string,            name) \
+    i_prop(X, Y, public, array_Primitive,   primitives) \
+    i_prop(X, Y, public, vecf,              weights) \
+    i_prop(X, Y, public, MeshExtras,        extras)
+#ifndef Mesh_intern
+#define Mesh_intern
+#endif
+declare_class(Mesh)
+
+
+#define Scene_schema(X, Y) \
+    i_prop(X, Y, public, string,            name) \
+    i_prop(X, Y, public, array_i64,         nodes)
+#ifndef Scene_intern
+#define Scene_intern
+#endif
+declare_class(Scene)
+
+
+#define AssetDesc_schema(X, Y) \
+    i_prop(X, Y, public, string,            generator) \
+    i_prop(X, Y, public, string,            copyright) \
+    i_prop(X, Y, public, string,            version)
+#ifndef AssetDesc_intern
+#define AssetDesc_intern
+#endif
+declare_class(AssetDesc)
+
+
+#define Buffer_schema(X, Y) \
+    i_prop(X, Y, public, u64,               byteLength) \
+    i_prop(X, Y, public, object,            uri)
+#ifndef Buffer_intern
+#define Buffer_intern
+#endif
+declare_class(Buffer)
+
+
+#define Model_schema(X, Y) \
+    i_prop  (X, Y, public, array_Node,      nodes) \
+    i_prop  (X, Y, public, array_Skin,      skins) \
+    i_prop  (X, Y, public, array_Accessor,  accessors) \
+    i_prop  (X, Y, public, array_BufferView, bufferViews) \
+    i_prop  (X, Y, public, array_Mesh,      meshes) \
+    i_prop  (X, Y, public, array_Buffer,    buffers) \
+    i_prop  (X, Y, public, array_Animation, animations) \
+    i_prop  (X, Y, public, array_Scene,     scenes) \
+    i_prop  (X, Y, public, u64,             scene) \
+    i_prop  (X, Y, public, AssetDesc,       asset) \
+    i_method(X, Y, public, Transform,       node_transform, JData, mat4f, i32, Transform) \
+    i_method(X, Y, public, Node,            find, string) \
+    i_method(X, Y, public, Node,            parent, Node) \
+    i_method(X, Y, public, i32,             index_of, string) \
+    i_index (X, Y, public, Node,            string) \
+    i_method(X, Y, public, JData,           joints, Node) \
+    i_ctr(X, Y, public, path)
+#ifndef Model_intern
+#define Model_intern
+#endif
+declare_class(Model)
+
+
+#define Polygon_schema(X, Y) \
+    enum_value_v(X, Y, undefined, 0) \
+    enum_value_v(X, Y, tri, 1) \
+    enum_value_v(X, Y, quad, 2) \
+    enum_value_v(X, Y, wire, 3) \
+    enum_value_v(X, Y, mixed, 4) \
+    enum_value_v(X, Y, ngon, 5)
+declare_enum(Polygon)
+
+
+#define Asset_schema(X, Y) \
+    enum_value_v(X, Y, undefined, 0) \
+    enum_value_v(X, Y, color, 1) \
+    enum_value_v(X, Y, normal, 2) \
+    enum_value_v(X, Y, material, 3) \
+    enum_value_v(X, Y, reflect, 4) \
+    enum_value_v(X, Y, env, 5) \
+    enum_value_v(X, Y, attachment, 6) \
+    enum_value_v(X, Y, depth_stencil, 7) \
+    enum_value_v(X, Y, multisample, 8)
+declare_enum(Asset)
+
+
+#define Sampling_schema(X, Y) \
+    enum_value_v(X, Y, undefined, 0) \
+    enum_value_v(X, Y, nearest, 1) \
+    enum_value_v(X, Y, linear, 2) \
+    enum_value_v(X, Y, ansio, 3)
+declare_enum(Sampling)
+
+
+
+#define HumanVertex_schema(X, Y) \
+    i_prop(X, Y, public, v3, pos)          \
+    i_prop(X, Y, public, v3, normal)       \
+    i_prop(X, Y, public, v2, uv0)           \
+    i_prop(X, Y, public, v2, uv1)           \
+    i_prop(X, Y, public, v4, tangent)     \
+    i_prop(X, Y, public, v4, joints0)     \
+    i_prop(X, Y, public, v4, joints1)     \
+    i_prop(X, Y, public, v4, weights0)    \
+    i_prop(X, Y, public, v4, weights1)
+#ifndef HumanVertex_intern
+#define HumanVertex_intern
+#endif
+declare_struct(HumanVertex)
 
 #endif
