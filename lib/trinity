@@ -3,7 +3,7 @@
 
 #include <A>
 
-#define ComponentType_schema(X,Y) \
+#define ComponentType_schema(X,Y,...) \
     enum_value_v(X,Y, NONE,           0) \
     enum_value_v(X,Y, BYTE,           5120) \
     enum_value_v(X,Y, UNSIGNED_BYTE,  5121) \
@@ -142,7 +142,7 @@ declare_enum(Key)
 
 
 
-#define v2_schema(X,Y) \
+#define v2_schema(X,Y,...) \
     i_prop    (X,Y, public, f32, x) \
     i_prop    (X,Y, public, f32, y)
 #ifndef v2_intern
@@ -150,7 +150,7 @@ declare_enum(Key)
 #endif
 declare_struct(v2)
 
-#define v4_schema(X,Y) \
+#define v4_schema(X,Y,...) \
     i_prop    (X,Y, public, f32, x) \
     i_prop    (X,Y, public, f32, y) \
     i_prop    (X,Y, public, f32, z) \
@@ -160,7 +160,7 @@ declare_struct(v2)
 #endif
 declare_struct(v4)
 
-#define v3_schema(X,Y) \
+#define v3_schema(X,Y,...) \
     i_prop    (X,Y, public, f32, x) \
     i_prop    (X,Y, public, f32, y) \
     i_prop    (X,Y, public, f32, z)
@@ -169,7 +169,7 @@ declare_struct(v4)
 #endif
 declare_struct(v3)
 
-#define trinity_schema(X,Y) \
+#define trinity_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkInstance,          instance) \
     i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device) \
     i_prop    (X,Y, intern,     VkDevice,            device) \
@@ -186,7 +186,7 @@ declare_struct(v3)
 #endif
 declare_class(trinity)
 
-#define shader_schema(X,Y) \
+#define shader_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkShaderModule,     vert_module) \
     i_prop    (X,Y, intern,     VkShaderModule,     frag_module) \
     i_prop    (X,Y, intern,     VkShaderModule,     comp_module) \
@@ -203,7 +203,7 @@ declare_class(shader)
 
 typedef struct pipeline* pipeline;
 
-#define window_schema(X,Y) \
+#define window_schema(X,Y,...) \
     i_prop    (X,Y, intern,     handle,                 window) \
     i_prop    (X,Y, intern,     VkSurfaceKHR,           surface) \
     i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain) \
@@ -233,7 +233,7 @@ typedef struct pipeline* pipeline;
 #endif
 declare_class(window)
 
-#define pipeline_schema(X,Y) \
+#define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity, t) \
     i_prop    (X,Y, required,   window,  w) \
     i_prop    (X,Y, public,     object,  read) \
@@ -254,7 +254,7 @@ declare_class(window)
 #endif
 declare_class(pipeline)
 
-#define particle_schema(X,Y) \
+#define particle_schema(X,Y,...) \
     i_inlay(X,Y, public, v2,  pos) \
     i_inlay(X,Y, public, v2,  velocity) \
     i_prop(X,Y, public, f32, density) \
@@ -264,7 +264,7 @@ declare_class(pipeline)
 #endif
 declare_struct(particle)
 
-#define vertex_schema(X,Y) \
+#define vertex_schema(X,Y,...) \
     i_inlay(X,Y, public, v3,  pos)
 #ifndef vertex_intern
 #define vertex_intern
@@ -275,7 +275,7 @@ declare_struct(vertex)
 
 
 
-#define CompoundType_schema(X,Y) \
+#define CompoundType_schema(X,Y,...) \
     enum_value_v(X,Y, NONE,           0) \
     enum_value_v(X,Y, SCALAR,         1) \
     enum_value_v(X,Y, VEC2,           2) \
@@ -287,14 +287,14 @@ declare_struct(vertex)
 declare_enum(CompoundType)
 
 
-#define TargetType_schema(X,Y) \
+#define TargetType_schema(X,Y,...) \
     enum_value_v(X,Y, NONE,           0) \
     enum_value_v(X,Y, ARRAY_BUFFER,   34962) \
     enum_value_v(X,Y, ELEMENT_BUFFER, 34963)
 declare_enum(TargetType)
 
 
-#define Mode_schema(X,Y) \
+#define Mode_schema(X,Y,...) \
     enum_value_v(X,Y, NONE,           0) \
     enum_value_v(X,Y, LINES,          1) \
     enum_value_v(X,Y, LINE_LOOP,      2) \
@@ -305,25 +305,24 @@ declare_enum(TargetType)
 declare_enum(Mode)
 
 
-#define Interpolation_schema(X,Y) \
+#define Interpolation_schema(X,Y,...) \
     enum_value_v(X,Y, LINEAR,         0) \
     enum_value_v(X,Y, STEP,           1) \
     enum_value_v(X,Y, CUBICSPLINE,    2)
 declare_enum(Interpolation)
 
 
-#define Sampler_schema(X,Y) \
+#define Sampler_schema(X,Y,...) \
     i_prop(X,Y, public, u64,            input) \
     i_prop(X,Y, public, u64,            output) \
-    i_prop(X,Y, public, Interpolation,  interpolation) \
-    i_override(  X,Y, cast, string)
+    i_prop(X,Y, public, Interpolation,  interpolation)
 #ifndef Sampler_intern
 #define Sampler_intern
 #endif
 declare_class(Sampler)
 
 
-#define ChannelTarget_schema(X,Y) \
+#define ChannelTarget_schema(X,Y,...) \
     i_prop(X,Y, public, u64,            node) \
     i_prop(X,Y, public, string,         path)
 #ifndef ChannelTarget_intern
@@ -332,7 +331,7 @@ declare_class(Sampler)
 declare_class(ChannelTarget)
 
 
-#define Channel_schema(X,Y) \
+#define Channel_schema(X,Y,...) \
     i_prop(X,Y, public, u64,            sampler) \
     i_prop(X,Y, public, ChannelTarget,  target)
 #ifndef Channel_intern
@@ -344,24 +343,11 @@ declare_class(Channel)
 /// the Model is given in the definition, in .c file
 /// this merely forms a type alias with an additional type_t slot used at meta[0]
 /// meta types are merely types with an array of types filled at index
-declare_meta(array_i64,        array)
-declare_meta(array_mat4f,      array)
-declare_meta(array_string,     array)
-declare_meta(array_Transform,  array)
-declare_meta(array_Sampler,    array)
-declare_meta(array_Channel,    array)
-declare_meta(array_map,        array)
-declare_meta(array_Primitive,  array)
-declare_meta(array_Node,       array)
-declare_meta(array_Skin,       array)
-declare_meta(array_Accessor,   array)
-declare_meta(array_BufferView, array)
-declare_meta(array_Mesh,       array)
-declare_meta(array_Scene,      array)
-declare_meta(array_Buffer,     array)
-declare_meta(array_Animation,  array)
 
-#define Animation_schema(X,Y) \
+
+typedef struct array_Sampler* array_Sampler;
+
+#define Animation_schema(X,Y,...) \
     i_prop(X,Y, public, string,         name) \
     i_prop(X,Y, public, array_Sampler,  samplers)
 #ifndef Animation_intern
@@ -370,7 +356,7 @@ declare_meta(array_Animation,  array)
 declare_class(Animation)
 
 
-#define SparseInfo_schema(X, Y) \
+#define SparseInfo_schema(X, Y,...) \
     i_prop(X, Y, public, u64,           bufferView) \
     i_prop(X, Y, public, ComponentType, componentType)
 #ifndef SparseInfo_intern
@@ -379,7 +365,7 @@ declare_class(Animation)
 declare_class(SparseInfo)
 
 
-#define Sparse_schema(X, Y) \
+#define Sparse_schema(X, Y,...) \
     i_prop(X, Y, public, u64, count) \
     i_prop(X, Y, public, SparseInfo,    indices) \
     i_prop(X, Y, public, SparseInfo,    values)
@@ -389,7 +375,7 @@ declare_class(SparseInfo)
 declare_class(Sparse)
 
 
-#define Accessor_schema(X, Y) \
+#define Accessor_schema(X, Y,...) \
     i_prop(X, Y, public, u64,           bufferView) \
     i_prop(X, Y, public, ComponentType, componentType) \
     i_prop(X, Y, public, CompoundType,  type) \
@@ -405,7 +391,7 @@ declare_class(Sparse)
 declare_class(Accessor)
 
 
-#define BufferView_schema(X, Y) \
+#define BufferView_schema(X, Y,...) \
     i_prop(X, Y, public, u64, buffer) \
     i_prop(X, Y, public, u64, byteLength) \
     i_prop(X, Y, public, u64, byteOffset) \
@@ -416,11 +402,12 @@ declare_class(Accessor)
 declare_class(BufferView)
 
 typedef struct veci64* veci64;
+typedef struct array_Transform* array_Transform;
 
-#define Skin_schema(X, Y) \
+#define Skin_schema(X, Y,...) \
     i_prop(X, Y, public, string, name) \
-    i_prop(X, Y, public, array_i64, joints) \
-    i_prop(X, Y, public, i32, inverseBindMatrices) \
+    i_prop(X, Y, public, veci64, joints) \
+    i_prop(X, Y, public, i32,    inverseBindMatrices) \
     i_prop(X, Y, public, object, extras) \
     i_prop(X, Y, public, object, extensions)
 #ifndef Skin_intern
@@ -429,7 +416,7 @@ typedef struct veci64* veci64;
 declare_class(Skin)
 
 
-#define JData_schema(X, Y) \
+#define JData_schema(X, Y,...) \
     i_prop(X, Y, public, array_mat4f,       states) \
     i_prop(X, Y, public, array_Transform,   transforms) \
     i_prop(X, Y, public, mat4f,             local)
@@ -440,13 +427,13 @@ declare_class(JData)
 
 
 
-#define Transform_schema(X, Y) \
+#define Transform_schema(X, Y,...) \
     i_prop(X, Y, public, JData,             jdata) \
     i_prop(X, Y, public, i32,               istate) \
     i_prop(X, Y, public, mat4f,             local) \
     i_prop(X, Y, public, mat4f,             local_default) \
     i_prop(X, Y, public, i32,               iparent) \
-    i_prop(X, Y, public, array_i64,         ichildren) \
+    i_prop(X, Y, public, veci64,            ichildren) \
     i_method(X, Y, public, none, multiply,  mat4f) \
     i_method(X, Y, public, none, set,       mat4f) \
     i_method(X, Y, public, none, set_default) \
@@ -457,15 +444,16 @@ declare_class(JData)
 declare_class(Transform)
 
 
-#define Node_schema(X, Y) \
+#define Node_schema(X, Y,...) \
     i_prop(X, Y, public, string,            name) \
+    i_prop(X, Y, public, Node,              parent) \
     i_prop(X, Y, public, i32,               skin) \
     i_prop(X, Y, public, i32,               mesh) \
     i_prop(X, Y, public, vec3f,             translation) \
     i_prop(X, Y, public, quatf,             rotation) \
     i_prop(X, Y, public, vec3f,             scale) \
     i_prop(X, Y, public, vecf,              weights) \
-    i_prop(X, Y, public, array_i64,         children) \
+    i_prop(X, Y, public, veci64,            children) \
     i_prop(X, Y, public, i32,               joint_index) \
     i_prop(X, Y, public, bool,              processed) \
     i_prop(X, Y, public, object,            mx_joints)
@@ -475,7 +463,7 @@ declare_class(Transform)
 declare_class(Node)
 
 
-#define Primitive_schema(X, Y) \
+#define Primitive_schema(X, Y,...) \
     i_prop(X, Y, public, map,               attributes) \
     i_prop(X, Y, public, u64,               indices) \
     i_prop(X, Y, public, i32,               material) \
@@ -487,7 +475,7 @@ declare_class(Node)
 declare_class(Primitive)
 
 
-#define MeshExtras_schema(X, Y) \
+#define MeshExtras_schema(X, Y,...) \
     i_prop(X, Y, public, array_string,      target_names)
 #ifndef MeshExtras_intern
 #define MeshExtras_intern
@@ -495,7 +483,9 @@ declare_class(Primitive)
 declare_class(MeshExtras)
 
 
-#define Mesh_schema(X, Y) \
+typedef struct array_Primitive* array_Primitive;
+
+#define Mesh_schema(X, Y,...) \
     i_prop(X, Y, public, string,            name) \
     i_prop(X, Y, public, array_Primitive,   primitives) \
     i_prop(X, Y, public, vecf,              weights) \
@@ -506,16 +496,16 @@ declare_class(MeshExtras)
 declare_class(Mesh)
 
 
-#define Scene_schema(X, Y) \
+#define Scene_schema(X, Y,...) \
     i_prop(X, Y, public, string,            name) \
-    i_prop(X, Y, public, array_i64,         nodes)
+    i_prop(X, Y, public, veci64,            nodes)
 #ifndef Scene_intern
 #define Scene_intern
 #endif
 declare_class(Scene)
 
 
-#define AssetDesc_schema(X, Y) \
+#define AssetDesc_schema(X, Y,...) \
     i_prop(X, Y, public, string,            generator) \
     i_prop(X, Y, public, string,            copyright) \
     i_prop(X, Y, public, string,            version)
@@ -525,7 +515,7 @@ declare_class(Scene)
 declare_class(AssetDesc)
 
 
-#define Buffer_schema(X, Y) \
+#define Buffer_schema(X, Y,...) \
     i_prop(X, Y, public, u64,               byteLength) \
     i_prop(X, Y, public, object,            uri)
 #ifndef Buffer_intern
@@ -533,8 +523,16 @@ declare_class(AssetDesc)
 #endif
 declare_class(Buffer)
 
+typedef struct array_Node*          array_Node;
+typedef struct array_Skin*          array_Skin;
+typedef struct array_Accessor*      array_Accessor;
+typedef struct array_BufferView*    array_BufferView;
+typedef struct array_Mesh*          array_Mesh;
+typedef struct array_Buffer*        array_Buffer;
+typedef struct array_Animation*     array_Animation;
+typedef struct array_Scene*         array_Scene;
 
-#define Model_schema(X, Y) \
+#define Model_schema(X, Y,...) \
     i_prop  (X, Y, public, array_Node,      nodes) \
     i_prop  (X, Y, public, array_Skin,      skins) \
     i_prop  (X, Y, public, array_Accessor,  accessors) \
@@ -547,7 +545,6 @@ declare_class(Buffer)
     i_prop  (X, Y, public, AssetDesc,       asset) \
     i_method(X, Y, public, Transform,       node_transform, JData, mat4f, i32, Transform) \
     i_method(X, Y, public, Node,            find, string) \
-    i_method(X, Y, public, Node,            parent, Node) \
     i_method(X, Y, public, i32,             index_of, string) \
     i_index (X, Y, public, Node,            string) \
     i_method(X, Y, public, JData,           joints, Node) \
@@ -558,7 +555,7 @@ declare_class(Buffer)
 declare_class(Model)
 
 
-#define Polygon_schema(X, Y) \
+#define Polygon_schema(X, Y,...) \
     enum_value_v(X, Y, undefined, 0) \
     enum_value_v(X, Y, tri, 1) \
     enum_value_v(X, Y, quad, 2) \
@@ -568,7 +565,7 @@ declare_class(Model)
 declare_enum(Polygon)
 
 
-#define Asset_schema(X, Y) \
+#define Asset_schema(X, Y,...) \
     enum_value_v(X, Y, undefined, 0) \
     enum_value_v(X, Y, color, 1) \
     enum_value_v(X, Y, normal, 2) \
@@ -581,7 +578,7 @@ declare_enum(Polygon)
 declare_enum(Asset)
 
 
-#define Sampling_schema(X, Y) \
+#define Sampling_schema(X, Y,...) \
     enum_value_v(X, Y, undefined, 0) \
     enum_value_v(X, Y, nearest, 1) \
     enum_value_v(X, Y, linear, 2) \
@@ -590,7 +587,7 @@ declare_enum(Sampling)
 
 
 
-#define HumanVertex_schema(X, Y) \
+#define HumanVertex_schema(X, Y,...) \
     i_prop(X, Y, public, v3, pos)          \
     i_prop(X, Y, public, v3, normal)       \
     i_prop(X, Y, public, v2, uv0)           \
@@ -604,5 +601,19 @@ declare_enum(Sampling)
 #define HumanVertex_intern
 #endif
 declare_struct(HumanVertex)
+
+
+declare_meta(array_Transform,  array, Transform)
+declare_meta(array_Sampler,    array, Sampler)
+declare_meta(array_Channel,    array, Channel)
+declare_meta(array_Primitive,  array, Primitive)
+declare_meta(array_Node,       array, Node)
+declare_meta(array_Skin,       array, Skin)
+declare_meta(array_Accessor,   array, Accessor)
+declare_meta(array_BufferView, array, BufferView)
+declare_meta(array_Mesh,       array, Mesh)
+declare_meta(array_Scene,      array, Scene)
+declare_meta(array_Buffer,     array, Buffer)
+declare_meta(array_Animation,  array, Animation)
 
 #endif

@@ -969,7 +969,9 @@ define_class(particle)
 
 
 
-
+Model Model_with_path(Model a, path loc) {
+    load(a, loc);
+}
 
 
 
@@ -983,16 +985,16 @@ Node Model_find(Model a, string name) {
 }
 
 Node Model_parent(Model a, Node n) {
-    int node_index = -1;
+    num node_index = index_of(a->nodes, n);
+    verify(node_index >= 0, "invalid node memory");
     each (a->nodes->elements, Node, node) {
-        if (node == n)
-            break;
-        node_index++;
-    }
-    object index = A_i64(node_index);
-    each (a->nodes->elements, Node, node) {
-        if (index_of(node->children, index) >= 0)
-            return node;
+        for (num i = 0, ln = len(node->children); i < ln; i++) {
+            veci64_f* table = typeid(veci64);
+
+            i64 id = 0;//get(node->children, i);
+            if (node_index == id)
+                return node;
+        }
     }
     return (Node)null;
 }
@@ -1041,7 +1043,7 @@ Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node
             if (ch) {
                 Node n = a->nodes->elements[node_index];
                 verify(n->joint_index == ch->istate, "joint index mismatch");
-                push(transform->ichildren, A_i64(ch->istate)); /// there are cases where a referenced node is not part of the joints array; we dont add those.
+                push(transform->ichildren, ch->istate); /// there are cases where a referenced node is not part of the joints array; we dont add those.
             }
         }
         push(joints->transforms, transform);
@@ -1073,10 +1075,9 @@ JData Model_joints(Model a, Node node) {
         joints->transforms = array_Transform(len(skin->joints)); /// we are appending, so dont set size (just verify)
         joints->states     = array_mat4f    (len(skin->joints));
         fill(joints->states, mat4f(null));
-        Transform null;
         /// for each root joint, resolve the local and global matrices
         values (skin->joints, int, node_index) {
-            if (contains(all_children, p_node_index))
+            if (contains(all_children, &node_index)) // fix
                 continue;
             
             mat4f ident = mat4f(null);
@@ -1085,17 +1086,17 @@ JData Model_joints(Model a, Node node) {
     }
 
     for (int i = 0; i < len(joints->states); i++)
-        joints->state->elements[i] = mat4f(null);
+        joints->states->elements[i] = mat4f(null);
 
     /// adding transforms twice
-    assert(joints->states.len() == joints->transforms.len());
+    verify(len(joints->states) == len(joints->transforms), "length mismatch");
     node->mx_joints = joints;
     return joints;
 }
 
-size_t Accessor_vcount(Accessor a) {
-    size_t vsize = 0;
-    switch (type) {
+u64 Accessor_vcount(Accessor a) {
+    u64 vsize = 0;
+    switch (a->type) {
         case CompoundType_SCALAR: vsize = 1; break;
         case CompoundType_VEC2:   vsize = 2; break;
         case CompoundType_VEC3:   vsize = 3; break;
@@ -1103,21 +1104,21 @@ size_t Accessor_vcount(Accessor a) {
         case CompoundType_MAT2:   vsize = 4; break;
         case CompoundType_MAT3:   vsize = 9; break;
         case CompoundType_MAT4:   vsize = 16; break;
-        default: assert(false);
+        default: fault("invalid CompoundType");
     }
     return vsize;
 };
 
-size_t Accessor_component_size(Accessor a) {
-    size_t scalar_sz = 0;
-    switch (componentType) {
+u64 Accessor_component_size(Accessor a) {
+    u64 scalar_sz = 0;
+    switch (a->componentType) {
         case ComponentType_BYTE:           scalar_sz = sizeof(u8); break;
         case ComponentType_UNSIGNED_BYTE:  scalar_sz = sizeof(u8); break;
         case ComponentType_SHORT:          scalar_sz = sizeof(u16); break;
         case ComponentType_UNSIGNED_SHORT: scalar_sz = sizeof(u16); break;
         case ComponentType_UNSIGNED_INT:   scalar_sz = sizeof(u32); break;
         case ComponentType_FLOAT:          scalar_sz = sizeof(float); break;
-        default: assert(false);
+        default: fault("invalid ComponentType");
     }
     return scalar_sz;
 };
@@ -1133,24 +1134,27 @@ void Transform_set(Transform a, mat4f m) {
 }
 
 void Transform_set_default(Transform a) {
-    a->local = data->local_default;
+    a->local = a->local_default;
     propagate(a);
 }
 
 void Transform_operator__assign_mul(Transform a, mat4f m) {
-    multiply(m);
+    multiply(a, m);
 }
 
-bool Tarnsformer_cast_bool(Transform a) {
-    return data->jdata;
+bool Transformer_cast_bool(Transform a) {
+    return a->jdata != null;
 }
 
 void Transform_propagate(Transform a) {
     mat4f ident = mat4f(null); /// iparent's istate will always == iparent
-    mat4f m = (a->iparent != -1) ? a->jdata->states[a->iparent] : ident;
+    mat4f m = (a->iparent != -1) ? a->jdata->states->elements[a->iparent] : ident;
     a->jdata->states->elements[a->istate] = mul(m, a->local);
-    values (a->ichildren, int, t)
-        propagate(a->jdata->transforms->elements[t]);
+
+    for (i64 t = get2(a->ichildren, 0), e0 = 0; e0 == 0; e0++)
+        for (num __i = 0, __len = len(a->ichildren); __i < __len; __i++, t = get2(a->ichildren, __i)) {
+            propagate(a->jdata->transforms->elements[t]);
+        }
 }
 
 define_enum(CompoundType)
@@ -1181,10 +1185,9 @@ define_enum(Asset)
 define_enum(Sampling)
 define_struct(HumanVertex)
 
-define_meta(array_i64,        array, i64)
+define_meta(array_Transform,  array, Transform)
 define_meta(array_Sampler,    array, Sampler)
 define_meta(array_Channel,    array, Channel)
-define_meta(array_map,        array, Maps)
 define_meta(array_Primitive,  array, Primitive)
 define_meta(array_Node,       array, Node)
 define_meta(array_Skin,       array, Skin)
