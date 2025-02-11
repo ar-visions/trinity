@@ -2,19 +2,30 @@ A https://github.com/ar-visions/A main
 glfw https://github.com/glfw/glfw 7b6aead
 	-DGLFW_BUILD_WAYLAND=OFF
 	-DGLFW_VULKAN=ON
-dawn https://github.com/google/dawn 777987d6d109a1632a0a413eca952cf6902e09fb
-	-DDAWN_ENABLE_INSTALL=1
-	-DBUILD_SHARED_LIBS=0
-	-DTINT_BUILD_TESTS=0
-	-DDAWN_BUILD_SAMPLES=1
-	-DBUILD_SAMPLES=1
-	-DDAWN_ENABLE_DESKTOP_GL=0
-	-DDAWN_ENABLE_OPENGLES=0
-	linux:
-		-DDAWN_ENABLE_VULKAN=1
+
+osd https://github.com/PixarAnimationStudios/OpenSubdiv 7d0ab55
+	-DNO_EXAMPLES=ON
+	-DNO_TUTORIALS=ON
+	-DNO_REGRESSION=ON
+	-DNO_PTEX=ON
+	-DNO_DOC=ON
+	-DNO_OMP=ON
+	-DNO_TBB=ON
+	-DNO_CUDA=ON
+	-DNO_OPENCL=ON
+	-DNO_CLEW=ON
+	-DNO_OPENGL=ON
+	-DNO_METAL=ON
+	-DNO_DX=ON
+	-DNO_TESTS=ON
+	-DNO_GLTESTS=ON
+	-DNO_GLEW=ON
+	-DNO_GLFW=ON
+	-DNO_GLFW_X11=ON
+	-DNO_MACOS_FRAMEWORK=ON
+
 lib:
 	A
-	webgpu_dawn
 	glfw3
 	m
 	linux:
@@ -30,7 +41,7 @@ lib:
 		CoreFoundation
 app:
 	A
-	webgpu_dawn
+	osdCPU
 	glfw3
 	m
 	linux:

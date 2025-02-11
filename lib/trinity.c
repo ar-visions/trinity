@@ -290,9 +290,9 @@ void pipeline_init(pipeline p) {
                 attributes[attr_count].binding = 0;
                 attributes[attr_count].location = attr_count;
                 attributes[attr_count].format = 
-                    (mem->type == typeid(v2)) ? VK_FORMAT_R32G32_SFLOAT :
-                    (mem->type == typeid(v3)) ? VK_FORMAT_R32G32B32_SFLOAT :
-                    (mem->type == typeid(v4)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+                    (mem->type == typeid(vec2f)) ? VK_FORMAT_R32G32_SFLOAT :
+                    (mem->type == typeid(vec3f)) ? VK_FORMAT_R32G32B32_SFLOAT :
+                    (mem->type == typeid(vec4f)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
                                                 VK_FORMAT_UNDEFINED;
                 attributes[attr_count].offset = offset;
                 offset += mem->type->size;
@@ -477,7 +477,8 @@ void window_init(window w) {
     w->pipelines = array();
     // Initialize GLFW window with Vulkan compatibility
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    w->window = glfwCreateWindow(w->width, w->height, "triangle [Vulkan + GLFW]", NULL, NULL);
+    w->window = glfwCreateWindow(w->width, w->height,
+        w->title ? cstring(w->title) : "trinity", NULL, NULL);
     verify(w->window, "Failed to create GLFW window");
 
     glfwSetWindowUserPointer(w->window, (void *)w);
@@ -753,8 +754,9 @@ void shader_init(shader s) {
     bool found = false;
     for (int i = 0; i < 3; i++) {
         string name = i == 0 ? s->vert : i == 1 ? s->frag : s->comp;
-        if (!name || !file_exists("%o", name)) continue;
-        spv_file = format("%o.spv", name);
+        path input = form(path, "shaders/%o", name);
+        if (!name || !file_exists("%o", input)) continue;
+        spv_file = form(string, "shaders/%o.spv", name);
         found = true;
 
         // Check if the .spv file already exists and is up to date
@@ -764,7 +766,7 @@ void shader_init(shader s) {
         /// if no spv, or our source is newer than the binary (we have changed it!)
         if (!spv_exists || source_stat.st_mtime > spv_stat.st_mtime) {
             // Compile GLSL to SPIR-V using glslangValidator
-            string command = format("glslangValidator -V %o -o %o", name, spv_file);
+            string command = form(string, "glslangValidator -V %o -o %o", input, spv_file);
             print("compiling shader: %o", command);
             int result = system(command->chars);
             if (result != 0) {
@@ -954,10 +956,6 @@ void trinity_destructor(trinity t) {
     glfwTerminate();
 }
 
-define_class(v2)
-define_class(v3)
-define_class(v4)
-
 define_class(trinity)
 define_class(shader)
 define_class(pipeline)
@@ -965,15 +963,6 @@ define_class(window)
 
 define_class(vertex)
 define_class(particle)
-
-
-
-
-Model Model_with_path(Model a, path loc) {
-    load(a, loc);
-}
-
-
 
 Node Model_find(Model a, string name) {
     each (a->nodes->elements, Node, node) {
@@ -1151,12 +1140,11 @@ void Transform_propagate(Transform a) {
     mat4f m = (a->iparent != -1) ? a->jdata->states->elements[a->iparent] : ident;
     a->jdata->states->elements[a->istate] = mul(m, a->local);
 
-    for (i64 t = get2(a->ichildren, 0), e0 = 0; e0 == 0; e0++)
-        for (num __i = 0, __len = len(a->ichildren); __i < __len; __i++, t = get2(a->ichildren, __i)) {
-            propagate(a->jdata->transforms->elements[t]);
-        }
+    vec_values (a->ichildren, i64, i)
+        propagate(a->jdata->transforms->elements[i]);
 }
 
+define_enum(ComponentType)
 define_enum(CompoundType)
 define_enum(TargetType)
 define_enum(Mode)
@@ -1183,7 +1171,12 @@ define_class(Model)
 define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
-define_struct(HumanVertex)
+
+define_class(PbrMetallicRoughness)
+define_class(TextureInfo)
+define_class(Material)
+
+//define_struct(HumanVertex)
 
 define_meta(array_Transform,  array, Transform)
 define_meta(array_Sampler,    array, Sampler)
@@ -1195,5 +1188,6 @@ define_meta(array_Accessor,   array, Accessor)
 define_meta(array_BufferView, array, BufferView)
 define_meta(array_Mesh,       array, Mesh)
 define_meta(array_Scene,      array, Scene)
+define_meta(array_Material,   array, Material)
 define_meta(array_Buffer,     array, Buffer)
 define_meta(array_Animation,  array, Animation)

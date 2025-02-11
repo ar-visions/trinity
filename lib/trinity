@@ -138,37 +138,6 @@ declare_enum(ComponentType)
     enum_value_v(X, YY, Menu,         348)
 declare_enum(Key)
 
-
-
-
-
-#define v2_schema(X,Y,...) \
-    i_prop    (X,Y, public, f32, x) \
-    i_prop    (X,Y, public, f32, y)
-#ifndef v2_intern
-#define v2_intern
-#endif
-declare_struct(v2)
-
-#define v4_schema(X,Y,...) \
-    i_prop    (X,Y, public, f32, x) \
-    i_prop    (X,Y, public, f32, y) \
-    i_prop    (X,Y, public, f32, z) \
-    i_prop    (X,Y, public, f32, w)
-#ifndef v4_intern
-#define v4_intern
-#endif
-declare_struct(v4)
-
-#define v3_schema(X,Y,...) \
-    i_prop    (X,Y, public, f32, x) \
-    i_prop    (X,Y, public, f32, y) \
-    i_prop    (X,Y, public, f32, z)
-#ifndef v3_intern
-#define v3_intern
-#endif
-declare_struct(v3)
-
 #define trinity_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkInstance,          instance) \
     i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device) \
@@ -224,6 +193,7 @@ typedef struct pipeline* pipeline;
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
+    i_prop    (X,Y, required,   string,                 title) \
     i_method  (X,Y, public,     none,                   loop) \
     i_method  (X,Y, public,     none,                   push, pipeline) \
     i_override(X,Y, method,     init) \
@@ -255,21 +225,21 @@ declare_class(window)
 declare_class(pipeline)
 
 #define particle_schema(X,Y,...) \
-    i_inlay(X,Y, public, v2,  pos) \
-    i_inlay(X,Y, public, v2,  velocity) \
+    i_inlay(X,Y, public, vec2f,  pos) \
+    i_inlay(X,Y, public, vec2f,  velocity) \
     i_prop(X,Y, public, f32, density) \
     i_prop(X,Y, public, f32, pressure)
 #ifndef particle_intern
 #define particle_intern
 #endif
-declare_struct(particle)
+declare_class(particle)
 
 #define vertex_schema(X,Y,...) \
-    i_inlay(X,Y, public, v3,  pos)
+    i_inlay(X,Y, public, vec3f,  pos)
 #ifndef vertex_intern
 #define vertex_intern
 #endif
-declare_struct(vertex)
+declare_class(vertex)
 
 
 
@@ -376,12 +346,13 @@ declare_class(Sparse)
 
 
 #define Accessor_schema(X, Y,...) \
+    i_prop(X, Y, public, bool,          normalized) \
     i_prop(X, Y, public, u64,           bufferView) \
     i_prop(X, Y, public, ComponentType, componentType) \
     i_prop(X, Y, public, CompoundType,  type) \
     i_prop(X, Y, public, u64,           count) \
-    i_prop(X, Y, public, v3,            min) \
-    i_prop(X, Y, public, v3,            max) \
+    i_prop(X, Y, public, vec3f,         min) \
+    i_prop(X, Y, public, vec3f,         max) \
     i_prop(X, Y, public, Sparse,        sparse) \
     i_method(X, Y, public, u64,         vcount) \
     i_method(X, Y, public, u64,         component_size)
@@ -517,7 +488,7 @@ declare_class(AssetDesc)
 
 #define Buffer_schema(X, Y,...) \
     i_prop(X, Y, public, u64,               byteLength) \
-    i_prop(X, Y, public, object,            uri)
+    i_prop(X, Y, public, vector,            uri)
 #ifndef Buffer_intern
 #define Buffer_intern
 #endif
@@ -531,6 +502,42 @@ typedef struct array_Mesh*          array_Mesh;
 typedef struct array_Buffer*        array_Buffer;
 typedef struct array_Animation*     array_Animation;
 typedef struct array_Scene*         array_Scene;
+typedef struct array_Material*      array_Material;
+
+#define TextureInfo_schema(X, Y,...) \
+    i_prop  (X, Y, public, i64, index) \
+    i_prop  (X, Y, public, u32, texCoord) \
+    i_prop  (X, Y, public, f32, scale)
+#ifndef TextureInfo_intern
+#define TextureInfo_intern
+#endif
+declare_class(TextureInfo)
+
+#define PbrMetallicRoughness_schema(X, Y,...) \
+    i_prop  (X, Y, public, vec4f,       baseColorFactor) \
+    i_prop  (X, Y, public, TextureInfo, baseColorTexture) \
+    i_prop  (X, Y, public, f32,         metallicFactor) \
+    i_prop  (X, Y, public, f32,         roughnessFactor) \
+    i_prop  (X, Y, public, TextureInfo, metallicRoughnessTexture)
+#ifndef PbrMetallicRoughness_intern
+#define PbrMetallicRoughness_intern
+#endif
+declare_class(PbrMetallicRoughness)
+
+#define Material_schema(X, Y,...) \
+    i_prop  (X, Y, public, string,      name) \
+    i_prop  (X, Y, public, PbrMetallicRoughness, pbrMetallicRoughness) \
+    i_prop  (X, Y, public, TextureInfo, normalTexture) \
+    i_prop  (X, Y, public, TextureInfo, occlusionTexture) \
+    i_prop  (X, Y, public, TextureInfo, emissiveTexture) \
+    i_prop  (X, Y, public, vec3f,       emissiveFactor) \
+    i_prop  (X, Y, public, string,      alphaMode) \
+    i_prop  (X, Y, public, f32,         alphaCutoff) \
+    i_prop  (X, Y, public, bool,        doubleSided)
+#ifndef Material_intern
+#define Material_intern
+#endif
+declare_class(Material)
 
 #define Model_schema(X, Y,...) \
     i_prop  (X, Y, public, array_Node,      nodes) \
@@ -541,14 +548,14 @@ typedef struct array_Scene*         array_Scene;
     i_prop  (X, Y, public, array_Buffer,    buffers) \
     i_prop  (X, Y, public, array_Animation, animations) \
     i_prop  (X, Y, public, array_Scene,     scenes) \
+    i_prop  (X, Y, public, array_Material,  materials) \
     i_prop  (X, Y, public, u64,             scene) \
     i_prop  (X, Y, public, AssetDesc,       asset) \
     i_method(X, Y, public, Transform,       node_transform, JData, mat4f, i32, Transform) \
     i_method(X, Y, public, Node,            find, string) \
     i_method(X, Y, public, i32,             index_of, string) \
     i_index (X, Y, public, Node,            string) \
-    i_method(X, Y, public, JData,           joints, Node) \
-    i_ctr(X, Y, public, path)
+    i_method(X, Y, public, JData,           joints, Node)
 #ifndef Model_intern
 #define Model_intern
 #endif
@@ -586,17 +593,18 @@ declare_enum(Asset)
 declare_enum(Sampling)
 
 
-
+/// this is an example Vertex I used prior, in C++ code and then converted to C
+/// we want to design a vertex for hinge.gltf
 #define HumanVertex_schema(X, Y,...) \
-    i_prop(X, Y, public, v3, pos)          \
-    i_prop(X, Y, public, v3, normal)       \
-    i_prop(X, Y, public, v2, uv0)           \
-    i_prop(X, Y, public, v2, uv1)           \
-    i_prop(X, Y, public, v4, tangent)     \
-    i_prop(X, Y, public, v4, joints0)     \
-    i_prop(X, Y, public, v4, joints1)     \
-    i_prop(X, Y, public, v4, weights0)    \
-    i_prop(X, Y, public, v4, weights1)
+    i_prop(X, Y, public, vec3f, pos)         \
+    i_prop(X, Y, public, vec3f, normal)      \
+    i_prop(X, Y, public, vec2f, uv0)         \
+    i_prop(X, Y, public, vec2f, uv1)         \
+    i_prop(X, Y, public, vec3f, tangent)     \
+    i_prop(X, Y, public, vec3f, joints0)     \
+    i_prop(X, Y, public, vec3f, joints1)     \
+    i_prop(X, Y, public, vec3f, weights0)    \
+    i_prop(X, Y, public, vec3f, weights1)
 #ifndef HumanVertex_intern
 #define HumanVertex_intern
 #endif
@@ -613,6 +621,7 @@ declare_meta(array_Accessor,   array, Accessor)
 declare_meta(array_BufferView, array, BufferView)
 declare_meta(array_Mesh,       array, Mesh)
 declare_meta(array_Scene,      array, Scene)
+declare_meta(array_Material,   array, Material)
 declare_meta(array_Buffer,     array, Buffer)
 declare_meta(array_Animation,  array, Animation)
 
