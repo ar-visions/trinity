@@ -3,6 +3,9 @@
 #include <import>
 #include <sys/stat.h>
 
+int something();
+
+
 static const int enable_validation = 1;
 static PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 
