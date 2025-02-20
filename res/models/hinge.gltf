@@ -228,7 +228,7 @@
 	"buffers":[
 		{
 			"byteLength":4304,
-			"uri":"hinge.bin"
+			"uri":"models/hinge.bin"
 		}
 	]
 }

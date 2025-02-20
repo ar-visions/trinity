@@ -1,0 +1,12 @@
+#version 460
+#extension GL_EXT_ray_tracing : enable
+
+layout(set = 0, binding = 1) uniform sampler2D baseColorTexture;
+hitAttributeEXT vec2 hitTexCoord; // Corrected declaration (No 'in' or 'layout(location)')
+
+void main() {
+    vec4 albedo = texture(baseColorTexture, hitTexCoord);
+    if (albedo.a < 0.5) {
+        ignoreIntersectionEXT; // Skip transparent pixels
+    }
+}

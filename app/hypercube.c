@@ -14,17 +14,22 @@ int main(int argc, char *argv[]) {
     path    gltf_file = path("hinge.gltf");
     Model   hinge     = read(gltf_file, typeid(Model));
 
+    /*
     vertex parts = A_alloc(typeid(vertex), n_parts, true);
 
     // Bottom face edges
-    parts[0] = (struct vertex) { .pos = {  0.0f, -0.5f,  0.5f } };
-    parts[1] = (struct vertex) { .pos = { -0.5f,  0.5f,  0.5f } };
-    parts[2] = (struct vertex) { .pos = {  0.5f,  0.5f,  0.5f } };
+    parts[0] = (struct _vertex) { .pos = {  0.0f, -0.5f,  0.5f } };
+    parts[1] = (struct _vertex) { .pos = { -0.5f,  0.5f,  0.5f } };
+    parts[2] = (struct _vertex) { .pos = {  0.5f,  0.5f,  0.5f } };
+    */
 
     trinity  t = trinity();
-    window   w = window(t, t, title, string("hypercube"), width, 800, height, 800);
-    shader   draw_shader = shader(t, t, vert, string("cube.vert"), frag, string("cube.frag"));
-    pipeline cube = pipeline(t, t, w, w, shader, draw_shader, read, parts);
+    window   w = window(
+        trinity, t,
+        title,   string("hypercube"),
+        width,   800,       height, 800);
+    shader   draw_shader = shader(trinity, t, vert, string("cube.vert"), frag, string("cube.frag"));
+    pipeline cube = pipeline(trinity, t, w, w, shader, draw_shader, resources, null);
     push(w, cube);
 
     loop(w);

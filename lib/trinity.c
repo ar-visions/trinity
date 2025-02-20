@@ -2,12 +2,11 @@
 #include <GLFW/glfw3.h>
 #include <import>
 #include <sys/stat.h>
-
-int something();
-
+#include <canvas.h>
 
 static const int enable_validation = 1;
 static PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
+static u32 vk_version = VK_API_VERSION_1_2;
 
 static void handle_glfw_key(
     GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
@@ -69,7 +68,7 @@ static VkBuffer create_buffer(trinity t, VkDeviceSize size, VkBufferUsageFlags u
 }
 
 static void update_framebuffers(window w) {
-    trinity t = w->t;
+    trinity t = w->trinity;
 
     // Wait for the device to idle before resizing
     vkDeviceWaitIdle(t->device);
@@ -222,7 +221,7 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
     if (width == 0 && height == 0) return; // Minimized window, no resize needed
 
     window w = glfwGetWindowUserPointer(glfw_window);
-    trinity t = w->t;
+    trinity t = w->trinity;
 
     // Update window dimensions
     w->width  = width;
@@ -234,73 +233,289 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
     update_framebuffers(w);
 }
 
-void pipeline_init(pipeline p) {
-    object data = p->read ? p->read : p->read_write;
-    verify(data, "No data provided");
-    bool is_comp = !p->read;
-    A header = A_header(data);
-    AType type = isa(data);
-    trinity t = p->t;
-    window w = p->w;
+void model_init(model m) {
+    Model mdl    = m->id;
+    trinity t    = m->trinity;
+    m->pipelines = array();
 
-    // Vertex count and buffer size
-    p->vertex_count = header->count;
-    p->total_size = type->size * p->vertex_count;
+    each (m->nodes, node, n) {
+        each (n->parts, part, p) {
+            Primitive prim = p->id;
+            string    name = prim ? prim->name : string("default");
+            shader    s    = p->shader;  // required argument for part
 
-    // Create buffer if it doesn't exist
-    if (contains(t->buffers, data)) {
-        p->buffer = get(t->buffers, data);
-    } else {
-        VkBufferUsageFlags usage = 
-            (is_comp ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT : 0) |
-                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            // validate indices accessor
+            i64 indices = prim->indices;
+            Accessor ai = get(mdl->accessors, indices);
 
-        VkBuffer buffer = create_buffer(t, p->total_size, usage,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, data);
+            // retrieve material properties
+            i64 material_id = prim->material;
+            AType      itype   = member_type(ai);
+            BufferView iview   = get(mdl->bufferViews, ai->bufferView);
+            Buffer     ibuffer = get(mdl->buffers,     iview->buffer);
+            verify(material_id >= 0 && material_id < len(mdl->materials), "Invalid material index");
+            Material material = get(mdl->materials, material_id);
 
-        // bind data (key) with buffer (value)
-        set(t->buffers, data, buffer);
-        p->buffer = buffer;
+            /// initialize vertex members data
+            vertex_member_t* members = calloc(16, sizeof(vertex_member_t));
+            memset(members, 0, sizeof(vertex_member_t));
+            int index        = 0;
+            int vertex_size  = 0;
+            int vertex_count = 0;
+            int member_count = 0;
+            int index_size   = itype->size;
+            int index_count  = iview->byteLength / itype->size;
+            pairs (prim->attributes, i) {
+                string   name     =  (string)i->key;
+                AType    vtype    = isa(i->value);
+                i64      ac_index = *(i64*)  i->value;
+                Accessor ac       = get(mdl->accessors, ac_index);
+                members[member_count].type   = member_type(ac);
+                members[member_count].ac     = ac;
+                members[member_count].size   = members[member_count].type->size;
+                members[member_count].offset = vertex_size;
+                vertex_size += members[member_count].type->size;
+                verify(ac->count, "count not set on accessor");
+                verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
+                vertex_count = ac->count;
+                member_count ++;
+            }
+
+            /// allocate for gpu resource
+            gpu vbo = gpu(
+                trinity,      t,
+                members,      members,
+                member_count, member_count,
+                vertex_size,  vertex_size,
+                vertex_count, vertex_count,
+                index_size,   index_size,
+                index_count,  index_count);
+            
+            /// fetch data handles
+            i8 *vdata = vbo->vertex_data;
+            i8 *idata = vbo->index_data;
+
+            /// write vbo data
+            for (int k = 0; k < member_count; k++) {
+                BufferView bv     = get(mdl->bufferViews, members[k].ac->bufferView);
+                Buffer     b      = get(mdl->buffers, bv->buffer);
+                i8*        src    = &((i8*)data(b->data))[bv->byteOffset];
+                for (int j = 0; j < vertex_count; j++)
+                    memcpy(&vdata[members[k].offset + j * vertex_size],
+                           &src[j * vertex_size], members[k].size);
+            }
+
+            /// write ibo data (todo: use reference)
+            i8* i_src    = &((i8*)data(ibuffer->data))[iview->byteOffset];
+            memcpy(idata, i_src, iview->byteLength);
+
+            /// construct pipeline, give material
+            gpu u_pbr = (material && material->pbr) ? gpu(trinity, t, uniform, material->pbr) : null;
+            pipeline pipe = pipeline(
+                trinity,    t,
+                w,          m->w,
+                shader,     s,
+                resources,  array_of(vbo, u_pbr, null));
+            push(m->pipelines, pipe);
+        }
+    }
+}
+
+void model_destructor(model m) {
+    /// pipelines should free automatically
+}
+
+
+none gpu_sync(gpu a) {
+    trinity t = a->trinity;
+
+    /// uniforms update continuously
+    if (a->uniform) {
+        AType u_type  = isa(a->uniform);
+        if (!a->vk_uniform) {
+             a->vk_uniform = create_buffer(
+                t, u_type->size,
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT  | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                a->uniform);
+        } else {
+            // map memory, update the uniform buffer, and unmap
+            void* mapped;
+            VkResult res = vkMapMemory(t->device, a->vk_uniform, 0, u_type->size, 0, &mapped);
+            verify(res == VK_SUCCESS, "Failed to map uniform buffer memory");
+            memcpy(mapped, a->uniform, u_type->size);
+            vkUnmapMemory(t->device, a->vk_uniform);
+        }
     }
 
+    /// vbo/ibo only need maintenance upon init, less we want to transfer out
+    if (a->vertex_size && !a->vk_vertex) {
+        VkBufferUsageFlags vertex_usage = 
+            (a->compute ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT : 0) |
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        
+        VkBufferUsageFlags index_usage = 
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT | 
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        
+        a->vk_vertex = create_buffer(t, a->vertex_size * a->vertex_count, vertex_usage,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, a->vertex_data);
+        
+        if (a->index_size)
+            a->vk_index = create_buffer(t, a->index_size * a->index_count, index_usage,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, a->index_data);
+    }
+}
+
+none gpu_init(gpu a) {
+    if (a->vertex_size) a->vertex_data = A_alloc(typeid(i8), a->vertex_size * a->vertex_count, false);
+    if (a->index_size)  a->index_data  = A_alloc(typeid(i8), a->index_size  * a->index_count,  false);
+}
+
+none gpu_destructor(gpu a) {
+    if (a->vk_vertex)
+        vkDestroyBuffer(a->trinity->device, a->vk_vertex, NULL);
+    if (a->vk_index)
+        vkDestroyBuffer(a->trinity->device, a->vk_index, NULL);
+}
+
+define_class(gpu);
+
+
+void pipeline_bind_uniforms(pipeline p) {
+    trinity t     = p->trinity;
+    int     count = 0;
+    VkDescriptorSetLayoutBinding bindings[16];
+    VkDescriptorBufferInfo       buffer_infos[16];
+
+    // populate bind layout for uniform resources
+    each(p->resources, gpu, res) {
+        if (!res->uniform) continue;
+        AType  type = isa(res->uniform); // Get type info
+        i32    size = type->size;  // Get struct size
+        bindings[count] = (VkDescriptorSetLayoutBinding) {
+            .binding = count,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+        };
+        buffer_infos[count] = (VkDescriptorBufferInfo) {
+            .buffer = res->vk_uniform,
+            .offset = 0,
+            .range = size
+        };
+        count++;
+    }
+
+    // Create descriptor set layout
+    VkDescriptorSetLayoutCreateInfo layout_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = count,
+        .pBindings = bindings
+    };
+
+    vkCreateDescriptorSetLayout(p->trinity->device, &layout_info, NULL, &p->descriptor_layout);
+
+    // Create descriptor pool
+    VkDescriptorPoolSize pool_size = {
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = count
+    };
+
+    VkDescriptorPoolCreateInfo pool_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size,
+        .maxSets = 1
+    };
+
+    vkCreateDescriptorPool(p->trinity->device, &pool_info, NULL, &p->descriptor_pool);
+
+    // Allocate descriptor set
+    VkDescriptorSetAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = p->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &p->descriptor_layout
+    };
+
+    vkAllocateDescriptorSets(p->trinity->device, &alloc_info, &p->descriptor_set);
+
+    // Update descriptor set with uniform buffers
+    VkWriteDescriptorSet descriptor_writes[16];
+    for (int i = 0; i < count; i++) {
+        descriptor_writes[i] = (VkWriteDescriptorSet) {
+            .sType              = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet             = p->descriptor_set,
+            .dstBinding         = i,
+            .descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount    = 1,
+            .pBufferInfo        = &buffer_infos[i]
+        };
+    }
+    vkUpdateDescriptorSets(p->trinity->device, count, descriptor_writes, 0, NULL);
+}
+
+void pipeline_init(pipeline p) {
+    gpu vbo = null, compute = null;
+    each (p->resources, gpu, res) {
+        if (res->vertex_size) vbo     = res;
+        if (res->compute)     compute = res;
+        sync(res);
+    }
+    p->vbo    = vbo;
+    p->memory = compute;
+    verify(vbo, "no vbo or memory provided to form a compute or graphical pipeline");
+    i32     vertex_size  = vbo->vertex_size;
+    i32     vertex_count = vbo->vertex_count;
+    i32     index_size   = vbo->index_size;
+    i32     index_count  = vbo->index_count;
+    trinity t            = p->trinity;
+    window  w            = p->w;
+
+    bind_uniforms(p);
+    
     // Pipeline Layout (Bindings and Layouts)
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
+        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount         = 1,
+        .pSetLayouts            = &p->descriptor_layout,
         .pushConstantRangeCount = 0,
     };
 
-    VkPipelineLayout pipeline_layout;
-    VkResult result = vkCreatePipelineLayout(t->device, &pipeline_layout_info, NULL, &pipeline_layout);
+    VkResult         result = vkCreatePipelineLayout(
+        t->device, &pipeline_layout_info, NULL, &p->layout);
     verify(result == VK_SUCCESS, "Failed to create pipeline layout");
-    p->layout = pipeline_layout;
 
-    if (p->read) {
+    if (vbo) {
         // Graphics Pipeline
         VkVertexInputBindingDescription binding_description = {
             .binding = 0,
-            .stride = type->size,
+            .stride = vbo->vertex_size,
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
         };
 
         int attr_count = 0;
-        VkVertexInputAttributeDescription* attributes = calloc(type->member_count, sizeof(VkVertexInputAttributeDescription));
-        int offset = 0;
-        for (int i = 0; i < type->member_count; i++) {
-            Member mem = &type->members[i];
-            if (mem->member_type == A_TYPE_INLAY || mem->member_type == A_TYPE_PROP) {
-                attributes[attr_count].binding = 0;
-                attributes[attr_count].location = attr_count;
-                attributes[attr_count].format = 
-                    (mem->type == typeid(vec2f)) ? VK_FORMAT_R32G32_SFLOAT :
-                    (mem->type == typeid(vec3f)) ? VK_FORMAT_R32G32B32_SFLOAT :
-                    (mem->type == typeid(vec4f)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
-                                                VK_FORMAT_UNDEFINED;
-                attributes[attr_count].offset = offset;
-                offset += mem->type->size;
-                attr_count++;
-            }
+        VkVertexInputAttributeDescription* attributes = calloc(vbo->member_count, sizeof(VkVertexInputAttributeDescription));
+        for (int i = 0; i < vbo->member_count; i++) {
+            vertex_member_t* mem = &vbo->members[i];
+            attributes[attr_count].binding = 0;
+            attributes[attr_count].location = attr_count;
+            attributes[attr_count].format = 
+                (mem->type == typeid(vec2f)) ? VK_FORMAT_R32G32_SFLOAT       :
+                (mem->type == typeid(vec3f)) ? VK_FORMAT_R32G32B32_SFLOAT    :
+                (mem->type == typeid(vec4f)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+                (mem->type == typeid( f32 )) ? VK_FORMAT_R32_SFLOAT          :
+                (mem->type == typeid( i8  )) ? VK_FORMAT_R8_SINT             :
+                (mem->type == typeid( u8  )) ? VK_FORMAT_R8_UINT             :
+                (mem->type == typeid( i16 )) ? VK_FORMAT_R16_SINT            :
+                (mem->type == typeid( u16 )) ? VK_FORMAT_R16_UINT            :
+              //(mem->type == typeid( i32 )) ? VK_FORMAT_R32_SINT            : -- glTF does not support
+                (mem->type == typeid( u32 )) ? VK_FORMAT_R32_UINT            :
+                                               VK_FORMAT_UNDEFINED;
+            attributes[attr_count].offset = mem->offset;
+            attr_count++;
         }
 
         VkPipelineVertexInputStateCreateInfo vertex_input_info = {
@@ -317,130 +532,327 @@ void pipeline_init(pipeline p) {
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST // specify line list topology (we should wrap our buffer in something that dictates its usage and topology)
         };
 
-        // Set up shaders (assume pre-compiled SPIR-V shaders are used)
-        VkPipelineShaderStageCreateInfo vert_shader_stage_info = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = p->shader->vert_module,
-            .pName = "main"
-        };
+        VkPipelineShaderStageCreateInfo shader_stages[4];
+        int n_stages = 0;
 
-        VkPipelineShaderStageCreateInfo frag_shader_stage_info = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .module = p->shader->frag_module,
-            .pName = "main"
-        };
+        if (p->shader->vk_rgen) {
+            // Ray tracing pipeline setup
+            n_stages = 4;
+            
+            // Setup shader stages for ray tracing
+            VkPipelineShaderStageCreateInfo rgen_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
+                .module = p->shader->vk_rgen,
+                .pName  = "main"
+            };
+            VkPipelineShaderStageCreateInfo rchit_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
+                .module = p->shader->vk_rchit,
+                .pName  = "main"
+            };
+            VkPipelineShaderStageCreateInfo rahit_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+                .module = p->shader->vk_rahit,
+                .pName  = "main"
+            };
+            VkPipelineShaderStageCreateInfo rmiss_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_MISS_BIT_KHR,
+                .module = p->shader->vk_rmiss,
+                .pName  = "main"
+            };
+            
+            shader_stages[0] = rgen_shader_stage_info;
+            shader_stages[1] = rchit_shader_stage_info;
+            shader_stages[2] = rahit_shader_stage_info;
+            shader_stages[3] = rmiss_shader_stage_info;
 
-        VkPipelineShaderStageCreateInfo shader_stages[] = {
-            vert_shader_stage_info, frag_shader_stage_info
-        };
+            // Get ray tracing pipeline properties
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_properties = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR
+            };
+            
+            VkPhysicalDeviceProperties2 device_props2 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &rt_properties
+            };
+            
+            vkGetPhysicalDeviceProperties2(t->physical_device, &device_props2);
+            
+            // Create shader groups for ray tracing
+            VkRayTracingShaderGroupCreateInfoKHR shader_groups[4] = {
+                // Ray generation group
+                {
+                    .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                    .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+                    .generalShader      = 0,                   // Index of ray gen shader
+                    .closestHitShader   = VK_SHADER_UNUSED_KHR,
+                    .anyHitShader       = VK_SHADER_UNUSED_KHR,
+                    .intersectionShader = VK_SHADER_UNUSED_KHR
+                },
+                // Miss group
+                {
+                    .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                    .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+                    .generalShader      = 3,                   // Index of miss shader
+                    .closestHitShader   = VK_SHADER_UNUSED_KHR,
+                    .anyHitShader       = VK_SHADER_UNUSED_KHR,
+                    .intersectionShader = VK_SHADER_UNUSED_KHR
+                },
+                // Hit group with closest hit and any hit
+                {
+                    .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                    .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR,
+                    .generalShader      = VK_SHADER_UNUSED_KHR,
+                    .closestHitShader   = 1,                   // Index of closest hit shader
+                    .anyHitShader       = 2,                   // Index of any hit shader
+                    .intersectionShader = VK_SHADER_UNUSED_KHR
+                }
+            };
 
-        // Add viewport and rasterization states (example setup)
-        VkPipelineViewportStateCreateInfo viewport_state = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-            .viewportCount          = 1,
-            .pViewports             = NULL, // Set dynamically
-            .scissorCount           = 1,
-            .pScissors              = NULL,  // Set dynamically
-        };
+            // Create ray tracing pipeline
+            VkRayTracingPipelineCreateInfoKHR ray_pipeline_info = {
+                .sType                           = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+                .stageCount                      = n_stages,
+                .pStages                         = shader_stages,
+                .groupCount                      = 3,           // Three groups: ray gen, miss, hit
+                .pGroups                         = shader_groups,
+                .maxPipelineRayRecursionDepth    = p->shader->ray_depth ? p->shader->ray_depth : 1, // shaders must control this
+                .layout                          = p->layout
+            };
 
-        VkPipelineRasterizationStateCreateInfo rasterization_state = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .depthClampEnable       = VK_FALSE,
-            .rasterizerDiscardEnable = VK_FALSE,
-            .polygonMode            = VK_POLYGON_MODE_FILL,
-            .lineWidth              = 1.0f,
-            .cullMode               = VK_CULL_MODE_NONE, //VK_CULL_MODE_BACK_BIT,
-            .frontFace              = VK_FRONT_FACE_CLOCKWISE,
-            .depthBiasEnable        = VK_FALSE,
-        };
+            // Load the vkCreateRayTracingPipelinesKHR function pointer
+            PFN_vkCreateRayTracingPipelinesKHR vkCreateRayTracingPipelinesKHR = 
+                (PFN_vkCreateRayTracingPipelinesKHR)vkGetDeviceProcAddr(
+                    t->device, "vkCreateRayTracingPipelinesKHR");
+            
+            verify(vkCreateRayTracingPipelinesKHR, "Failed to load vkCreateRayTracingPipelinesKHR function pointer");
+            
+            result = vkCreateRayTracingPipelinesKHR(
+                t->device, VK_NULL_HANDLE, VK_NULL_HANDLE, 
+                1, &ray_pipeline_info, NULL, &p->vk_render);
+            
+            verify(result == VK_SUCCESS, "Failed to create ray tracing pipeline");
+            
+            // Create Shader Binding Table (SBT)
+            uint32_t handle_size        = rt_properties.shaderGroupHandleSize;
+            uint32_t handle_size_aligned = (handle_size + rt_properties.shaderGroupHandleAlignment - 1) & 
+                                         ~(rt_properties.shaderGroupHandleAlignment - 1);
+                        
+            // Fetch the shader group handles
+            uint32_t sbt_size = 3 * handle_size_aligned; // For 3 groups
+            unsigned char* shader_handle_storage = malloc(sbt_size);
+            PFN_vkGetRayTracingShaderGroupHandlesKHR vkGetRayTracingShaderGroupHandlesKHR =
+                (PFN_vkGetRayTracingShaderGroupHandlesKHR)vkGetDeviceProcAddr(
+                    t->device, "vkGetRayTracingShaderGroupHandlesKHR");
+            verify(vkGetRayTracingShaderGroupHandlesKHR,
+                "Failed to load vkGetRayTracingShaderGroupHandlesKHR function pointer");
+            result = vkGetRayTracingShaderGroupHandlesKHR(
+                t->device, p->vk_render, 0, 3, sbt_size, shader_handle_storage);
+            verify(result == VK_SUCCESS, "Failed to get ray tracing shader group handles");
 
-        VkPipelineMultisampleStateCreateInfo multisample_state = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples   = VK_SAMPLE_COUNT_1_BIT,
-            .sampleShadingEnable    = VK_FALSE,
-        };
+            // Create SBT buffers
+            // Raygen SBT buffer
+            p->vk_raygen_sbt = create_buffer(
+                t,
+                handle_size_aligned,
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                shader_handle_storage);
 
-        VkPipelineColorBlendAttachmentState color_blend_attachment = {
-            .blendEnable            = VK_FALSE,
-            .colorWriteMask         = VK_COLOR_COMPONENT_R_BIT |
-                                      VK_COLOR_COMPONENT_G_BIT |
-                                      VK_COLOR_COMPONENT_B_BIT |
-                                      VK_COLOR_COMPONENT_A_BIT,
-        };
+            // Miss SBT buffer
+            p->vk_miss_sbt = create_buffer(
+                t,
+                handle_size_aligned,
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                shader_handle_storage + handle_size_aligned);
 
-        VkPipelineColorBlendStateCreateInfo color_blend_state = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable          = VK_FALSE,
-            .attachmentCount        = 1,
-            .pAttachments           = &color_blend_attachment,
-        };
+            // Hit SBT buffer
+            p->vk_hit_sbt = create_buffer(
+                t,
+                handle_size_aligned,
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                shader_handle_storage + 2 * handle_size_aligned);
 
-        VkDynamicState dynamic_states[] = {
-            VK_DYNAMIC_STATE_VIEWPORT,
-            VK_DYNAMIC_STATE_SCISSOR,
-            // Add more dynamic states if needed (e.g., VK_DYNAMIC_STATE_LINE_WIDTH)
-        };
+            // Get device addresses for the SBT buffers
+            VkBufferDeviceAddressInfo buffer_device_address_info = {
+                .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                .buffer = p->vk_raygen_sbt
+            };
+            p->raygen_sbt_address = vkGetBufferDeviceAddress(t->device, &buffer_device_address_info);
 
-        VkPipelineDynamicStateCreateInfo dynamic_state = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = sizeof(dynamic_states) / sizeof(dynamic_states[0]),
-            .pDynamicStates = dynamic_states,
-        };
+            buffer_device_address_info.buffer = p->vk_miss_sbt;
+            p->miss_sbt_address = vkGetBufferDeviceAddress(t->device, &buffer_device_address_info);
 
-        // Finally, create the pipeline
-        VkGraphicsPipelineCreateInfo pipeline_info = {
-            .sType                  = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount             = 2,
-            .pStages                = shader_stages,
-            .pVertexInputState      = &vertex_input_info,
-            .pInputAssemblyState    = &input_assembly_info,
-            .pViewportState         = &viewport_state,
-            .pRasterizationState    = &rasterization_state,
-            .pMultisampleState      = &multisample_state,
-            .pColorBlendState       = &color_blend_state,
-            .pDynamicState          = &dynamic_state,
-            .layout                 = p->layout,
-            .renderPass             = w->render_pass,
-            .subpass                = 0,
-            .basePipelineHandle     = VK_NULL_HANDLE,
-        };
+            buffer_device_address_info.buffer = p->vk_hit_sbt;
+            p->hit_sbt_address = vkGetBufferDeviceAddress(t->device, &buffer_device_address_info);
 
-        result = vkCreateGraphicsPipelines(t->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &p->render);
-        verify(result == VK_SUCCESS, "pipeline creation fail");
+            // Clean up
+            free(shader_handle_storage);
+            
+        } else {
+            n_stages = 2;
+            // Regular graphics pipeline setup (vertex & fragment)
+            VkPipelineShaderStageCreateInfo vert_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_VERTEX_BIT,
+                .module = p->shader->vk_vert,
+                .pName  = "main"
+            };
 
+            VkPipelineShaderStageCreateInfo frag_shader_stage_info = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .module = p->shader->vk_frag,
+                .pName  = "main"
+            };
+
+            shader_stages[0] = vert_shader_stage_info;
+            shader_stages[1] = frag_shader_stage_info;
+            
+            // Add viewport and rasterization states
+            VkPipelineViewportStateCreateInfo viewport_state = {
+                .sType           = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+                .viewportCount   = 1,
+                .pViewports      = NULL, // Set dynamically
+                .scissorCount    = 1,
+                .pScissors       = NULL, // Set dynamically
+            };
+
+            VkPipelineRasterizationStateCreateInfo rasterization_state = {
+                .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                .depthClampEnable        = VK_FALSE,
+                .rasterizerDiscardEnable = VK_FALSE,
+                .polygonMode             = VK_POLYGON_MODE_FILL,
+                .lineWidth               = 1.0f,
+                .cullMode                = VK_CULL_MODE_NONE, //VK_CULL_MODE_BACK_BIT,
+                .frontFace               = VK_FRONT_FACE_CLOCKWISE,
+                .depthBiasEnable         = VK_FALSE,
+            };
+
+            VkPipelineMultisampleStateCreateInfo multisample_state = {
+                .sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
+                .sampleShadingEnable   = VK_FALSE,
+            };
+
+            VkPipelineColorBlendAttachmentState color_blend_attachment = {
+                .blendEnable           = VK_FALSE,
+                .colorWriteMask        = VK_COLOR_COMPONENT_R_BIT |
+                                         VK_COLOR_COMPONENT_G_BIT |
+                                         VK_COLOR_COMPONENT_B_BIT |
+                                         VK_COLOR_COMPONENT_A_BIT,
+            };
+
+            VkPipelineColorBlendStateCreateInfo color_blend_state = {
+                .sType                 = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                .logicOpEnable         = VK_FALSE,
+                .attachmentCount       = 1,
+                .pAttachments          = &color_blend_attachment,
+            };
+
+            VkDynamicState dynamic_states[] = {
+                VK_DYNAMIC_STATE_VIEWPORT,
+                VK_DYNAMIC_STATE_SCISSOR,
+                // Add more dynamic states if needed (e.g., VK_DYNAMIC_STATE_LINE_WIDTH)
+            };
+
+            VkPipelineDynamicStateCreateInfo dynamic_state = {
+                .sType               = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+                .dynamicStateCount   = sizeof(dynamic_states) / sizeof(dynamic_states[0]),
+                .pDynamicStates      = dynamic_states,
+            };
+
+            // Create the graphics pipeline
+            VkGraphicsPipelineCreateInfo pipeline_info = {
+                .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                .stageCount          = n_stages,
+                .pStages             = shader_stages,
+                .pVertexInputState   = &vertex_input_info,
+                .pInputAssemblyState = &input_assembly_info,
+                .pViewportState      = &viewport_state,
+                .pRasterizationState = &rasterization_state,
+                .pMultisampleState   = &multisample_state,
+                .pColorBlendState    = &color_blend_state,
+                .pDynamicState       = &dynamic_state,
+                .layout              = p->layout,
+                .renderPass          = w->render_pass,
+                .subpass             = 0,
+                .basePipelineHandle  = VK_NULL_HANDLE,
+            };
+
+            result = vkCreateGraphicsPipelines(t->device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &p->vk_render);
+            verify(result == VK_SUCCESS, "pipeline creation fail");
+        }
         free(attributes);
-    } else {
-        // Compute Pipeline
+    } else if (p->shader && p->shader->vk_comp) {
         VkComputePipelineCreateInfo compute_pipeline_info = {
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .layout = pipeline_layout,
-            .stage = {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = p->shader->comp_module,
-                .pName = "main",
+            .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .layout = p->layout,
+            .stage  = {
+                .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage  = VK_SHADER_STAGE_COMPUTE_BIT,
+                .module = p->shader->vk_comp,
+                .pName  = "main",
             },
         };
-
-        VkPipeline compute_pipeline;
-        result = vkCreateComputePipelines(t->device, VK_NULL_HANDLE, 1, &compute_pipeline_info, NULL, &compute_pipeline);
+        result = vkCreateComputePipelines(
+            t->device, VK_NULL_HANDLE, 1, &compute_pipeline_info, NULL, &p->vk_compute);
         verify(result == VK_SUCCESS, "Failed to create compute pipeline");
-        p->compute = compute_pipeline;
     }
 }
 
+
 void pipeline_destructor(pipeline p) {
-    vkDestroyPipelineLayout(p->t->device, p->layout, null);
-    if (p->render)  vkDestroyPipeline(p->t->device, p->render, null);
-    if (p->compute) vkDestroyPipeline(p->t->device, p->compute, null);
+    trinity t = p->trinity;
+    vkDestroyPipelineLayout(t->device, p->layout, null);
+    if (p->vk_render)     vkDestroyPipeline(t->device, p->vk_render,     null);
+    if (p->vk_compute)    vkDestroyPipeline(t->device, p->vk_compute,    null);
+    if (p->vk_raygen_sbt) vkDestroyBuffer  (t->device, p->vk_raygen_sbt, null);
+    if (p->vk_miss_sbt)   vkDestroyBuffer  (t->device, p->vk_miss_sbt,   null);
+    if (p->vk_hit_sbt)    vkDestroyBuffer  (t->device, p->vk_hit_sbt,    null);
 }
 
+void Buffer_init(Buffer b) {
+    vector    data = vector(b->uri);
+    b->data = data;
+}
 
-void window_push(window w, pipeline p) {
-    array a = w->pipelines;
-    push(a, (object)p);
+void model_render(model m, handle f) {
+    VkCommandBuffer frame = f;
+    each(m->pipelines, pipeline, p) {
+        if (p->vk_compute) {
+            vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->vk_compute);
+            vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->layout, 0, 1, &p->bind, 0, NULL);
+            vkCmdDispatch(frame, p->memory->vertex_count, 1, 1);
+        }
+        if (p->vk_render) {
+            vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->vk_render);
+            VkDeviceSize offsets[] = { 0 };
+            vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vk_vertex, offsets);
+
+            if (p->vbo->vk_index) {
+                vkCmdBindIndexBuffer(frame, p->vbo->vk_index, 0,
+                    p->vbo->index_size == 1 ?
+                    VK_INDEX_TYPE_UINT8_KHR  :
+                    p->vbo->index_size == 2 ?
+                    VK_INDEX_TYPE_UINT16 :
+                    VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
+            } else
+                vkCmdDraw(frame, p->vbo->vertex_count, 1, 0, 0);
+        }
+    }
+}
+
+void window_push(window w, model m) {
+    array a = w->models;
+    push(a, (object)m);
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -475,9 +887,9 @@ static void set_queue_index(trinity t, window w) {
 }
 
 void window_init(window w) {
-    trinity t = w->t;
+    trinity t = w->trinity;
 
-    w->pipelines = array();
+    w->models = array();
     // Initialize GLFW window with Vulkan compatibility
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     w->window = glfwCreateWindow(w->width, w->height,
@@ -513,7 +925,8 @@ void window_init(window w) {
 
         /// buffer management for pipeline, without management (it does not drop/hold this external data; not A-type)
         t->device_memory = map(unmanaged, true);
-        t->buffers       = map(unmanaged, true);
+      //t->buffers       = map(unmanaged, true); -- decentralized buffer management
+        t->skia          = skia_init_vk(t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
     }
     
     VkCommandPoolCreateInfo pool_info = {
@@ -619,8 +1032,8 @@ void window_init(window w) {
     update_framebuffers(w);  // Call the framebuffer update directly
 }
 
-void window_loop(window w) {
-    trinity t = w->t;
+int window_loop(window w) {
+    trinity t = w->trinity;
     int semaphore_frame = 0;
     int last_fence = -1;
     while (!glfwWindowShouldClose(w->window)) {
@@ -676,20 +1089,8 @@ void window_loop(window w) {
         // Bind and execute pipelines
         // a pipeline could have compute and render in one, if we wanted to use it this way
         // shaders have compute/vert/frag, and thus may be integrated by pipeline
-        each(w->pipelines, pipeline, p) {
-            if (p->compute) {
-                // For compute pipelines, use a separate compute pass
-                vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->compute);
-                vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->layout, 0, 1, &p->bind, 0, NULL);
-                vkCmdDispatch(frame, p->vertex_count, 1, 1);
-            }
-            if (p->render) {
-                // For render pipelines, use the active render pass
-                vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->render);
-                VkDeviceSize offsets[] = { 0 };
-                vkCmdBindVertexBuffers(frame, 0, 1, &p->buffer, offsets);
-                vkCmdDraw(frame, p->vertex_count, 1, 0, 0);
-            }
+        each(w->models, model, m) {
+            render(m, frame);
         }
         vkCmdEndRenderPass(frame);   // End render pass
         vkEndCommandBuffer(frame);   // End command buffer recording
@@ -732,10 +1133,11 @@ void window_loop(window w) {
         semaphore_frame = (semaphore_frame + 1) % w->image_count;
         verify(result == VK_SUCCESS, "failed to present swapchain image");
     }
+    return 0;
 }
 
 void window_destructor(window w) {
-    trinity t = w->t;
+    trinity t = w->trinity;
     for (int i = 0; i < w->image_count; i++) {
         vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
         vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
@@ -747,29 +1149,52 @@ void window_destructor(window w) {
     free(w->image_available_semaphore);
     free(w->render_finished_semaphore);
     vkDestroySwapchainKHR(t->device, w->swapchain, null);
-    vkDestroySurfaceKHR(w->t->instance, w->surface, null);
+    vkDestroySurfaceKHR(t->instance, w->surface, null);
     glfwDestroyWindow  (w->window);
 }
 
 void shader_init(shader s) {
-    // Generate .spv for resources provided in shader (frag, vert and comp)
+    // generate .spv for shader resources
+    trinity t = s->trinity;
     string spv_file;
     bool found = false;
-    for (int i = 0; i < 3; i++) {
-        string name = i == 0 ? s->vert : i == 1 ? s->frag : s->comp;
-        path input = form(path, "shaders/%o", name);
+    string ray_test = form(string, "shaders/%o.rgen", s->name);
+    if (t->rt_support && file_exists("%o", ray_test)) {
+        s->rgen  = form(string, "shaders/%o.rgen",  s->name);
+        s->rchit = form(string, "shaders/%o.rchit", s->name);
+        s->rahit = form(string, "shaders/%o.rahit", s->name);
+        s->rmiss = form(string, "shaders/%o.rmiss", s->name);
+    } else {
+        s->frag = form(string, "shaders/%o.frag", s->name);
+        s->vert = form(string, "shaders/%o.vert", s->name);
+    }
+
+    string names[7] = {
+        s->frag, s->vert,  s->comp,
+        s->rgen, s->rchit, s->rahit, s->rmiss,
+    };
+    VkShaderModule* values[7] = {
+        &s->vk_frag, &s->vk_vert,  &s->vk_comp,
+        &s->vk_rgen, &s->vk_rchit, &s->vk_rahit, &s->vk_rmiss,
+    };
+    for (int i = 0; i < 7; i++) {
+        string name = names[i];
+        if (!name) continue;
+
+        path input = form(path, "%o", name);
         if (!name || !file_exists("%o", input)) continue;
-        spv_file = form(string, "shaders/%o.spv", name);
+        spv_file = form(string, "%o.spv", name);
         found = true;
 
         // Check if the .spv file already exists and is up to date
         struct stat source_stat, spv_stat;
-        int spv_exists = stat(spv_file->chars, &spv_stat) == 0;
+        int src_exists = stat(input->chars,    &source_stat) == 0;
+        int spv_exists = stat(spv_file->chars, &spv_stat)    == 0;
 
         /// if no spv, or our source is newer than the binary (we have changed it!)
         if (!spv_exists || source_stat.st_mtime > spv_stat.st_mtime) {
             // Compile GLSL to SPIR-V using glslangValidator
-            string command = form(string, "glslangValidator -V %o -o %o", input, spv_file);
+            string command = form(string, "glslangValidator -V100 --target-env vulkan1.2 %o -o %o", input, spv_file);
             print("compiling shader: %o", command);
             int result = system(command->chars);
             if (result != 0) {
@@ -809,36 +1234,38 @@ void shader_init(shader s) {
         };
 
         VkShaderModule module;
-        VkResult vkResult = vkCreateShaderModule(s->t->device, &createInfo, NULL, &module);
+        VkResult vkResult = vkCreateShaderModule(t->device, &createInfo, NULL, &module);
         if (vkResult != VK_SUCCESS) {
             print("Failed to create Vulkan shader module");
             free(spirv);
             exit(1);
         }
 
-        if (i == 0) s->vert_module = module;
-        if (i == 1) s->frag_module = module;
-        if (i == 2) s->comp_module = module;
-
+        *(values[i]) = module;
         free(spirv);
         print("shader module created: %o", spv_file);
     }
-    verify(found, "shader not found: %o %o %o", s->vert, s->frag, s->comp);
+    verify(found, "shader not found: %o", s->name);
 }
 
 
 
 
 void shader_destructor(shader s) {
-    vkDestroyShaderModule(s->t->device, s->vert_module, null);
-    vkDestroyShaderModule(s->t->device, s->frag_module, null);
-    vkDestroyShaderModule(s->t->device, s->comp_module, null);
+    trinity t = s->trinity;
+    vkDestroyShaderModule(t->device, s->vk_rgen, null);
+    vkDestroyShaderModule(t->device, s->vk_rchit, null);
+    vkDestroyShaderModule(t->device, s->vk_rahit, null);
+    vkDestroyShaderModule(t->device, s->vk_rmiss, null);
+    vkDestroyShaderModule(t->device, s->vk_vert, null);
+    vkDestroyShaderModule(t->device, s->vk_frag, null);
+    vkDestroyShaderModule(t->device, s->vk_comp, null);
 }
 
 
 void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
-    const char** glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
-    const char** result = malloc((*extension_count + 4) * sizeof(char*));
+    symbol* glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
+    symbol* result = malloc((*extension_count + 4) * sizeof(char*));
     memcpy(result, glfw_extensions, (*extension_count) * sizeof(char*));
 
 #ifndef WIN32
@@ -871,7 +1298,7 @@ VkInstance vk_create() {
                 .applicationVersion     = VK_MAKE_VERSION(1, 0, 0),
                 .pEngineName            = "trinity",
                 .engineVersion          = VK_MAKE_VERSION(1, 0, 0),
-                .apiVersion             = VK_API_VERSION_1_2,
+                .apiVersion             = vk_version,
             },
             .enabledExtensionCount      = extension_count,
             .ppEnabledExtensionNames    = extensions,
@@ -908,28 +1335,105 @@ void trinity_init(trinity t) {
     vkEnumeratePhysicalDevices(t->instance, &deviceCount, physical_devices);
     t->physical_device = physical_devices[0]; // Choose the first device or implement selection logic
 
-    // verify required device extensions
+    // Check for device extensions
     uint32_t extension_count = 0;
     vkEnumerateDeviceExtensionProperties(t->physical_device, NULL, &extension_count, NULL);
     verify(extension_count > 0, "failed to find device extensions");
 
     VkExtensionProperties extensions[extension_count];
     vkEnumerateDeviceExtensionProperties(t->physical_device, NULL, &extension_count, extensions);
+    
+    // Check for required extensions
     bool swapchain_supported = false;
+    t->rt_support = true; // Assume RT is supported until we find any missing extension
+    
+    // List of RT extensions we need
+    symbol device_extensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+        VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+        VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+        VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
+    };
+    int total_extension_count = sizeof(device_extensions) / sizeof(device_extensions[0]);
+    
+    // Track which RT extensions are found
+    bool found_extensions[total_extension_count];
+    memset(found_extensions, 0, sizeof(found_extensions));
+    
+    // Check which extensions are available
     for (uint32_t i = 0; i < extension_count; i++) {
         print("[supported] device extension: %s", extensions[i].extensionName);
-        if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+        if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
             swapchain_supported = true;
-            break;
+        
+        // Check for RT extensions
+        for (int j = 0; j < total_extension_count; j++) {
+            if (strcmp(extensions[i].extensionName, device_extensions[j]) == 0) {
+                found_extensions[j] = true;
+                break;
+            }
         }
     }
+
     verify(swapchain_supported, "VK_KHR_swapchain extension is not supported by the physical device");
+    for (int i = 0; i < total_extension_count; i++) {
+        if (!found_extensions[i]) {
+            verify (i != 0, "swapchain extension not supported");
+            t->rt_support = false;
+            print("rt extension not supported: %s", device_extensions[i]);
+        }
+    }
+    
+    // If ray tracing is supported, also check for feature support
+    void* pNext_chain = NULL;
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR    rt_features     = {0};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features     = {0};
+    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR   bda_features    = {0};
+    VkPhysicalDeviceFeatures2                        device_features = {0};
+    
+    if (t->rt_support) {
+        rt_features.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        as_features.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        as_features.pNext     = &rt_features;
+        bda_features.sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+        bda_features.pNext    = &as_features;
+        device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        device_features.pNext = &bda_features;
+        vkGetPhysicalDeviceFeatures2(t->physical_device, &device_features);
 
-    float       queuePriority = 1.0f;
-    const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        if (rt_features.rayTracingPipeline && 
+            as_features.accelerationStructure &&
+            bda_features.bufferDeviceAddress) {
+            print("rt features supported");
+            
+            // Set up the features for device creation
+            rt_features.rayTracingPipeline    = VK_TRUE;
+            as_features.accelerationStructure = VK_TRUE;
+            bda_features.bufferDeviceAddress  = VK_TRUE;
+            
+            pNext_chain = &device_features;
+        } else {
+            t->rt_support = false;
+            print("device does not support rt features");
+            if (!rt_features.rayTracingPipeline)    print("  rayTracingPipeline not supported");
+            if (!as_features.accelerationStructure) print("  accelerationStructure not supported");
+            if (!bda_features.bufferDeviceAddress)  print("  bufferDeviceAddress not supported");
+        }
+    } else
+        print("rt extensions not fully-supported");
+    
+    // Prepare device extensions
+    float    queuePriority = 1.0f;
+    uint32_t enabled_extension_count = t->rt_support ? total_extension_count : 1;
 
+    // Create the device
     VkResult result = vkCreateDevice(t->physical_device, &(VkDeviceCreateInfo) {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pNext                      = pNext_chain,
             .queueCreateInfoCount       = 1,
             .pQueueCreateInfos          = &(VkDeviceQueueCreateInfo) {
                 .sType                  = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -937,12 +1441,11 @@ void trinity_init(trinity t) {
                 .queueCount             = 1,
                 .pQueuePriorities       = &queuePriority,
             },
-            .enabledExtensionCount      = sizeof(device_extensions) / sizeof(device_extensions[0]),
+            .enabledExtensionCount      = enabled_extension_count,
             .ppEnabledExtensionNames    = device_extensions,
         }, NULL, &t->device);
     verify(result == VK_SUCCESS, "cannot create logical device");
-
-    t->queue_family_index = UINT32_MAX;
+    t->queue_family_index = -1;
 }
 
 void trinity_destructor(trinity t) {
@@ -959,20 +1462,25 @@ void trinity_destructor(trinity t) {
     glfwTerminate();
 }
 
+/// avoid 'vertex' definition anti-pattern?
+/// ---------------------------------------
+/// attempt to avoid using a defined 'vertex' format, as we typically dont need to iterate over these
+/// and set members specifically; that may be populated when creating a model
+///define_class(vertex)
+
 define_class(trinity)
 define_class(shader)
 define_class(pipeline)
+define_class(part)
+define_class(node)
+define_class(model)
 define_class(window)
-
-define_class(vertex)
 define_class(particle)
 
-Node Model_find(Model a, string name) {
-    each (a->nodes->elements, Node, node) {
-        if (node->name != name)
-            continue;
-        return node;
-    }
+Node Model_find(Model a, cstr name) {
+    each (a->nodes, Node, node)
+        if (cmp(node->name, name) == 0)
+            return node;
     return (Node)null;
 }
 
@@ -991,10 +1499,10 @@ Node Model_parent(Model a, Node n) {
     return (Node)null;
 }
 
-int Model_index_of(Model a, string name) {
+int Model_index_of(Model a, cstr name) {
     int index = 0;
     each (a->nodes, Node, node) {
-        if (node->name == name)
+        if (cmp(node->name, name) == 0)
             return index;
         index++;
     }
@@ -1002,7 +1510,7 @@ int Model_index_of(Model a, string name) {
 }
 
 Node Model_index_string(Model a, string name) {
-    return find(a, name);
+    return find(a, cstring(name));
 }
 
 /// builds Transform, separate from Model/Skin/Node and contains usable glm types
@@ -1086,6 +1594,13 @@ JData Model_joints(Model a, Node node) {
     return joints;
 }
 
+/// Data is Always upper-case, ...sometimes lower
+void Accessor_init(Accessor a) {
+    a->stride      = vcount(a) * component_size(a);
+    a->total_bytes = a->stride * vcount(a);
+    verify(a->count, "count is required");
+}
+
 u64 Accessor_vcount(Accessor a) {
     u64 vsize = 0;
     switch (a->type) {
@@ -1113,6 +1628,50 @@ u64 Accessor_component_size(Accessor a) {
         default: fault("invalid ComponentType");
     }
     return scalar_sz;
+};
+
+AType Accessor_member_type(Accessor a) {
+    switch (a->componentType) {
+        case ComponentType_BYTE:
+        case ComponentType_UNSIGNED_BYTE:
+            switch (a->type) {
+                case CompoundType_SCALAR: return typeid(i8);
+                case CompoundType_VEC2:   return typeid(vec2i8);
+                case CompoundType_VEC3:   return typeid(vec3i8);
+                case CompoundType_VEC4:   return typeid(vec4i8);
+                default: break;
+            }
+            break;
+        case ComponentType_SHORT:
+        case ComponentType_UNSIGNED_SHORT:
+            switch (a->type) {
+                case CompoundType_SCALAR: return typeid(i16);
+                default: break;
+            }
+            break;
+        case ComponentType_UNSIGNED_INT:
+            switch (a->type) {
+                case CompoundType_SCALAR: return typeid(i32);
+                default: break;
+            }
+            break;
+        case ComponentType_FLOAT:
+            switch (a->type) {
+                case CompoundType_SCALAR: return typeid(i8);
+                case CompoundType_VEC2:   return typeid(vec2i8);
+                case CompoundType_VEC3:   return typeid(vec3i8);
+                case CompoundType_VEC4:   return typeid(vec4i8);
+                case CompoundType_MAT2:   return typeid(mat2f); 
+                case CompoundType_MAT3:   return typeid(mat3f); 
+                case CompoundType_MAT4:   return typeid(mat4f); 
+                default: fault("invalid CompoundType");
+            }
+            break;
+        default:
+            break;
+    }
+    fault("invalid CompoundType: %o", estr(CompoundType, a->type));
+    return 0;
 };
 
 void Transform_multiply(Transform a, mat4f m) {
@@ -1147,6 +1706,19 @@ void Transform_propagate(Transform a) {
         propagate(a->jdata->transforms->elements[i]);
 }
 
+Primitive Node_primitive(Node a, Model mdl, cstr name) {
+    Mesh m = get(mdl->meshes, a->mesh);
+    return m ? primitive(m, name) : null;
+}
+
+Primitive Mesh_primitive(Mesh a, cstr name) {
+    each (a->primitives, Primitive, p) {
+        if (cmp(p->name, name) == 0)
+            return p;
+    }
+    return null;
+}
+
 define_enum(ComponentType)
 define_enum(CompoundType)
 define_enum(TargetType)
@@ -1175,7 +1747,7 @@ define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
 
-define_class(PbrMetallicRoughness)
+define_class(PBR)
 define_class(TextureInfo)
 define_class(Material)
 

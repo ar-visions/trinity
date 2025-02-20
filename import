@@ -122,8 +122,14 @@ lib:
 	A
 	glfw3
 	SDL2
+	skia
 	osdCPU
 	m
+	-I$SILVER_IMPORT/checkout/skia
+	-I$SILVER_IMPORT/checkout/skia/src
+	-I$SILVER_IMPORT/checkout/skia/include
+	-I$SILVER_IMPORT/skia/include
+	-I$SILVER_IMPORT/checkout/skia/modules/svg/include
 	linux:
 		asound
 		vulkan
