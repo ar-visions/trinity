@@ -1,12 +1,12 @@
 
-#include <import>
+//#include <import>
 
 double sqrt(double);
 static int n_parts = 256*2;
 
 int main(int argc, char *argv[]) {
-    A_start();
-/*
+/*  A_start();
+
     /// vector allocation of particles (just 256 for now)
     VertexBuffer parts = ( A_alloc(typeid(particle), n_parts, true); /// use VBO here
     int sp = (int)sqrt((f64)n_parts);

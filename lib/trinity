@@ -3,6 +3,12 @@
 
 #include <A>
 
+typedef void* skia_t;
+typedef void* handle_t;
+
+skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle_t queue, unsigned int graphics_family, unsigned int vk_version);
+
+
 #define Key_schema(X, YY) \
     enum_value_v(X, YY, Undefined,      0) \
     enum_value_v(X, YY, Space,         32) \
@@ -127,6 +133,32 @@
     enum_value_v(X, YY, Menu,         348)
 declare_enum(Key)
 
+/*
+
+A.png → Base Color
+R.png → Roughness
+M.png → Metalness
+N.png → Normal Map
+H.png → Height/Parallax
+O.png → Ambient Occlusion
+S.png → Specular
+E.png → Emission
+C.png → Clearcoat
+T.png → Transmission
+
+*/
+
+/// object("string") creates a string
+/// object(1) creates a primitive i64
+/// object(1.2f) creates a primitive f32
+/// object(1.2) creates f64
+
+declare_sentry(Zero);
+declare_sentry(One);
+declare_sentry(Two);
+declare_sentry(Three);
+declare_sentry(Four);
+
 #define ComponentType_schema(X,Y,...) \
     enum_value_v(X,Y, NONE,           0) \
     enum_value_v(X,Y, BYTE,           5120) \
@@ -147,6 +179,29 @@ declare_enum(ComponentType)
     enum_value_v(X,Y, MAT3,           6) \
     enum_value_v(X,Y, MAT4,           7)
 declare_enum(CompoundType)
+
+#define Camera_schema(X,Y,...) \
+    i_inlay   (X,Y, public,     vec4f, pos) \
+    i_inlay   (X,Y, public,     vec4f, dir) \
+    i_inlay   (X,Y, public,     mat4f, model) \
+    i_inlay   (X,Y, public,     mat4f, view) \
+    i_inlay   (X,Y, public,     mat4f, proj)
+#ifndef Camera_intern
+#define Camera_intern
+#endif
+declare_class(Camera)
+
+#define Surface_schema(X,Y,...) \
+    enum_value_v_2(X,Y, none,           0, Zero) \
+    enum_value_v_2(X,Y, color,          1, Four) \
+    enum_value_v_2(X,Y, normal,         2, Four) \
+    enum_value_v_2(X,Y, emission,       3, Four) \
+    enum_value_v_2(X,Y, rough,          4, One) \
+    enum_value_v_2(X,Y, metal,          5, One) \
+    enum_value_v_2(X,Y, height,         6, One) \
+    enum_value_v_2(X,Y, ao,             7, One) \
+    enum_value_v_2(X,Y, environment,    8, Four)
+declare_enum(Surface)
 
 typedef struct _pipeline* pipeline;
 typedef struct _shader* shader;
@@ -224,6 +279,60 @@ typedef struct _model*    model;
 #endif
 declare_class(window)
 
+#define Pixel_schema(X,Y,...) \
+    enum_value_v(X,Y, none,            0) \
+    enum_value_v(X,Y, rgba8,           1) \
+    enum_value_v(X,Y, rgb8,            2) \
+    enum_value_v(X,Y, rgbf32,          3) \
+    enum_value_v(X,Y, u8,              4) \
+    enum_value_v(X,Y, rgbaf32,         5) \
+    enum_value_v(X,Y, f32,             6)
+declare_enum(Pixel)
+
+// a good idea is to make this more of 'ANY' ability of filter
+// if filter set to an object, that object could dictate more filter arguments for a general purpose filter
+// this is something used by the system
+#define Filter_schema(X,Y,...) \
+    enum_value_v(X,Y, none,            0) \
+    enum_value_v(X,Y, nearest,         1) \
+    enum_value_v(X,Y, bilinear,        3) \
+    enum_value_v(X,Y, trilinear,       4) \
+    enum_value_v(X,Y, low,             5) \
+    enum_value_v(X,Y, med,             6) \
+    enum_value_v(X,Y, high,            7)
+declare_enum(Filter)
+
+#define image_schema(X,Y,...) \
+    i_prop    (X,Y, required,   path,                   uri) \
+    i_prop    (X,Y, public,     Surface,                surface) \
+    i_prop    (X,Y, public,     Pixel,                  format) \
+    i_prop    (X,Y, public,     i32,                    pixel_size) \
+    i_prop    (X,Y, public,     i32,                    width) \
+    i_prop    (X,Y, public,     i32,                    height) \
+    i_prop    (X,Y, public,     i32,                    channels) \
+    i_prop    (X,Y, public,     Filter,                 filter) \
+    i_method  (X,Y, public,     i64,                    byte_count) \
+    i_method  (X,Y, public,     i64,                    len) \
+    i_method  (X,Y, public,     object,                 get, num) \
+    i_override(X,Y, method,     init, destructor)
+#ifndef image_intern
+#define image_intern
+#endif
+declare_class(image)
+
+#define canvas_schema(X,Y,...) \
+    i_method  (X,Y, public, none, save) \
+    i_method  (X,Y, public, none, restore) \
+    i_method  (X,Y, public, none, move,   object) \
+    i_method  (X,Y, public, none, line,   object) \
+    i_method  (X,Y, public, none, color,  object) \
+    i_method  (X,Y, public, none, bezier, object, object, object) \
+    i_override(X,Y, method,     init, destructor)
+#ifndef canvas_intern
+#define canvas_intern
+#endif
+declare_mod(canvas, image)
+
 typedef struct _Accessor* Accessor;
 typedef struct vertex_member_t {
     AType    type;
@@ -233,36 +342,45 @@ typedef struct vertex_member_t {
 } vertex_member_t;
 
 #define gpu_schema(X,Y,...) \
-    i_prop(X,Y, required, trinity, trinity) \
-    i_prop(X,Y, public,   object, uniform) \
-    i_prop(X,Y, public,   object, vertex_data) \
-    i_prop(X,Y, public,   object, index_data) \
+    i_prop(X,Y, required, trinity,      trinity) \
+    i_prop(X,Y, public,   image,        sampler) \
+    i_prop(X,Y, public,   object,       uniform) \
+    i_prop(X,Y, public,   object,       vertex_data) \
+    i_prop(X,Y, public,   object,       index_data) \
     i_vprop(X,Y, public,  vertex_member_t, members) \
-    i_prop(X,Y, public,   i32,      member_count) \
-    i_prop(X,Y, public,   i32,      index_size) \
-    i_prop(X,Y, public,   i32,      index_count) \
-    i_prop(X,Y, public,   i32,      vertex_size) \
-    i_prop(X,Y, public,   i32,      vertex_count) \
-    i_prop(X,Y, intern,   VkBuffer, vk_vertex) \
-    i_prop(X,Y, intern,   VkBuffer, vk_index) \
-    i_prop(X,Y, intern,   VkBuffer, vk_uniform) \
-    i_prop(X,Y, public,   bool,     compute) \
-    i_method(X,Y, public, none,     sync) \
+    i_prop(X,Y, public,   i32,          member_count) \
+    i_prop(X,Y, public,   i32,          index_size) \
+    i_prop(X,Y, public,   i32,          index_count) \
+    i_prop(X,Y, public,   i32,          vertex_size) \
+    i_prop(X,Y, public,   i32,          vertex_count) \
+    i_prop(X,Y, intern,   VkBuffer,     vk_vertex) \
+    i_prop(X,Y, intern,   VkBuffer,     vk_index) \
+    i_prop(X,Y, intern,   VkBuffer,     vk_uniform) \
+    i_prop(X,Y, intern,   VkImage,      vk_image) \
+    i_prop(X,Y, intern,   VkImageView,  vk_image_view) \
+    i_prop(X,Y, intern,   VkSampler,    vk_sampler) \
+    i_prop(X,Y, intern,   VkDeviceMemory, vk_memory) \
+    i_prop(X,Y, public,   bool,         compute) \
+    i_method(X,Y, public, none,         sync) \
     i_override(X,Y, method, init, destructor)
 #ifndef gpu_intern
 #define gpu_intern
 #endif
 declare_class(gpu)
 
+/// shader is an array
+///
 typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,                trinity) \
     i_prop    (X,Y, required,   window,                 w) \
-    i_prop    (X,Y, public,     array,                  resources) \
+    i_prop    (X,Y, required,   array,                  uniforms) \
+    i_prop    (X,Y, public,     array,                  samplers) \
     i_prop    (X,Y, required,   shader,                 shader) \
+    i_prop    (X,Y, intern,     array,                  resources) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
-    i_prop    (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout) \
+    i_vprop   (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout) \
     i_prop    (X,Y, intern,     VkDescriptorPool,       descriptor_pool) \
     i_prop    (X,Y, intern,     VkDescriptorSet,        bind) \
     i_prop    (X,Y, intern,     VkPipeline,             vk_render) \
@@ -272,10 +390,13 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     VkBuffer,               vk_raygen_sbt) \
     i_prop    (X,Y, intern,     VkBuffer,               vk_miss_sbt) \
     i_prop    (X,Y, intern,     VkBuffer,               vk_hit_sbt) \
+    i_prop    (X,Y, intern,     VkBuffer,               as_buffer) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         as_memory) \
+    i_prop    (X,Y, intern,     VkAccelerationStructureNV, acceleration_structure) \
     i_prop    (X,Y, intern,     VkDeviceAddress,        raygen_sbt_address) \
     i_prop    (X,Y, intern,     VkDeviceAddress,        miss_sbt_address) \
     i_prop    (X,Y, intern,     VkDeviceAddress,        hit_sbt_address) \
-    i_method  (X,Y, public,     none, bind_uniforms) \
+    i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, destructor)
 #ifndef pipeline_intern
 #define pipeline_intern
@@ -304,14 +425,19 @@ declare_class(node)
 
 #define node_default null
 
+// lets store the uniform data for Camera on model
+// we render one model at a time (group of pipelines)
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
     i_prop    (X,Y, required, trinity, trinity) \
     i_prop    (X,Y, required, window,  w) \
-    i_prop    (X,Y, required, Model, id) \
-    i_prop    (X,Y, required, array, nodes) \
-    i_prop    (X,Y, intern,   map,   pipelines) \
-    i_method  (X,Y, public,   none,  render, handle) \
+    i_prop    (X,Y, required, Model,   id) \
+    i_prop    (X,Y, required, array,   nodes) \
+    i_prop    (X,Y, public,   array,   uniforms) \
+    i_prop    (X,Y, public,   array,   samplers) \
+    i_prop    (X,Y, public,   Camera,  camera) \
+    i_prop    (X,Y, intern,   array,   pipelines) \
+    i_method  (X,Y, public,   none,    render, handle) \
     i_override(X,Y, method, init, destructor)
 #ifndef model_intern
 #define model_intern
@@ -321,8 +447,8 @@ declare_class(model)
 #define particle_schema(X,Y,...) \
     i_inlay(X,Y, public, vec2f,  pos) \
     i_inlay(X,Y, public, vec2f,  velocity) \
-    i_prop(X,Y, public, f32, density) \
-    i_prop(X,Y, public, f32, pressure)
+    i_prop(X,Y,  public, f32,    density) \
+    i_prop(X,Y,  public, f32,    pressure)
 #ifndef particle_intern
 #define particle_intern
 #endif
@@ -604,8 +730,8 @@ typedef struct _array_Material*      array_Material;
 #endif
 declare_class(TextureInfo)
 
-
-#define PBR_schema(X, Y,...) \
+/// we transfer material properties from here, in order to create small 2x2 placeholder textures
+#define pbrMetallicRoughness_schema(X, Y,...) \
     /* Core PBR Properties */ \
     i_prop  (X, Y, public, vec4f,       baseColorFactor) \
     i_prop  (X, Y, public, TextureInfo, baseColorTexture) \
@@ -655,15 +781,14 @@ declare_class(TextureInfo)
     i_prop  (X, Y, public, f32,         iridescenceThicknessMinimum) \
     i_prop  (X, Y, public, f32,         iridescenceThicknessMaximum)
 
-#ifndef PBR_intern
-#define PBR_intern
+#ifndef pbrMetallicRoughness_intern
+#define pbrMetallicRoughness_intern
 #endif
-declare_class(PBR)
-
+declare_class(pbrMetallicRoughness)
 
 #define Material_schema(X, Y,...) \
     i_prop  (X, Y, public, string,      name) \
-    i_prop  (X, Y, public, PBR,         pbr,   field, pbrMetallicRoughness) \
+    i_prop  (X, Y, public, pbrMetallicRoughness, pbrMetallicRoughness) \
     i_prop  (X, Y, public, TextureInfo, normalTexture) \
     i_prop  (X, Y, public, TextureInfo, occlusionTexture) \
     i_prop  (X, Y, public, TextureInfo, emissiveTexture) \

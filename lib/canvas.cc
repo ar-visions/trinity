@@ -38,8 +38,9 @@
 #include <gpu/vk/VulkanExtensions.h>
 //#include <assert.h>
 
+extern "C" {
 #include <import>
-#include <canvas.h>
+}
 
 int test_func() {
     string s = string(chars, "hi");
@@ -47,8 +48,6 @@ int test_func() {
 }
 
 //#include <skia/tools/gpu/vk/VkTestUtils.h>
-
-int a_cpp_func();
 
 struct Skia {
     sk_sp<GrDirectContext> ctx;
@@ -78,9 +77,111 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     return sk;
 }
 
+
+static none xy(object any, f32* dst) {
+    if (scalarof(any) == typeid(f32)) {
+        memcpy(dst, any, sizeof(f32) * 2);
+    } else {
+        verify(scalarof(any) == typeid(f64), "expected double");
+        f64 x = ((f64*)any)[0];
+        f64 y = ((f64*)any)[1];
+        dst[0] = x;
+        dst[1] = y;
+    }
+}
+
+static u8 nib(char n) {
+    return (n >= '0' && n <= '9') ?       (n - '0')  :
+           (n >= 'a' && n <= 'f') ? (10 + (n - 'a')) :
+           (n >= 'A' && n <= 'F') ? (10 + (n - 'A')) : 0;
+}
+
+static SkColor get_color(object any) {
+    AType type = isa(any);
+    i32 ia = 255, ir, ig, ib;
+
+    if (type == typeid(string)) {
+        /// string: read from #, color-name
+        string s = (string)any;
+        symbol h = s->chars;
+        if (h[0] == '#') {
+            i32 sz = len(s);
+            switch (sz) {
+                case 5:
+                    ia  = nib(h[4]) << 4 | nib(h[4]);
+                    [[fallthrough]];
+                case 4:
+                    ir  = nib(h[1]) << 4 | nib(h[1]);
+                    ig  = nib(h[2]) << 4 | nib(h[2]);
+                    ib  = nib(h[3]) << 4 | nib(h[3]);
+                    break;
+                case 9:
+                    ia  = nib(h[7]) << 4 | nib(h[8]);
+                    [[fallthrough]];
+                case 7:
+                    ir  = nib(h[1]) << 4 | nib(h[2]);
+                    ig  = nib(h[3]) << 4 | nib(h[4]);
+                    ib  = nib(h[5]) << 4 | nib(h[6]);
+                    break;
+            }
+        } else {
+            /// convert from color name
+        }
+    } else {
+        /// double: convert to SkColor
+        /// float:  convert to SkColor
+    }
+    SkColor sk = SkColor((ib | (ig << 8) | (ir << 16) | (ia << 24)));
+    return sk;
+}
+
+none canvas_init(canvas a) {
+}
+
+none canvas_destructor(canvas a) {
+}
+
+none canvas_move(canvas a, object _to) {
+    f32 to[2]; xy(_to, to);
+}
+
+none canvas_line(canvas a, object _to) {
+    f32 to[2]; xy(_to, to);
+}
+
+none canvas_save(canvas a) {
+}
+
+none canvas_restore(canvas a) {
+}
+
+none canvas_color(canvas a, object clr) {
+}
+
+none canvas_bezier(canvas a, object cp1, object cp2, object ep) {
+}
+
+define_mod(canvas, image)
+
 }
 
 /*
+
+after RT render, port all of canvas.hpp and this code in trinity
+
+struct state {
+    image       img;
+    f32         outline_sz = 0.0;
+    f32         font_scale = 1.0;
+    f32         opacity    = 1.0;
+    mat4f       m;
+    i32         color;
+    vec4f       clip;
+    vec2f       blur;
+    ion::font   font;
+    SkPaint     ps;
+    mat4f       model, view, proj;
+};
 
 /// canvas renders to image, and can manage the renderer/resizing
 struct ICanvas {
