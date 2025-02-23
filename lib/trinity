@@ -225,21 +225,12 @@ declare_class(trinity)
 #define shader_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,            trinity) \
     i_prop    (X,Y, required,   string,             name) \
-    i_prop    (X,Y, required,   i32,                ray_depth) \
     i_prop    (X,Y, public,     string,             vert)  \
     i_prop    (X,Y, public,     string,             frag)  \
     i_prop    (X,Y, public,     string,             comp)  \
-    i_prop    (X,Y, public,     string,             rgen)  \
-    i_prop    (X,Y, public,     string,             rchit)  \
-    i_prop    (X,Y, public,     string,             rahit)  \
-    i_prop    (X,Y, public,     string,             rmiss)  \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_vert) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_frag) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_comp) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_rgen) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_rchit) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_rahit) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_rmiss) \
     i_override(X,Y, method,     init, destructor)
 #ifndef shader_intern
 #define shader_intern
@@ -387,15 +378,6 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     VkPipeline,             vk_compute) \
     i_prop    (X,Y, intern,     VkPipelineLayout,       layout) \
     i_prop    (X,Y, intern,     VkDescriptorSet,        descriptor_set) \
-    i_prop    (X,Y, intern,     VkBuffer,               vk_raygen_sbt) \
-    i_prop    (X,Y, intern,     VkBuffer,               vk_miss_sbt) \
-    i_prop    (X,Y, intern,     VkBuffer,               vk_hit_sbt) \
-    i_prop    (X,Y, intern,     VkBuffer,               as_buffer) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,         as_memory) \
-    i_prop    (X,Y, intern,     VkAccelerationStructureNV, acceleration_structure) \
-    i_prop    (X,Y, intern,     VkDeviceAddress,        raygen_sbt_address) \
-    i_prop    (X,Y, intern,     VkDeviceAddress,        miss_sbt_address) \
-    i_prop    (X,Y, intern,     VkDeviceAddress,        hit_sbt_address) \
     i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, destructor)
 #ifndef pipeline_intern
