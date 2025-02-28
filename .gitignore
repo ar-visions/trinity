@@ -4,3 +4,4 @@ build-*
 silver-build
 silver-debug
 rs/target
+debug

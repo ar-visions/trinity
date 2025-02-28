@@ -29,8 +29,8 @@ SDL https://github.com/libsdl-org/SDL SDL2
 tinyexr https://github.com/syoyo/tinyexr 648e47b
 	-DBUILD_SHARED_LIBS=ON
 	-DCMAKE_POSITION_INDEPENDENT_CODE=ON
-	> cp libtinyexr.so $SILVER_IMPORT/lib/
-	> cp ../tinyexr.h $SILVER_IMPORT/include/
+	> cp libtinyexr.so $IMPORT/lib/
+	> cp ../tinyexr.h $IMPORT/include/
 
 zlib https://github.com/madler/zlib 04f42ce
 
@@ -38,8 +38,8 @@ png https://github.com/glennrp/libpng 07b8803
 
 skia https://skia.googlesource.com/skia.git c6835e2d5ff641dad9347ce4c2ff79dbc29cf9aa
 	is_official_build=false
-	cxx="$SILVER_IMPORT/bin/clang++"
-	cc="$SILVER_IMPORT/bin/clang"
+	cxx="$IMPORT/bin/clang++"
+	cc="$IMPORT/bin/clang"
 	extra_cflags_cc=["-Wno-switch-default","-Wno-format","-Wno-unused-but-set-variable","-Wno-deprecated-declarations"]
 	skia_enable_graphite=true
 	dawn_enable_null=false
@@ -138,13 +138,13 @@ lib:
 	z
 	png
 	m
-	-I$SILVER_IMPORT/checkout/skia
-	-I$SILVER_IMPORT/checkout/skia/src
-	-I$SILVER_IMPORT/checkout/skia/include
-	-I$SILVER_IMPORT/skia/include
-	-I$SILVER_IMPORT/checkout/skia/modules/svg/include
-	-I$SILVER_IMPORT/include/OpenEXR
-	-I$SILVER_IMPORT/include/Imath
+	-I$IMPORT/checkout/skia
+	-I$IMPORT/checkout/skia/src
+	-I$IMPORT/checkout/skia/include
+	-I$IMPORT/skia/include
+	-I$IMPORT/checkout/skia/modules/svg/include
+	-I$IMPORT/include/OpenEXR
+	-I$IMPORT/include/Imath
 	linux:
 		asound
 		vulkan
