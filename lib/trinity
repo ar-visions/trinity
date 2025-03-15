@@ -223,7 +223,7 @@ typedef struct _shader* shader;
 declare_class(trinity)
 
 #define shader_schema(X,Y,...) \
-    i_prop    (X,Y, required,   trinity,            trinity) \
+    i_prop    (X,Y, required,   trinity,            t) \
     i_prop    (X,Y, required,   string,             name) \
     i_prop    (X,Y, public,     string,             vert)  \
     i_prop    (X,Y, public,     string,             frag)  \
@@ -258,7 +258,7 @@ typedef struct _model*    model;
     i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore) \
     i_prop    (X,Y, intern,     VkFence,                in_flight_fence) \
     i_prop    (X,Y, intern,     VkSwapchainCreateInfoKHR, config) \
-    i_prop    (X,Y, required,   trinity,                trinity) \
+    i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
     i_prop    (X,Y, required,   string,                 title) \
@@ -333,7 +333,7 @@ typedef struct vertex_member_t {
 } vertex_member_t;
 
 #define gpu_schema(X,Y,...) \
-    i_prop(X,Y, required, trinity,      trinity) \
+    i_prop(X,Y, required, trinity,      t) \
     i_prop(X,Y, public,   image,        sampler) \
     i_prop(X,Y, public,   object,       uniform) \
     i_prop(X,Y, public,   object,       vertex_data) \
@@ -363,11 +363,11 @@ declare_class(gpu)
 ///
 typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
-    i_prop    (X,Y, required,   trinity,                trinity) \
+    i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   window,                 w) \
     i_prop    (X,Y, required,   array,                  uniforms) \
     i_prop    (X,Y, public,     array,                  samplers) \
-    i_prop    (X,Y, required,   shader,                 shader) \
+    i_prop    (X,Y, required,   shader,                 s) \
     i_prop    (X,Y, intern,     array,                  resources) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
@@ -390,7 +390,7 @@ declare_class(pipeline)
 typedef struct _Primitive* Primitive;
 #define part_schema(X,Y,...) \
     i_prop    (X,Y, required, Primitive, id) \
-    i_prop    (X,Y, required, shader, shader)
+    i_prop    (X,Y, required, shader, s)
 #ifndef part_intern
 #define part_intern
 #endif
@@ -411,7 +411,7 @@ declare_class(node)
 // we render one model at a time (group of pipelines)
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
-    i_prop    (X,Y, required, trinity, trinity) \
+    i_prop    (X,Y, required, trinity, t) \
     i_prop    (X,Y, required, window,  w) \
     i_prop    (X,Y, required, Model,   id) \
     i_prop    (X,Y, required, array,   nodes) \
@@ -770,7 +770,7 @@ declare_class(pbrMetallicRoughness)
 
 #define Material_schema(X, Y,...) \
     i_prop  (X, Y, public, string,      name) \
-    i_prop  (X, Y, public, pbrMetallicRoughness, pbrMetallicRoughness) \
+    i_prop  (X, Y, public, pbrMetallicRoughness, pbr, field, pbrMetallicRoughness) \
     i_prop  (X, Y, public, TextureInfo, normalTexture) \
     i_prop  (X, Y, public, TextureInfo, occlusionTexture) \
     i_prop  (X, Y, public, TextureInfo, emissiveTexture) \
@@ -855,6 +855,36 @@ declare_enum(Sampling)
 #endif
 declare_struct(HumanVertex)
 
+
+/*
+#define Transform_schema(X,Y,...)
+#define Sampler_schema(X,Y,...)
+#define Channel_schema(X,Y,...)
+#define Primitive_schema(X,Y,...)
+#define Node_schema(X,Y,...)
+#define Skin_schema(X,Y,...)
+#define Accessor_schema(X,Y,...)
+#define BufferView_schema(X,Y,...)
+#define Mesh_schema(X,Y,...)
+#define Scene_schema(X,Y,...)
+#define Material_schema(X,Y,...)
+#define Buffer_schema(X,Y,...)
+#define Animation_schema(X,Y,...)
+*/
+
+#define array_Transform_schema(X,Y,...)
+#define array_Sampler_schema(X,Y,...)
+#define array_Channel_schema(X,Y,...)
+#define array_Primitive_schema(X,Y,...)
+#define array_Node_schema(X,Y,...)
+#define array_Skin_schema(X,Y,...)
+#define array_Accessor_schema(X,Y,...)
+#define array_BufferView_schema(X,Y,...)
+#define array_Mesh_schema(X,Y,...)
+#define array_Scene_schema(X,Y,...)
+#define array_Material_schema(X,Y,...)
+#define array_Buffer_schema(X,Y,...)
+#define array_Animation_schema(X,Y,...)
 
 declare_meta(array_Transform,  array, Transform)
 declare_meta(array_Sampler,    array, Sampler)

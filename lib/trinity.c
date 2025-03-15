@@ -75,14 +75,14 @@ static VkBuffer create_buffer(trinity t, VkDeviceSize size, VkBufferUsageFlags u
 
 VkDeviceMemory device_memory(trinity t, VkBuffer b) {
     pairs (t->device_memory, i) {
-        if (i->key == b) return (VkDeviceMemory)i->value;
+        if (i->key == (object)b) return (VkDeviceMemory)i->value;
     }
     fault("device memory not resolved");
     return null;
 } 
 
 static void update_framebuffers(window w) {
-    trinity t = w->trinity;
+    trinity t = w->t;
 
     // Wait for the device to idle before resizing
     vkDeviceWaitIdle(t->device);
@@ -235,7 +235,7 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
     if (width == 0 && height == 0) return; // Minimized window, no resize needed
 
     window w = glfwGetWindowUserPointer(glfw_window);
-    trinity t = w->trinity;
+    trinity t = w->t;
 
     // Update window dimensions
     w->width  = width;
@@ -249,7 +249,7 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
 
 void model_init(model m) {
     Model mdl    = m->id;
-    trinity t    = m->trinity;
+    trinity t    = m->t;
     m->pipelines = array();
     if (!m->samplers) m->samplers = array();
     if (!m->uniforms) m->uniforms = array();
@@ -258,7 +258,7 @@ void model_init(model m) {
         each (n->parts, part, p) {
             Primitive prim = p->id;
             string    name = prim ? prim->name : string("default");
-            shader    s    = p->shader;  // required argument for part
+            shader    s    = p->s;  // required argument for part
 
             // validate indices accessor
             i64 indices = prim->indices;
@@ -298,8 +298,7 @@ void model_init(model m) {
             }
 
             /// allocate for gpu resource
-            gpu vbo = gpu(
-                trinity,      t,
+            gpu vbo = gpu(t, t,
                 members,      members,
                 member_count, member_count,
                 vertex_size,  vertex_size,
@@ -340,15 +339,15 @@ void model_init(model m) {
             m->camera = camera;
             array uniforms = array_of(camera, null); // required field, and should fault when the user renders without an update
             each(m->uniforms, object, u)
-                if (u != camera)
+                if (u != (object)camera)
                     push(uniforms, u);
             
             /// pipeline processes samplers, and creates placeholders
             /// we need enumerable schematics, so it would know to look
             pipeline pipe = pipeline(
-                trinity,    t,
+                t,          t,
                 w,          m->w,
-                shader,     s,
+                s,          s,
                 vbo,        vbo,
                 uniforms,   uniforms,
                 samplers,   m->samplers);
@@ -435,7 +434,7 @@ void transition_image_layout(trinity t, VkImage image, VkImageLayout oldLayout, 
 
 
 none gpu_sync(gpu a) {
-    trinity t = a->trinity;
+    trinity t = a->t;
 
     /// uniforms update continuously
     if (a->uniform) {
@@ -530,7 +529,7 @@ none gpu_sync(gpu a) {
             format == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_UNORM : 
             format == Pixel_rgb8    ? VK_FORMAT_R8G8B8_UNORM : 
             format == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
-        verify(format, "incompatible image format: %o", estr(Pixel, format));
+        verify(format, "incompatible image format: %o", e_str(Pixel, format));
 
         verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
             .sType     = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -679,9 +678,9 @@ none gpu_init(gpu a) {
 }
 
 none gpu_destructor(gpu a) {
-    vkDestroyBuffer(a->trinity->device, a->vk_vertex, null);
-    vkDestroyBuffer(a->trinity->device, a->vk_index,  null);
-    vkFreeMemory   (a->trinity->device, a->vk_memory, null);
+    vkDestroyBuffer(a->t->device, a->vk_vertex, null);
+    vkDestroyBuffer(a->t->device, a->vk_index,  null);
+    vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
 define_class(gpu);
@@ -711,7 +710,7 @@ VkIndexType gpu_index_type(gpu a) {
 }
 
 void pipeline_bind_resources(pipeline p) {
-    trinity t     = p->trinity;
+    trinity t     = p->t;
     int binding_count = 0; // we start at 1, because its occupied by vulkan raytrace data
     int sampler_count = 0;
     int uniform_count = 0;
@@ -730,7 +729,7 @@ void pipeline_bind_resources(pipeline p) {
 
     // populate bind layout for uniforms
     each(p->uniforms, object, u) {
-        gpu    res   = gpu(trinity, t, uniform, u);
+        gpu    res   = gpu(t, t, uniform, u);
         sync(res);
         push(p->resources, res);
         AType  type  = isa(res->uniform); // Get type info
@@ -766,7 +765,7 @@ void pipeline_bind_resources(pipeline p) {
         /// check if user provides an image
         each (p->samplers, image, img) {
             if ((int)img->surface == surface_value) {
-                res = gpu(trinity, t, sampler, img);
+                res = gpu(t, t, sampler, img);
                 break;
             }
         }
@@ -775,28 +774,28 @@ void pipeline_bind_resources(pipeline p) {
         if (!res) {
             switch (surface_value) {
                 case Surface_normal:
-                    res = gpu(trinity, t, sampler, vec4f(0.5f, 0.5f, 1.0f, 1.0f)); // Default normal map
+                    res = gpu(t, t, sampler, vec4f(0.5f, 0.5f, 1.0f, 1.0f)); // Default normal map
                     break;
                 case Surface_metal:
-                    res = gpu(trinity, t, sampler, A_f32(0.0f)); // Default: Non-metallic
+                    res = gpu(t, t, sampler, A_f32(0.0f)); // Default: Non-metallic
                     break;
                 case Surface_rough:
-                    res = gpu(trinity, t, sampler, A_f32(1.0f)); // Default: Fully rough
+                    res = gpu(t, t, sampler, A_f32(1.0f)); // Default: Fully rough
                     break;
                 case Surface_emission:
-                    res = gpu(trinity, t, sampler, vec4f(0.0f, 0.0f, 0.0f, 0.0f)); // Default: No emission
+                    res = gpu(t, t, sampler, vec4f(0.0f, 0.0f, 0.0f, 0.0f)); // Default: No emission
                     break;
                 case Surface_height:
-                    res = gpu(trinity, t, sampler, A_f32(0.5f)); // Midpoint height
+                    res = gpu(t, t, sampler, A_f32(0.5f)); // Midpoint height
                     break;
                 case Surface_ao:
-                    res = gpu(trinity, t, sampler, A_f32(1.0f)); // Full ambient occlusion by default
+                    res = gpu(t, t, sampler, A_f32(1.0f)); // Full ambient occlusion by default
                     break;
                 case Surface_color:
-                    res = gpu(trinity, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
+                    res = gpu(t, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
                     break;
                 case Surface_environment:
-                    res = gpu(trinity, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
+                    res = gpu(t, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
                     break;
                 default:
                     verify(0, "Unhandled Surface enum value");
@@ -824,13 +823,13 @@ void pipeline_bind_resources(pipeline p) {
         sampler_count++;
     }
 
-    vkCreateDescriptorSetLayout(p->trinity->device, &(VkDescriptorSetLayoutCreateInfo) {
+    vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = binding_count,
         .pBindings = bindings
     }, null, &p->descriptor_layout);
 
-    vkCreateDescriptorPool(p->trinity->device, &(VkDescriptorPoolCreateInfo) {
+    vkCreateDescriptorPool(p->t->device, &(VkDescriptorPoolCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .poolSizeCount = 2,
         .pPoolSizes = &(VkDescriptorPoolSize[2]) {
@@ -840,7 +839,7 @@ void pipeline_bind_resources(pipeline p) {
         .maxSets = 1
     }, null, &p->descriptor_pool);
 
-    vkAllocateDescriptorSets(p->trinity->device, &(VkDescriptorSetAllocateInfo) {
+    vkAllocateDescriptorSets(p->t->device, &(VkDescriptorSetAllocateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = p->descriptor_pool,
         .descriptorSetCount = 1,
@@ -868,7 +867,7 @@ void pipeline_bind_resources(pipeline p) {
             .pImageInfo         = &image_infos[i]
         };
     }
-    vkUpdateDescriptorSets(p->trinity->device, uniform_count + sampler_count, descriptor_writes, 0, null);
+    vkUpdateDescriptorSets(p->t->device, uniform_count + sampler_count, descriptor_writes, 0, null);
 }
 
 void pipeline_init(pipeline p) {
@@ -887,7 +886,7 @@ void pipeline_init(pipeline p) {
     i32     vertex_count = vbo->vertex_count;
     i32     index_size   = vbo->index_size;
     i32     index_count  = vbo->index_count;
-    trinity t            = p->trinity;
+    trinity t            = p->t;
     window  w            = p->w;
 
     bind_resources(p);
@@ -956,14 +955,14 @@ void pipeline_init(pipeline p) {
         VkPipelineShaderStageCreateInfo vert_shader_stage_info = {
             .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage  = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = p->shader->vk_vert,
+            .module = p->s->vk_vert,
             .pName  = "main"
         };
 
         VkPipelineShaderStageCreateInfo frag_shader_stage_info = {
             .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .stage  = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .module = p->shader->vk_frag,
+            .module = p->s->vk_frag,
             .pName  = "main"
         };
 
@@ -1045,14 +1044,14 @@ void pipeline_init(pipeline p) {
         verify(result == VK_SUCCESS, "pipeline creation fail");
     
         free(attributes);
-    } else if (p->shader && p->shader->vk_comp) {
+    } else if (p->s && p->s->vk_comp) {
         VkComputePipelineCreateInfo compute_pipeline_info = {
             .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             .layout = p->layout,
             .stage  = {
                 .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .stage  = VK_SHADER_STAGE_COMPUTE_BIT,
-                .module = p->shader->vk_comp,
+                .module = p->s->vk_comp,
                 .pName  = "main",
             },
         };
@@ -1064,7 +1063,7 @@ void pipeline_init(pipeline p) {
 
 
 void pipeline_destructor(pipeline p) {
-    trinity t = p->trinity;
+    trinity t = p->t;
     vkDestroyPipelineLayout(t->device, p->layout, null);
     if (p->vk_render)     vkDestroyPipeline(t->device, p->vk_render,     null);
     if (p->vk_compute)    vkDestroyPipeline(t->device, p->vk_compute,    null);
@@ -1135,7 +1134,7 @@ static void set_queue_index(trinity t, window w) {
 }
 
 void window_init(window w) {
-    trinity t = w->trinity;
+    trinity t = w->t;
 
     w->models = array();
     // Initialize GLFW window with Vulkan compatibility
@@ -1281,7 +1280,7 @@ void window_init(window w) {
 }
 
 int window_loop(window w) {
-    trinity t = w->trinity;
+    trinity t = w->t;
     int semaphore_frame = 0;
     int last_fence = -1;
     while (!glfwWindowShouldClose(w->window)) {
@@ -1385,7 +1384,7 @@ int window_loop(window w) {
 }
 
 void window_destructor(window w) {
-    trinity t = w->trinity;
+    trinity t = w->t;
     for (int i = 0; i < w->image_count; i++) {
         vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
         vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
@@ -1462,7 +1461,7 @@ void replace_includes(const char *src, const char *dst) {
 
 void shader_init(shader s) {
     // generate .spv for shader resources
-    trinity t = s->trinity;
+    trinity t = s->t;
     string spv_file;
     bool found = false;
     s->frag = form(string, "shaders/%o.frag", s->name);
@@ -1557,7 +1556,7 @@ void shader_init(shader s) {
 
 
 void shader_destructor(shader s) {
-    trinity t = s->trinity;
+    trinity t = s->t;
     vkDestroyShaderModule(t->device, s->vk_vert, null);
     vkDestroyShaderModule(t->device, s->vk_frag, null);
     vkDestroyShaderModule(t->device, s->vk_comp, null);
@@ -1690,10 +1689,10 @@ void trinity_init(trinity t) {
         }, null, &t->device);
     verify(result == VK_SUCCESS, "cannot create logical device");
 
-    _vkCreateAccelerationStructureKHR = 
-        (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(t->device, "vkCreateAccelerationStructureKHR");
-    _vkGetAccelerationStructureBuildSizesKHR = 
-        (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(t->device, "vkGetAccelerationStructureBuildSizesKHR");
+    //_vkCreateAccelerationStructureKHR = 
+    //    (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(t->device, "vkCreateAccelerationStructureKHR");
+    //_vkGetAccelerationStructureBuildSizesKHR = 
+    //    (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(t->device, "vkGetAccelerationStructureBuildSizesKHR");
     
     t->queue_family_index = -1;
 }
@@ -1924,7 +1923,7 @@ AType Accessor_member_type(Accessor a) {
         default:
             break;
     }
-    fault("invalid CompoundType: %o", estr(CompoundType, a->type));
+    fault("invalid CompoundType: %o", e_str(CompoundType, a->type));
     return 0;
 };
 

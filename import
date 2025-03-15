@@ -130,7 +130,7 @@ osd https://github.com/PixarAnimationStudios/OpenSubdiv 7d0ab55
 
 lib:
 	A
-	glfw3
+	glfw
 	SDL2
 	skia
 	osdCPU
