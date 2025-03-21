@@ -1,11 +1,11 @@
 
-//#include <import>
+#include <A>
 
 //double sqrt(double);
 //static int n_parts = 3;
 
 int main(int argc, char *argv[]) {
-    //A_start();
+    A_start();
     /*
     mat4f a      = mat4f(null);
     mat4f b      = translate(mat4f(null), vec3f(1.0f, 1.0f, 1.0f));

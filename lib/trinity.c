@@ -13,6 +13,15 @@ static void handle_glfw_key(
     }
 }
 
+static VkSampleCountFlagBits max_sample_count(VkPhysicalDevice physical_device) {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physical_device, &props);
+    VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts &
+                                props.limits.framebufferDepthSampleCounts;
+    if (counts & VK_SAMPLE_COUNT_4_BIT) return VK_SAMPLE_COUNT_4_BIT;
+    return VK_SAMPLE_COUNT_1_BIT;
+}
+
 static u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(t->physical_device, &props);
@@ -79,7 +88,95 @@ VkDeviceMemory device_memory(trinity t, VkBuffer b) {
     }
     fault("device memory not resolved");
     return null;
-} 
+}
+
+void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout);
+
+static void create_resolve(window w, VkImageViewCreateInfo* image_view_info) {
+    trinity t = w->t;
+    /// create resolve (for msaa)
+    VkImageCreateInfo resolve_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = w->surface_format.format,
+        .extent = { w->width, w->height, 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VkImage resolve_image;
+    VkDeviceMemory resolve_memory;
+    vkCreateImage(t->device, &resolve_info, null, &resolve_image);
+    VkMemoryRequirements resolve_reqs;
+    vkGetImageMemoryRequirements(t->device, resolve_image, &resolve_reqs);
+    VkMemoryAllocateInfo resolve_alloc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = resolve_reqs.size,
+        .memoryTypeIndex = find_memory_type(t, resolve_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vkAllocateMemory(t->device, &resolve_alloc, null, &resolve_memory);
+    vkBindImageMemory(t->device, resolve_image, resolve_memory, 0);
+
+    // Create resolve image view
+    image_view_info->image = resolve_image;
+    VkImageView resolve_view;
+    vkCreateImageView(t->device, image_view_info, null, &resolve_view);
+
+    w->resolve_image = resolve_image;
+    w->resolve_view  = resolve_view;
+    w->resolve_memory = resolve_memory;
+
+    transition_image_layout(t, w->resolve_image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
+
+static void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
+    trinity t = w->t;
+    /// create color image (for msaa)
+    VkImageCreateInfo color_image_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = w->surface_format.format,
+        .extent = { w->width, w->height, 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = t->msaa_samples,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VkImage color_image;
+    VkDeviceMemory color_memory;
+    vkCreateImage(t->device, &color_image_info, null, &color_image);
+    VkMemoryRequirements color_reqs;
+    vkGetImageMemoryRequirements(t->device, color_image, &color_reqs);
+    VkMemoryAllocateInfo color_alloc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = color_reqs.size,
+        .memoryTypeIndex = find_memory_type(t, color_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vkAllocateMemory(t->device, &color_alloc, null, &color_memory);
+    vkBindImageMemory(t->device, color_image, color_memory, 0);
+
+    // Create color image view
+    image_view_info->image = color_image;
+    VkImageView color_view;
+    vkCreateImageView(t->device, image_view_info, null, &color_view);
+
+    w->color_image = color_image;
+    w->color_view = color_view;
+    w->color_memory = color_memory;
+
+    transition_image_layout(t, w->color_image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
 
 static void update_framebuffers(window w) {
     trinity t = w->t;
@@ -87,12 +184,19 @@ static void update_framebuffers(window w) {
     // Wait for the device to idle before resizing
     vkDeviceWaitIdle(t->device);
 
-    // Destroy old framebuffers
+    // Destroy old framebuffers and cleanup old resources
     if (w->framebuffers) {
         for (uint32_t i = 0; i < w->image_count; ++i) {
             vkDestroyFramebuffer(t->device, w->framebuffers[i], null);
         }
         free(w->framebuffers);
+    }
+
+    // Clean up old color image if it exists
+    if (w->color_image) {
+        vkDestroyImageView(t->device, w->color_view, null);
+        vkDestroyImage(t->device, w->color_image, null);
+        vkFreeMemory(t->device, w->color_memory, null);
     }
 
     VkSurfaceCapabilitiesKHR capabilities;
@@ -121,18 +225,22 @@ static void update_framebuffers(window w) {
             .height = (uint32_t)w->height,
         },
         .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .preTransform = w->surface_caps.currentTransform,
         .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = w->present_mode,
         .clipped = VK_TRUE,
-        .oldSwapchain = VK_NULL_HANDLE,
+        .oldSwapchain = w->swapchain != VK_NULL_HANDLE ? w->swapchain : VK_NULL_HANDLE,
     };
 
-    vkDestroySwapchainKHR(t->device, w->swapchain, null);
+    VkSwapchainKHR old_swapchain = w->swapchain;
     VkResult result = vkCreateSwapchainKHR(t->device, &swapchain_info, null, &w->swapchain);
     verify(result == VK_SUCCESS, "Failed to create swapchain");
+    
+    if (old_swapchain != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(t->device, old_swapchain, null);
+    }
 
     if (w->command_buffers) {
         for (int i = 0; i < w->image_count; i++) {
@@ -167,9 +275,34 @@ static void update_framebuffers(window w) {
     result = vkAllocateCommandBuffers(t->device, &alloc_info, w->command_buffers);
     verify(result == VK_SUCCESS, "failed to allocate command buffers");
 
-
     // Get new swapchain images
     VkImage* swapchain_images = malloc(w->image_count * sizeof(VkImage));
+    w->depth_images = malloc(w->image_count * sizeof(VkImage));
+
+    // Basic image view creation info (will be modified for each specific view)
+    VkImageViewCreateInfo image_view_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = w->surface_format.format,
+        .components = {
+            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+        },
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = 1,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+    };
+    
+    // Create the multisampled color image (this will be attachment [0])
+    create_color_image(w, &image_view_info);
+    
+    // Get the swapchain images
     vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, swapchain_images);
 
     // Allocate new framebuffers
@@ -188,20 +321,60 @@ static void update_framebuffers(window w) {
             }, null, &w->command_fences[i]);
         verify(result == VK_SUCCESS, "failed to create fence");
 
-        // Create image view
-        VkImageViewCreateInfo image_view_info = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = swapchain_images[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = w->surface_format.format,
-            .components = {
-                .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+        // Create swapchain image view (this will be attachment [2] - the resolve target)
+        image_view_info.image = swapchain_images[i];
+        VkImageView swapchain_view;
+        result = vkCreateImageView(t->device, &image_view_info, null, &swapchain_view);
+        verify(result == VK_SUCCESS, "Failed to create swapchain image view");
+
+        // Create depth image (this will be attachment [1])
+        VkImageCreateInfo depth_image_info = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = VK_FORMAT_D32_SFLOAT,
+            .extent = {
+                .width = w->width,
+                .height = w->height,
+                .depth = 1,
             },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = t->msaa_samples,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        };
+
+        result = vkCreateImage(t->device, &depth_image_info, null, &w->depth_images[i]);
+        verify(result == VK_SUCCESS, "Failed to create depth image");
+
+        // Get memory requirements for the image
+        VkMemoryRequirements mem_requirements;
+        vkGetImageMemoryRequirements(t->device, w->depth_images[i], &mem_requirements);
+
+        // Allocate memory for the image
+        VkMemoryAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = mem_requirements.size,
+            .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        };
+
+        VkDeviceMemory depth_image_memory;
+        result = vkAllocateMemory(t->device, &alloc_info, null, &depth_image_memory);
+        verify(result == VK_SUCCESS, "Failed to allocate depth image memory");
+
+        // Bind the memory to the image
+        result = vkBindImageMemory(t->device, w->depth_images[i], depth_image_memory, 0);
+        verify(result == VK_SUCCESS, "Failed to bind depth image memory");
+
+        VkImageViewCreateInfo depth_view_info = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = w->depth_images[i],
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = VK_FORMAT_D32_SFLOAT,
             .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
@@ -209,16 +382,23 @@ static void update_framebuffers(window w) {
             },
         };
 
-        VkImageView image_view;
-        result = vkCreateImageView(t->device, &image_view_info, null, &image_view);
-        verify(result == VK_SUCCESS, "Failed to create image view");
+        VkImageView depth_view;
+        result = vkCreateImageView(t->device, &depth_view_info, null, &depth_view);
+        verify(result == VK_SUCCESS, "Failed to create depth view");
+
+        // Set up the attachments array with the correct order
+        VkImageView attachments[3] = {
+            w->color_view,  // [0] - Multisampled color attachment
+            depth_view,     // [1] - Depth attachment
+            swapchain_view  // [2] - Resolve target (swapchain image)
+        };
 
         // Create framebuffer
         VkFramebufferCreateInfo framebuffer_info = {
             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = w->render_pass, // Assume the render pass is pre-configured
-            .attachmentCount = 1,
-            .pAttachments = &image_view,
+            .renderPass = w->render_pass,
+            .attachmentCount = 3,
+            .pAttachments = attachments,
             .width = w->width,
             .height = w->height,
             .layers = 1,
@@ -247,6 +427,126 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
     update_framebuffers(w);
 }
 
+void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
+    Model      mdl          = m->id;
+    trinity    t            = m->t;
+    string     name         = prim->name ? prim->name : string("default");
+    i64        indices      = prim->indices;
+    Accessor   ai           = get(mdl->accessors, indices);
+    i64        mat_id       = prim->material;
+    AType      itype        = member_type(ai);
+    BufferView iview        = get(mdl->bufferViews, ai->bufferView);
+    Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
+    verify(mat_id >= 0 && mat_id < len(mdl->materials), "Invalid material index");
+    Material   material     = get(mdl->materials, mat_id);
+    int        index        = 0;
+    int        vertex_size  = 0;
+    int        vertex_count = 0;
+    int        member_count = 0;
+    int        index_size   = itype->size;
+    int        index_count  = iview->byteLength / itype->size;
+
+    char part_id[64];
+    sprintf(part_id, "%s", cstring(name));
+    print("part_id = %o", name);
+
+    /// initialize vertex members data
+    vertex_member_t* members = calloc(16, sizeof(vertex_member_t));
+    memset(members, 0, sizeof(vertex_member_t));
+
+    // Process attributes properly with accessor stride and offset
+    pairs (prim->attributes, i) {
+        string   name     = (string)i->key;
+        AType    vtype    = isa(i->value);
+        i64      ac_index = *(i64*)i->value;
+        Accessor ac       = get(mdl->accessors, ac_index);
+        BufferView bv     = get(mdl->bufferViews, ac->bufferView);
+        Buffer     b      = get(mdl->buffers, bv->buffer);
+
+        members[member_count].type   = member_type(ac);
+        members[member_count].ac     = ac;
+        members[member_count].size   = members[member_count].type->size;
+        members[member_count].offset = vertex_size;
+
+        print("attribute[%i] = %s", member_count, members[member_count].type->name);
+        vertex_size += members[member_count].type->size;
+        verify(ac->count, "count not set on accessor");
+        verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
+        vertex_count = ac->count;
+        member_count++;
+    }
+
+    /// allocate for GPU resource
+    gpu vbo = gpu(t, t,
+        name,         copy_cstr(part_id),
+        members,      members,
+        member_count, member_count,
+        vertex_size,  vertex_size,
+        vertex_count, vertex_count,
+        index_size,   index_size,
+        index_count,  index_count);
+
+    /// fetch data handles
+    i8 *vdata = vbo->vertex_data;
+    i8 *idata = vbo->index_data;
+
+    /// Write VBO data properly with per-attribute striding
+    for (int k = 0; k < member_count; k++) {
+        vertex_member_t* mem = &members[k];
+        BufferView bv     = get(mdl->bufferViews, mem->ac->bufferView);
+        Buffer     b      = get(mdl->buffers, bv->buffer);
+        i8*        src    = &((i8*)data(b->data))[bv->byteOffset]; // Correct buffer start
+        int        stride = mem->ac->stride;
+
+        for (int j = 0; j < vertex_count; j++) {
+            i8* dst  = &vdata[mem->offset + j * vertex_size];
+            i8* src0 = &src[j * stride];
+            memcpy(dst, src0, mem->size); 
+        }
+    }
+
+    /// write IBO data (todo: use reference)
+    i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
+    memcpy(idata, i_src, iview->byteLength);
+
+    /// Construct pipeline, give uniforms in an order of usage; help user out with world ordering
+    World world = null;
+    each(m->uniforms, object, u) {
+        if (isa(u) == typeid(World)) {
+            world = u;
+            break;
+        }
+    }
+    bool add_world = false;
+    if (!world) {
+        world = World();
+        add_world = true;
+    }
+    m->world = world;
+    array uniforms = array_of(world, null);
+    each(m->uniforms, object, u) {
+        if (u != (object)world)
+            push(uniforms, u);
+    }
+    
+    mat4f model = mat4f_ident();
+    model = mat4f_translate(&model, &n->translation);
+    if (n->scale.x != 0 || n->scale.y != 0 || n->scale.z != 0)
+        model = mat4f_scale(&model, &n->scale);
+    model = mat4f_rotate(&model, &n->rotation);
+    
+    /// pipeline processes samplers, and creates placeholders
+    pipeline pipe = pipeline(
+        t,          t,
+        w,          m->w,
+        s,          s,
+        vbo,        vbo,
+        model,      model,
+        uniforms,   uniforms,
+        samplers,   m->samplers);
+    push(m->pipelines, pipe);
+}
+
 void model_init(model m) {
     Model mdl    = m->id;
     trinity t    = m->t;
@@ -254,107 +554,36 @@ void model_init(model m) {
     if (!m->samplers) m->samplers = array();
     if (!m->uniforms) m->uniforms = array();
 
-    each (m->nodes, node, n) {
-        each (n->parts, part, p) {
-            Primitive prim = p->id;
-            string    name = prim ? prim->name : string("default");
-            shader    s    = p->s;  // required argument for part
-
-            // validate indices accessor
-            i64 indices = prim->indices;
-            Accessor ai = get(mdl->accessors, indices);
-
-            // retrieve material properties
-            i64 material_id = prim->material;
-            AType      itype   = member_type(ai);
-            BufferView iview   = get(mdl->bufferViews, ai->bufferView);
-            Buffer     ibuffer = get(mdl->buffers,     iview->buffer);
-            verify(material_id >= 0 && material_id < len(mdl->materials), "Invalid material index");
-            Material material = get(mdl->materials, material_id);
-
-            /// initialize vertex members data
-            vertex_member_t* members = calloc(16, sizeof(vertex_member_t));
-            memset(members, 0, sizeof(vertex_member_t));
-            int index        = 0;
-            int vertex_size  = 0;
-            int vertex_count = 0;
-            int member_count = 0;
-            int index_size   = itype->size;
-            int index_count  = iview->byteLength / itype->size;
-            pairs (prim->attributes, i) {
-                string   name     =  (string)i->key;
-                AType    vtype    = isa(i->value);
-                i64      ac_index = *(i64*)  i->value;
-                Accessor ac       = get(mdl->accessors, ac_index);
-                members[member_count].type   = member_type(ac);
-                members[member_count].ac     = ac;
-                members[member_count].size   = members[member_count].type->size;
-                members[member_count].offset = vertex_size;
-                vertex_size += members[member_count].type->size;
-                verify(ac->count, "count not set on accessor");
-                verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
-                vertex_count = ac->count;
-                member_count ++;
-            }
-
-            /// allocate for gpu resource
-            gpu vbo = gpu(t, t,
-                members,      members,
-                member_count, member_count,
-                vertex_size,  vertex_size,
-                vertex_count, vertex_count,
-                index_size,   index_size,
-                index_count,  index_count);
-            
-            /// fetch data handles
-            i8 *vdata = vbo->vertex_data;
-            i8 *idata = vbo->index_data;
-
-            /// write vbo data
-            for (int k = 0; k < member_count; k++) {
-                BufferView bv     = get(mdl->bufferViews, members[k].ac->bufferView);
-                Buffer     b      = get(mdl->buffers, bv->buffer);
-                i8*        src    = &((i8*)data(b->data))[bv->byteOffset];
-                for (int j = 0; j < vertex_count; j++)
-                    memcpy(&vdata[members[k].offset + j * vertex_size],
-                           &src[j * vertex_size], members[k].size);
-            }
-
-            /// write ibo data (todo: use reference)
-            i8* i_src    = &((i8*)data(ibuffer->data))[iview->byteOffset];
-            memcpy(idata, i_src, iview->byteLength);
-
-            /// construct pipeline, give uniforms in an order of usage; help user out with camera ordering regardless
-            Camera camera = null;
-            each(m->uniforms, object, u)
-                if (isa(u) == typeid(Camera)) {
-                    camera = u;
-                    break;
+    if (m->nodes) {
+        each (m->nodes, node, n)
+            each (n->parts, part, p)
+                model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->shader);
+    } else {
+        // .. how do we iterate through all Primitives in glTF?
+        each(mdl->nodes, Node, n) {
+            bool has_mesh = n->mesh > 0;
+            if (!has_mesh)
+                each (n->fields, string, s) {
+                    if (cmp(s, "mesh") == 0) {
+                        has_mesh = true;
+                        break;
+                    }
                 }
-            bool add_camera = false;
-            if (!camera) {
-                camera = Camera();
-                add_camera = true;
+            if (has_mesh) {
+                Mesh mesh = get(mdl->meshes, n->mesh);
+                each(mesh->primitives, Primitive, prim)
+                    model_init_pipeline(m, n, prim, m->shader);
             }
-            m->camera = camera;
-            array uniforms = array_of(camera, null); // required field, and should fault when the user renders without an update
-            each(m->uniforms, object, u)
-                if (u != (object)camera)
-                    push(uniforms, u);
-            
-            /// pipeline processes samplers, and creates placeholders
-            /// we need enumerable schematics, so it would know to look
-            pipeline pipe = pipeline(
-                t,          t,
-                w,          m->w,
-                s,          s,
-                vbo,        vbo,
-                uniforms,   uniforms,
-                samplers,   m->samplers);
-            push(m->pipelines, pipe);
         }
     }
 }
+
+void World_init(World w) {
+    mat4f_set_identity(&w->proj);
+    mat4f_set_identity(&w->model);
+    mat4f_set_identity(&w->view);
+}
+
 
 void model_destructor(model m) {
     /// pipelines should free automatically
@@ -411,6 +640,11 @@ void transition_image_layout(trinity t, VkImage image, VkImageLayout oldLayout, 
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     } else {
         verify(false, "unsupported layout transition");
     }
@@ -440,18 +674,13 @@ none gpu_sync(gpu a) {
     if (a->uniform) {
         AType u_type  = isa(a->uniform);
         if (!a->vk_uniform) {
-             a->vk_uniform = create_buffer(
-                t, u_type->size,
-                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT  | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                a->uniform, null);
+             a->vk_uniform = buffer(
+                t, t, size, u_type->size,
+                u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
+                data, a->uniform);
         } else {
             // map memory, update the uniform buffer, and unmap
-            void* mapped;
-            VkResult res = vkMapMemory(t->device, a->vk_uniform, 0, u_type->size, 0, &mapped);
-            verify(res == VK_SUCCESS, "Failed to map uniform buffer memory");
-            memcpy(mapped, a->uniform, u_type->size);
-            vkUnmapMemory(t->device, a->vk_uniform);
+            update(a->vk_uniform, a->uniform);
         }
     }
 
@@ -475,51 +704,65 @@ none gpu_sync(gpu a) {
     if (a->sampler && !a->vk_image) {
         /// check isa(a->sampler) against image, vec3f, vec4f, f32
         image img    = instanceof(a->sampler, image);
-        f32*  scalar = instanceof(a->sampler, f32);
-        u8*   scalar8 = instanceof(a->sampler, u8);
-        vec3f  v3    = instanceof(a->sampler, vec3f);
-        vec3i8 i3    = instanceof(a->sampler, vec3i8);
-        vec4f  v4    = instanceof(a->sampler, vec4f);
-        vec4i8 i4    = instanceof(a->sampler, vec4i8);
-        u8 fill[256];
         Pixel format = Pixel_none;
         i32 sampler_size = 0;
-
-        if (scalar) {
-            f32  *f32_fill = (f32*) fill;
-            for (int i = 0; i < 4; i++)
-                f32_fill[i] = *scalar;
-            format = Pixel_f32;
-            sampler_size = 4 * 4 * sizeof(f32);
-        } else if (scalar8) {
-            u8  *u8_fill = (u8*) fill;
-            for (int i = 0; i < 4*4; i++)
-                u8_fill[i] = *scalar8;
-            format = Pixel_u8;
-            sampler_size = 4 * 4 * sizeof(u8);
-        } else if (v3) {
-            vec3f v3_fill  = (vec3f)fill;
-            for (int i = 0; i < 4*4; i++) v3_fill[i] = *v3;
-            format = Pixel_rgbf32;
-            sampler_size = 4 * 4 * sizeof(vec3f);
-        } else if (i3) {
-            vec3i8 v3_fill  = (vec3i8)fill;
-            for (int i = 0; i < 4*4; i++) v3_fill[i] = *i3;
-            format = Pixel_rgb8;
-            sampler_size = 4 * 4 * sizeof(vec3i8);
-        } else if (v4) {
-            vec4f v4_fill  = (vec4f)fill;
-            for (int i = 0; i < 4*4; i++) v4_fill[i] = *v4;
-            format = Pixel_rgbaf32;
-            sampler_size = 4 * 4 * sizeof(vec4f);
-        } else if (i4) {
-            vec4i8 v4_fill  = (vec4i8)fill;
-            for (int i = 0; i < 4*4; i++) v4_fill[i] = *i4;
-            format = Pixel_rgba8;
-            sampler_size = 4 * 4 * sizeof(vec4i8);
-        } else {
+        u8 fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
+            
+        if (img) {
             format = img->format;
             sampler_size = byte_count(img);
+        } else {
+            /// lets create a 4x4 based on a broadcast of data given
+            vector_i8    v_i8    = instanceof(a->sampler, vector_i8);     // grayscale i8
+            vector_f32   v_f32   = instanceof(a->sampler, vector_f32);    // grayscale f32
+            vector_rgb8  v_rgb8  = instanceof(a->sampler, vector_rgb8);   // rgb bytes
+            vector_rgbf  v_rgbf  = instanceof(a->sampler, vector_rgbf);   // rgb floats
+            vector_rgba8 v_rgba8 = instanceof(a->sampler, vector_rgba8);  // rgba bytes
+            vector_rgbaf v_rgbaf = instanceof(a->sampler, vector_rgbaf);  // rgba floats
+
+            i8*    data_i8    = v_i8    ? data(v_i8)    : null;
+            f32*   data_f32   = v_f32   ? data(v_f32)   : null;
+            rgb8*  data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
+            rgbf*  data_rgbf  = v_rgbf  ? data(v_rgbf)  : null;
+            rgba8* data_rgba8 = v_rgba8 ? data(v_rgba8) : null;
+            rgbaf* data_rgbaf = v_rgbaf ? data(v_rgbaf) : null;
+
+            /// placeholder samplers, (4x4 is minimum we may create)
+            if (data_f32) {
+                f32  *f32_fill = (f32*) fill;
+                for (int i = 0; i < 4; i++)
+                    f32_fill[i] = *data_f32;
+                format = Pixel_f32;
+                sampler_size = 4 * 4 * sizeof(f32);
+            } else if (data_i8) {
+                u8  *u8_fill = (u8*) fill;
+                for (int i = 0; i < 4*4; i++)
+                    u8_fill[i] = *data_i8;
+                format = Pixel_u8;
+                sampler_size = 4 * 4 * sizeof(u8);
+            } else if (data_rgbf) {
+                rgbf* v3_fill  = (rgbf*)fill;
+                for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgbf;
+                format = Pixel_rgbf32;
+                sampler_size = 4 * 4 * sizeof(rgbf);
+            } else if (data_rgb8) {
+                rgb8* v3_fill  = (rgb8*)fill;
+                for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgb8;
+                format = Pixel_rgb8;
+                sampler_size = 4 * 4 * sizeof(rgb8);
+            } else if (data_rgbaf) {
+                rgbaf* v4_fill  = (rgbaf*)fill;
+                for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgbaf;
+                format = Pixel_rgbaf32;
+                sampler_size = 4 * 4 * sizeof(rgbaf);
+            } else if (data_rgba8) {
+                rgba8* v4_fill  = (rgba8*)fill;
+                for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgba8;
+                format = Pixel_rgba8;
+                sampler_size = 4 * 4 * sizeof(rgba8);
+            } else {
+                fault("sampler data required");
+            }
         }
 
         VkFormat vk_format =
@@ -729,7 +972,7 @@ void pipeline_bind_resources(pipeline p) {
 
     // populate bind layout for uniforms
     each(p->uniforms, object, u) {
-        gpu    res   = gpu(t, t, uniform, u);
+        gpu    res   = gpu(t, t, name, "uniform", uniform, u);
         sync(res);
         push(p->resources, res);
         AType  type  = isa(res->uniform); // Get type info
@@ -743,7 +986,7 @@ void pipeline_bind_resources(pipeline p) {
         };
         binding_count++;
         buffer_infos[uniform_count]  = (VkDescriptorBufferInfo) {
-            .buffer = res->vk_uniform,
+            .buffer = res->vk_uniform->vk_buffer,
             .offset = 0,
             .range = size
         };
@@ -765,37 +1008,49 @@ void pipeline_bind_resources(pipeline p) {
         /// check if user provides an image
         each (p->samplers, image, img) {
             if ((int)img->surface == surface_value) {
-                res = gpu(t, t, sampler, img);
+                res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, img);
                 break;
             }
         }
 
         /// create resource fragment based on the texture type
         if (!res) {
+            rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
+            rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
+            rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
+            shape single = shape_new(1, 0);
             switch (surface_value) {
                 case Surface_normal:
-                    res = gpu(t, t, sampler, vec4f(0.5f, 0.5f, 1.0f, 1.0f)); // Default normal map
+                    res = gpu(t, t, name, "normal", sampler,
+                        vector_rgbaf_new(single, f_normal)); // Default normal map
                     break;
                 case Surface_metal:
-                    res = gpu(t, t, sampler, A_f32(0.0f)); // Default: Non-metallic
+                    res = gpu(t, t, name, "metal", sampler,
+                        vector_f32_new(single, 0.0f)); // Default: Non-metallic
                     break;
                 case Surface_rough:
-                    res = gpu(t, t, sampler, A_f32(1.0f)); // Default: Fully rough
+                    res = gpu(t, t, name, "rough", sampler,
+                        vector_f32_new(single, 1.0f)); // Default: Fully rough
                     break;
                 case Surface_emission:
-                    res = gpu(t, t, sampler, vec4f(0.0f, 0.0f, 0.0f, 0.0f)); // Default: No emission
+                    res = gpu(t, t, name, "emission", sampler,
+                        vector_rgbaf_new(single, f_zero)); // Default: No emission
                     break;
                 case Surface_height:
-                    res = gpu(t, t, sampler, A_f32(0.5f)); // Midpoint height
+                    res = gpu(t, t, name, "height", sampler,
+                        vector_f32_new(single, 0.5f)); // Midpoint height (todo: should be 0 but look at this in pbr later)
                     break;
                 case Surface_ao:
-                    res = gpu(t, t, sampler, A_f32(1.0f)); // Full ambient occlusion by default
+                    res = gpu(t, t, name, "ao", sampler,
+                        vector_f32_new(single, 1.0f)); // Full ambient occlusion by default
                     break;
                 case Surface_color:
-                    res = gpu(t, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
+                    res = gpu(t, t, name, "color", sampler,
+                        vector_rgbaf_new(single, f_one)); // White base color
                     break;
                 case Surface_environment:
-                    res = gpu(t, t, sampler, vec4f(1.0f, 1.0f, 1.0f, 1.0f)); // White base color
+                    res = gpu(t, t, name, "environment", sampler,
+                        vector_rgbaf_new(single, f_one)); // White base color
                     break;
                 default:
                     verify(0, "Unhandled Surface enum value");
@@ -929,6 +1184,10 @@ void pipeline_init(pipeline p) {
               //(mem->type == typeid( i32 )) ? VK_FORMAT_R32_SINT            : -- glTF does not support
                 (mem->type == typeid( u32 )) ? VK_FORMAT_R32_UINT            :
                                                VK_FORMAT_UNDEFINED;
+            if (attributes[attr_count].format == VK_FORMAT_UNDEFINED) {
+                int test2 = 2;
+                test2 += 2;
+            }
             attributes[attr_count].offset = mem->offset;
             attr_count++;
         }
@@ -984,15 +1243,15 @@ void pipeline_init(pipeline p) {
             .rasterizerDiscardEnable = VK_FALSE,
             .polygonMode             = VK_POLYGON_MODE_FILL,
             .lineWidth               = 1.0f,
-            .cullMode                = VK_CULL_MODE_NONE, //VK_CULL_MODE_BACK_BIT,
+            .cullMode                = VK_CULL_MODE_BACK_BIT,
             .frontFace               = VK_FRONT_FACE_CLOCKWISE,
             .depthBiasEnable         = VK_FALSE,
         };
 
         VkPipelineMultisampleStateCreateInfo multisample_state = {
             .sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
-            .sampleShadingEnable   = VK_FALSE,
+            .rasterizationSamples  = t->msaa_samples,
+            .sampleShadingEnable   = VK_TRUE,
         };
 
         VkPipelineColorBlendAttachmentState color_blend_attachment = {
@@ -1027,6 +1286,14 @@ void pipeline_init(pipeline p) {
             .sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount          = n_stages,
             .pStages             = shader_stages,
+            .pDepthStencilState  = &(VkPipelineDepthStencilStateCreateInfo) {
+                .sType                  = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                .depthTestEnable        = VK_TRUE,
+                .depthWriteEnable       = VK_TRUE,
+                .depthCompareOp         = VK_COMPARE_OP_LESS,
+                .depthBoundsTestEnable  = VK_FALSE,
+                .stencilTestEnable      = VK_FALSE
+            },
             .pVertexInputState   = &vertex_input_info,
             .pInputAssemblyState = &input_assembly_info,
             .pViewportState      = &viewport_state,
@@ -1074,26 +1341,32 @@ void Buffer_init(Buffer b) {
     b->data = data;
 }
 
-void model_render(model m, handle f) {
+void pipeline_render(pipeline p, handle f) {
     VkCommandBuffer frame = f;
-    each(m->pipelines, pipeline, p) {
-        if (p->vk_compute) {
-            vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->vk_compute);
-            vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->layout, 0, 1, &p->bind, 0, null);
-            vkCmdDispatch(frame, p->memory->vertex_count, 1, 1);
-        }
-        if (p->vk_render) {
-            vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->vk_render);
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vk_vertex, offsets);
 
-            if (p->vbo->vk_index) {
-                vkCmdBindIndexBuffer(frame, p->vbo->vk_index, 0,
-                    gpu_index_type(p->vbo));
-                vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
-            } else
-                vkCmdDraw(frame, p->vbo->vertex_count, 1, 0, 0);
-        }
+    /// for each resource of uniform, call sync
+    each(p->resources, gpu, res) {
+        if (res->uniform)
+            sync(res);
+    }
+    if (p->vk_compute) {
+        vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->vk_compute);
+        vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->layout, 0, 1, &p->bind, 0, null);
+        vkCmdDispatch(frame, p->memory->vertex_count, 1, 1);
+    }
+    if (p->vk_render) {
+        vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->vk_render);
+        VkDeviceSize offsets[] = { 0 };
+
+        vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->layout, 0, 1, &p->descriptor_set, 0, null);
+        vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vk_vertex, offsets);
+
+        if (p->vbo->vk_index) {
+            vkCmdBindIndexBuffer(frame, p->vbo->vk_index, 0,
+                gpu_index_type(p->vbo));
+            vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
+        } else
+            vkCmdDraw(frame, p->vbo->vertex_count, 1, 0, 0);
     }
 }
 
@@ -1236,56 +1509,118 @@ void window_init(window w) {
         w->extent = w->surface_caps.currentExtent;  // Use the surface-defined extent if available
     } else {
         // Clamp extent to allowed dimensions
-        w->extent.width = max(w->surface_caps.minImageExtent.width,
-                              min(w->surface_caps.maxImageExtent.width, w->extent.width));
+        w->extent.width  = max(w->surface_caps.minImageExtent.width,
+                           min(w->surface_caps.maxImageExtent.width, w->extent.width));
         w->extent.height = max(w->surface_caps.minImageExtent.height,
-                               min(w->surface_caps.maxImageExtent.height, w->extent.height));
+                           min(w->surface_caps.maxImageExtent.height, w->extent.height));
     }
 
-    // Create the render pass
-    VkAttachmentDescription color_attachment = {
-        .format = w->surface_format.format,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    // create render pass
+    VkAttachmentDescription attachments[3] = {
+        {
+            // [0] - Multisampled color attachment
+            .format         = w->surface_format.format,
+            .samples        = t->msaa_samples,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE, // We don't need to store this, just resolve it
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        }, 
+        {
+            // [1] - Depth attachment
+            .format         = VK_FORMAT_D32_SFLOAT,
+            .samples        = t->msaa_samples,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        }, 
+        {
+            // [2] - Resolve attachment (swapchain image)
+            .format         = w->surface_format.format,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        }
     };
 
     VkAttachmentReference color_attachment_ref = {
         .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference depth_attachment_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference resolve_attachment_ref = {
+        .attachment = 2,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     };
 
     VkSubpassDescription subpass = {
-        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment_ref,
+        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount    = 1,
+        .pColorAttachments       = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref,
+        .pResolveAttachments     = &resolve_attachment_ref
+    };
+
+    // Add subpass dependencies to ensure proper image layout transitions
+    VkSubpassDependency dependencies[2] = {
+        {
+            .srcSubpass      = VK_SUBPASS_EXTERNAL,
+            .dstSubpass      = 0,
+            .srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+            .dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        },
+        {
+            .srcSubpass      = 0,
+            .dstSubpass      = VK_SUBPASS_EXTERNAL,
+            .srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        }
     };
 
     VkRenderPassCreateInfo render_pass_info = {
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
+        .sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount        = 3,
+        .pAttachments           = attachments,
+        .subpassCount           = 1,
+        .pSubpasses             = &subpass,
+        .dependencyCount        = 2,
+        .pDependencies          = dependencies
     };
 
     result = vkCreateRenderPass(t->device, &render_pass_info, null, &w->render_pass);
-    verify(result == VK_SUCCESS, "Failed to create render pass");
-
+    verify(result == VK_SUCCESS, "failed to create render pass");
     update_framebuffers(w);  // Call the framebuffer update directly
 }
 
-int window_loop(window w) {
+int window_loop(window w, ARef callback, ARef arg) {
     trinity t = w->t;
     int semaphore_frame = 0;
     int last_fence = -1;
+    void(*user_fn)(pipeline, ARef) = callback;
+
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
-
+        
         uint32_t index;
         VkResult result;
 
@@ -1329,15 +1664,28 @@ int window_loop(window w) {
                 .offset         = { 0, 0 },
                 .extent         = w->extent,  // Swapchain image extent
             },
-            .clearValueCount    = 1,
-            .pClearValues       = &(VkClearValue) { .color = { .float32 = { 0.2f, 0.0f, 0.5f, 1.0f }}}
+            .clearValueCount    = 3,
+            .pClearValues       = &(VkClearValue[3]) {
+                { .color        = { .float32 = { 0.2f, 0.0f, 0.5f, 1.0f }} },
+                { .depthStencil = { .depth   =   1.0f,
+                                    .stencil =   0 } },
+                { .color        = { .float32 = {0.0f, 0.0f, 0.0f, 1.0f} } }
+            }
         }, VK_SUBPASS_CONTENTS_INLINE);
 
-        // Bind and execute pipelines
-        // a pipeline could have compute and render in one, if we wanted to use it this way
-        // shaders have compute/vert/frag, and thus may be integrated by pipeline
         each(w->models, model, m) {
-            render(m, frame);
+            
+            each(m->pipelines, pipeline, p) {
+                // update World uniform with our model default (from glTF)
+                each(p->resources, gpu, res)
+                    if (res->uniform && isa(res->uniform) == typeid(World)) {
+                        ((World)res->uniform)->model = p->model;
+                    }
+                if (user_fn)
+                    user_fn(p, arg);
+                // user may indeed set uniforms different depending on the pipeline; this is quite natural and not always redundant
+                render(p, frame);
+            }
         }
         vkCmdEndRenderPass(frame);   // End render pass
         vkEndCommandBuffer(frame);   // End command buffer recording
@@ -1385,19 +1733,50 @@ int window_loop(window w) {
 
 void window_destructor(window w) {
     trinity t = w->t;
+    
+    // Clean up synchronization objects
     for (int i = 0; i < w->image_count; i++) {
         vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
         vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
         vkDestroyFence    (t->device, w->command_fences[i], null);
     }
     
+    // Clean up framebuffers
+    if (w->framebuffers) {
+        for (uint32_t i = 0; i < w->image_count; ++i) {
+            vkDestroyFramebuffer(t->device, w->framebuffers[i], null);
+        }
+        free(w->framebuffers);
+    }
+    
+    // Clean up MSAA color image
+    if (w->color_image) {
+        vkDestroyImageView(t->device, w->color_view, null);
+        vkDestroyImage(t->device, w->color_image, null);
+        vkFreeMemory(t->device, w->color_memory, null);
+    }
+    
+    // Clean up depth images
+    if (w->depth_images) {
+        for (uint32_t i = 0; i < w->image_count; ++i) {
+            if (w->depth_images[i]) {
+                // Note: You'll need to store depth view and memory per image
+                vkDestroyImage(t->device, w->depth_images[i], null);
+                // Free depth memory
+            }
+        }
+        free(w->depth_images);
+    }
+    
     free(w->command_buffers);
     free(w->command_fences);
     free(w->image_available_semaphore);
     free(w->render_finished_semaphore);
+    
+    vkDestroyRenderPass(t->device, w->render_pass, null);
     vkDestroySwapchainKHR(t->device, w->swapchain, null);
     vkDestroySurfaceKHR(t->instance, w->surface, null);
-    glfwDestroyWindow  (w->window);
+    glfwDestroyWindow(w->window);
 }
 
 #define BUFFER_SIZE         4096
@@ -1464,9 +1843,19 @@ void shader_init(shader s) {
     trinity t = s->t;
     string spv_file;
     bool found = false;
+    
     s->frag = form(string, "shaders/%o.frag", s->name);
     s->vert = form(string, "shaders/%o.vert", s->name);
     s->comp = form(string, "shaders/%o.comp", s->name);
+
+    char cwd[255]; // PATH_MAX is system-defined maximum path length
+
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("Current working directory: %s\n", cwd);
+    } else {
+        perror("getcwd() error");
+    }
+    print("cwd = %s", cwd);
     string names[3] = {
         s->frag, s->vert,  s->comp
     };
@@ -1486,7 +1875,7 @@ void shader_init(shader s) {
         struct stat source_stat, spv_stat;
         int src_exists = stat(input->chars,    &source_stat) == 0;
         int spv_exists = stat(spv_file->chars, &spv_stat)    == 0;
-
+     
         /// if no spv, or our source is newer than the binary (we have changed it!)
         if (!spv_exists || source_stat.st_mtime > spv_stat.st_mtime) {
             // mktemp, and start reading input
@@ -1672,11 +2061,22 @@ void trinity_init(trinity t) {
 
     verify(swapchain_supported, "VK_KHR_swapchain extension is not supported by the physical device");
     
+    VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {};
+    bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+    bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 features2 = {};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &bufferDeviceAddressFeatures;
+
+    t->msaa_samples = max_sample_count(t->physical_device);
+    vkGetPhysicalDeviceFeatures2(t->physical_device, &features2); // Fetch the features from the physical device
+
     // Prepare device extensions
     float    queuePriority = 1.0f;
     VkResult result = vkCreateDevice(t->physical_device, &(VkDeviceCreateInfo) {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            .pNext                      = null,
+            .pNext                      = &features2,
             .queueCreateInfoCount       = 1,
             .pQueueCreateInfos          = &(VkDeviceQueueCreateInfo) {
                 .sType                  = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -1711,11 +2111,83 @@ void trinity_destructor(trinity t) {
     glfwTerminate();
 }
 
-/// avoid 'vertex' definition anti-pattern?
-/// ---------------------------------------
-/// attempt to avoid using a defined 'vertex' format, as we typically dont need to iterate over these
-/// and set members specifically; that may be populated when creating a model
-///define_class(vertex)
+none buffer_init(buffer b) {
+    trinity                 t     = b->t;
+    VkDeviceSize            size  = b->size;
+    VkBufferUsageFlags      usage = 0;
+    VkMemoryPropertyFlags   props = 0;
+    
+    if (b->u_uniform)       usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if (b->u_src)           usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (b->u_dst)           usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (b->u_shader)        usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (b->u_storage)       usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    if (b->u_vertex)        usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if (b->u_index)         usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+
+    if (b->m_device_local)  props |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    if (b->m_host_visible)  props |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    if (b->m_host_coherent) props |= VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    VkBufferCreateInfo buffer_info = {
+        .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .size        = size,
+        .usage       = usage,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+
+    VkResult result = vkCreateBuffer(t->device, &buffer_info, null, &b->vk_buffer);
+    verify(result == VK_SUCCESS, "failed to create buffer");
+
+    VkMemoryRequirements mem_requirements;
+    vkGetBufferMemoryRequirements(t->device, b->vk_buffer, &mem_requirements);
+
+    VkMemoryAllocateInfo alloc_info = {
+        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize  = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, props),
+        .pNext           = &(VkMemoryAllocateFlagsInfo) {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT
+        }
+    };
+
+    result = vkAllocateMemory(t->device, &alloc_info, null, &b->vk_memory);
+    verify(result == VK_SUCCESS, "failed to allocate buffer memory");
+
+    vkBindBufferMemory(t->device, b->vk_buffer, b->vk_memory, 0);
+
+    // Copy data if provided
+    if (b->data) {
+        void* mapped_memory = mmap(b);
+        memcpy(mapped_memory, b->data, b->size);
+        unmap(b);
+    }
+}
+
+none buffer_update(buffer a, ARef data) {
+    ARef m = mmap(a);
+    memcpy(m, data, a->size);
+    unmap(a);
+}
+
+ARef buffer_mmap(buffer b) {
+    void* mapped_memory;
+    VkResult result = vkMapMemory(b->t->device, b->vk_memory, 0, (VkDeviceSize)b->size, 0, &mapped_memory);
+    verify(result == VK_SUCCESS, "failed to map buffer memory");
+    return mapped_memory;
+}
+
+none buffer_unmap(buffer b) {
+    verify(b->vk_memory, "expected memory");
+    vkUnmapMemory(b->t->device, b->vk_memory);
+}
+
+none buffer_destructor(buffer a) {
+    vkDestroyBuffer(a->t->device, a->vk_buffer, null);
+    vkFreeMemory   (a->t->device, a->vk_memory, null);
+}
+
 
 define_class(trinity)
 define_class(shader)
@@ -1724,10 +2196,11 @@ define_class(part)
 define_class(node)
 define_class(model)
 define_class(window)
+define_class(buffer)
 define_class(particle)
 
 define_enum(Surface)
-define_class(Camera)
+define_class(World)
 
 
 Node Model_find(Model a, cstr name) {
@@ -1742,8 +2215,6 @@ Node Model_parent(Model a, Node n) {
     verify(node_index >= 0, "invalid node memory");
     each (a->nodes->elements, Node, node) {
         for (num i = 0, ln = len(node->children); i < ln; i++) {
-            veci64_f* table = typeid(veci64);
-
             i64 id = 0;//get(node->children, i);
             if (node_index == id)
                 return node;
@@ -1775,20 +2246,20 @@ Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node
     if (node->joint_index >= 0) {
         transform->jdata     = joints;
 
-        mat4f i = mat4f(null);
+        mat4f i = mat4f((floats)null);
         vec3f v = vec3f(1, 1, 1);
-        struct mat4f_f* table = isa(i);
+        mat4f rotation_m4 = mat4f(&node->rotation); // calls the quaternion constructor on our struct
         /// vectors have no special field on the end so we have to invoke their entire function names (not using macro or function table; people like this better)
-        transform->local     = mat4f(null);
-        transform->local     = matf_translate(transform->local, node->translation);
-        transform->local     = matf_mul(transform->local, mat4f(node->rotation));
-        transform->local     = matf_scale(transform->local, node->scale);
+        transform->local = mat4f((floats)null);
+        transform->local = mat4f_translate(&transform->local, &node->translation);
+        transform->local = mat4f_mul      (&transform->local, &rotation_m4);
+        transform->local = mat4f_scale    (&transform->local, &node->scale);
         transform->local_default = transform->local;
         transform->iparent   = parent->istate;
         transform->istate    = node->joint_index;
-        mat4f state_mat = joints->states->elements[transform->istate] = matf_mul(parent_mat, transform->local_default);
-
-
+        mat4f state_mat = mat4f_mul(&parent_mat, &transform->local_default);
+        mat4f* jstates = data(joints->states);
+        jstates[transform->istate] = state_mat;
         each (node->children, object, p_node_index) {
             int node_index = *(int*)p_node_index;
             /// ch is referenced from the ops below, when called here (not released)
@@ -1796,7 +2267,7 @@ Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node
             if (ch) {
                 Node n = a->nodes->elements[node_index];
                 verify(n->joint_index == ch->istate, "joint index mismatch");
-                push(transform->ichildren, ch->istate); /// there are cases where a referenced node is not part of the joints array; we dont add those.
+                push(transform->ichildren, &ch->istate); /// there are cases where a referenced node is not part of the joints array; we dont add those.
             }
         }
         push(joints->transforms, transform);
@@ -1809,6 +2280,7 @@ JData Model_joints(Model a, Node node) {
         return node->mx_joints;
 
     JData joints;
+    mat4f ident = mat4f_ident();
     if (node->skin != -1) {
         Skin skin         = a->skins->elements[node->skin];
         map  all_children = map();
@@ -1825,21 +2297,25 @@ JData Model_joints(Model a, Node node) {
         values (skin->joints, int, node_index)
             ((Node)a->nodes->elements[node_index])->joint_index = j_index++;
 
-        joints->transforms = array_Transform(len(skin->joints)); /// we are appending, so dont set size (just verify)
-        joints->states     = array_mat4f    (len(skin->joints));
-        fill(joints->states, mat4f(null));
+        int n = len(skin->joints);
+        joints->transforms = array_Transform(n); /// we are appending, so dont set size (just verify)
+        joints->states     = vector_mat4f   (n);
+        
+        for (int i = 0; i < n; i++)
+            push(joints->states, &ident);
+        
         /// for each root joint, resolve the local and global matrices
         values (skin->joints, int, node_index) {
             if (contains(all_children, &node_index)) // fix
                 continue;
             
-            mat4f ident = mat4f(null);
             node_transform(a, joints, ident, node_index, null);
         }
+    } else {
+        int n = len(joints->states);
+        for (int i = 0; i < n; i++)
+            push(joints->states, &ident);
     }
-
-    for (int i = 0; i < len(joints->states); i++)
-        joints->states->elements[i] = mat4f(null);
 
     /// adding transforms twice
     verify(len(joints->states) == len(joints->transforms), "length mismatch");
@@ -1889,9 +2365,9 @@ AType Accessor_member_type(Accessor a) {
         case ComponentType_UNSIGNED_BYTE:
             switch (a->type) {
                 case CompoundType_SCALAR: return typeid(i8);
-                case CompoundType_VEC2:   return typeid(vec2i8);
-                case CompoundType_VEC3:   return typeid(vec3i8);
-                case CompoundType_VEC4:   return typeid(vec4i8);
+                //case CompoundType_VEC2:   return typeid(vec2i8);
+                //case CompoundType_VEC3:   return typeid(vec3i8);
+                //case CompoundType_VEC4:   return typeid(vec4i8);
                 default: break;
             }
             break;
@@ -1910,12 +2386,12 @@ AType Accessor_member_type(Accessor a) {
             break;
         case ComponentType_FLOAT:
             switch (a->type) {
-                case CompoundType_SCALAR: return typeid(i8);
-                case CompoundType_VEC2:   return typeid(vec2i8);
-                case CompoundType_VEC3:   return typeid(vec3i8);
-                case CompoundType_VEC4:   return typeid(vec4i8);
-                case CompoundType_MAT2:   return typeid(mat2f); 
-                case CompoundType_MAT3:   return typeid(mat3f); 
+                case CompoundType_SCALAR: return typeid(f32);
+                case CompoundType_VEC2:   return typeid(vec2f);
+                case CompoundType_VEC3:   return typeid(vec3f);
+                case CompoundType_VEC4:   return typeid(vec4f);
+                //case CompoundType_MAT2:   return typeid(mat2f); 
+                //case CompoundType_MAT3:   return typeid(mat3f); 
                 case CompoundType_MAT4:   return typeid(mat4f); 
                 default: fault("invalid CompoundType");
             }
@@ -1928,7 +2404,7 @@ AType Accessor_member_type(Accessor a) {
 };
 
 void Transform_multiply(Transform a, mat4f m) {
-    a->local = matf_mul(a->local, m);
+    a->local = mat4f_mul(&a->local, &m);
     propagate(a);
 }
 
@@ -1951,12 +2427,12 @@ bool Transformer_cast_bool(Transform a) {
 }
 
 void Transform_propagate(Transform a) {
-    mat4f ident = mat4f(null); /// iparent's istate will always == iparent
-    mat4f m = (a->iparent != -1) ? a->jdata->states->elements[a->iparent] : ident;
-    a->jdata->states->elements[a->istate] = matf_mul(m, a->local);
-
-    vec_values (a->ichildren, i64, i)
-        propagate(a->jdata->transforms->elements[i]);
+    mat4f ident = mat4f_ident(); /// iparent's istate will always == iparent
+    mat4f m = (a->iparent != -1) ? *(mat4f*)get(a->jdata->states, a->iparent) : ident;
+    mat4f* jstates = data(a->jdata->states);
+    jstates[a->istate] = mat4f_mul(&m, &a->local);
+    each (a->ichildren, i64*, i)
+        propagate(a->jdata->transforms->elements[*i]);
 }
 
 Primitive Node_primitive(Node a, Model mdl, cstr name) {
@@ -1971,6 +2447,7 @@ Primitive Mesh_primitive(Mesh a, cstr name) {
     }
     return null;
 }
+
 
 define_enum(ComponentType)
 define_enum(CompoundType)

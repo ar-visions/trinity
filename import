@@ -1,4 +1,5 @@
 A https://github.com/ar-visions/A main
+vec https://github.com/ar-visions/vec main
 
 glfw https://github.com/glfw/glfw 7b6aead
 	-DBUILD_SHARED_LIBS=ON
@@ -128,8 +129,15 @@ osd https://github.com/PixarAnimationStudios/OpenSubdiv 7d0ab55
 	-DNO_GLFW_X11=ON
 	-DNO_MACOS_FRAMEWORK=ON
 
+opencv https://github.com/opencv/opencv 31b0eee
+	-DBUILD_LIST=core,imgproc
+
 lib:
+	-mavx2 -mfma
+	opencv_imgproc
+	-I$IMPORT/include/opencv4
 	A
+	vec
 	glfw
 	SDL2
 	skia

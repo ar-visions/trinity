@@ -2,6 +2,7 @@
 #define _TRINITY_
 
 #include <A>
+#include <vec>
 
 typedef void* skia_t;
 typedef void* handle_t;
@@ -180,16 +181,17 @@ declare_enum(ComponentType)
     enum_value_v(X,Y, MAT4,           7)
 declare_enum(CompoundType)
 
-#define Camera_schema(X,Y,...) \
-    i_inlay   (X,Y, public,     vec4f, pos) \
-    i_inlay   (X,Y, public,     vec4f, dir) \
-    i_inlay   (X,Y, public,     mat4f, model) \
-    i_inlay   (X,Y, public,     mat4f, view) \
-    i_inlay   (X,Y, public,     mat4f, proj)
-#ifndef Camera_intern
-#define Camera_intern
+#define World_schema(X,Y,...) \
+    i_prop   (X,Y, public,     vec4f, pos) \
+    i_prop   (X,Y, public,     vec4f, dir) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_override(X,Y, method, init)
+#ifndef World_intern
+#define World_intern
 #endif
-declare_class(Camera)
+declare_class(World)
 
 #define Surface_schema(X,Y,...) \
     enum_value_v_2(X,Y, none,           0, Zero) \
@@ -207,6 +209,7 @@ typedef struct _pipeline* pipeline;
 typedef struct _shader* shader;
 #define trinity_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkInstance,          instance) \
+    i_prop    (X,Y, intern,     VkSampleCountFlagBits, msaa_samples) \
     i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device) \
     i_prop    (X,Y, intern,     VkDevice,            device) \
     i_prop    (X,Y, intern,     VkQueue,             queue) \
@@ -240,6 +243,32 @@ declare_class(shader)
 typedef struct _pipeline* pipeline;
 typedef struct _model*    model;
 
+
+#define buffer_schema(X,Y,...) \
+    i_prop    (X,Y, required,   trinity,            t) \
+    i_prop    (X,Y, required,   i64,                size) \
+    i_prop    (X,Y, public,     ARef,               data) \
+    i_prop    (X,Y, public,     bool,               u_src) \
+    i_prop    (X,Y, public,     bool,               u_dst) \
+    i_prop    (X,Y, public,     bool,               u_shader) \
+    i_prop    (X,Y, public,     bool,               u_uniform) \
+    i_prop    (X,Y, public,     bool,               u_vertex) \
+    i_prop    (X,Y, public,     bool,               u_index) \
+    i_prop    (X,Y, public,     bool,               u_storage) \
+    i_prop    (X,Y, public,     bool,               m_device_local) \
+    i_prop    (X,Y, public,     bool,               m_host_visible) \
+    i_prop    (X,Y, public,     bool,               m_host_coherent) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory) \
+    i_prop    (X,Y, intern,     VkBuffer,           vk_buffer) \
+    i_method  (X,Y, public,     none,               update, ARef) \
+    i_method  (X,Y, public,     ARef,               mmap) \
+    i_method  (X,Y, public,     none,               unmap) \
+    i_override(X,Y, method,     init, destructor)
+#ifndef buffer_intern
+#define buffer_intern
+#endif
+declare_class(buffer)
+
 #define window_schema(X,Y,...) \
     i_prop    (X,Y, intern,     handle,                 window) \
     i_prop    (X,Y, intern,     VkSurfaceKHR,           surface) \
@@ -251,6 +280,15 @@ typedef struct _model*    model;
     i_prop    (X,Y, intern,     VkExtent2D,             extent) \
     i_prop    (X,Y, intern,     VkRenderPass,           render_pass) \
     i_prop    (X,Y, intern,     VkFramebuffer*,         framebuffers) \
+    i_prop    (X,Y, intern,     VkImage*,               depth_images) \
+    i_prop    (X,Y, intern,     VkImageView*,           depth_image_views) \
+    i_prop    (X,Y, intern,     VkDeviceMemory*,        depth_image_memory) \
+    i_prop    (X,Y, intern,     VkImage,                resolve_image) \
+    i_prop    (X,Y, intern,     VkImageView,            resolve_view) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         resolve_memory) \
+    i_prop    (X,Y, intern,     VkImage,                color_image) \
+    i_prop    (X,Y, intern,     VkImageView,            color_view) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         color_memory) \
     i_prop    (X,Y, intern,     u32,                    image_count) \
     i_prop    (X,Y, intern,     VkFence*,               command_fences) \
     i_prop    (X,Y, intern,     VkCommandBuffer*,       command_buffers) \
@@ -258,11 +296,13 @@ typedef struct _model*    model;
     i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore) \
     i_prop    (X,Y, intern,     VkFence,                in_flight_fence) \
     i_prop    (X,Y, intern,     VkSwapchainCreateInfoKHR, config) \
+    i_prop    (X,Y, intern,     ARef,                   loop_callback) \
+    i_prop    (X,Y, intern,     ARef,                   loop_arg) \
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
     i_prop    (X,Y, required,   string,                 title) \
-    i_method  (X,Y, public,     i32,                    loop) \
+    i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
     i_method  (X,Y, public,     none,                   push, model) \
     i_override(X,Y, method,     init, destructor)
 #ifndef window_intern
@@ -294,7 +334,10 @@ declare_enum(Pixel)
 declare_enum(Filter)
 
 #define image_schema(X,Y,...) \
-    i_prop    (X,Y, required,   path,                   uri) \
+    i_ctr (X,Y, public, string) \
+    i_ctr (X,Y, public, symbol) \
+    i_ctr (X,Y, public, cstr) \
+    i_prop    (X,Y, public,     path,                   uri) \
     i_prop    (X,Y, public,     Surface,                surface) \
     i_prop    (X,Y, public,     Pixel,                  format) \
     i_prop    (X,Y, public,     i32,                    pixel_size) \
@@ -302,10 +345,13 @@ declare_enum(Filter)
     i_prop    (X,Y, public,     i32,                    height) \
     i_prop    (X,Y, public,     i32,                    channels) \
     i_prop    (X,Y, public,     Filter,                 filter) \
+    i_method  (X,Y, public,     image,                  resize, i32, i32) \
+    i_method  (X,Y, public,     i32,                    png, path) \
     i_method  (X,Y, public,     i64,                    byte_count) \
     i_method  (X,Y, public,     i64,                    len) \
     i_method  (X,Y, public,     object,                 get, num) \
-    i_override(X,Y, method,     init, destructor)
+    i_override(X,Y, method,     init, destructor) \
+    i_override(X,Y, method,     copy)
 #ifndef image_intern
 #define image_intern
 #endif
@@ -334,6 +380,7 @@ typedef struct vertex_member_t {
 
 #define gpu_schema(X,Y,...) \
     i_prop(X,Y, required, trinity,      t) \
+    i_prop(X,Y, required, cstr,         name) \
     i_prop(X,Y, public,   image,        sampler) \
     i_prop(X,Y, public,   object,       uniform) \
     i_prop(X,Y, public,   object,       vertex_data) \
@@ -346,7 +393,7 @@ typedef struct vertex_member_t {
     i_prop(X,Y, public,   i32,          vertex_count) \
     i_prop(X,Y, intern,   VkBuffer,     vk_vertex) \
     i_prop(X,Y, intern,   VkBuffer,     vk_index) \
-    i_prop(X,Y, intern,   VkBuffer,     vk_uniform) \
+    i_prop(X,Y, intern,   buffer,       vk_uniform) \
     i_prop(X,Y, intern,   VkImage,      vk_image) \
     i_prop(X,Y, intern,   VkImageView,  vk_image_view) \
     i_prop(X,Y, intern,   VkSampler,    vk_sampler) \
@@ -366,6 +413,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   window,                 w) \
     i_prop    (X,Y, required,   array,                  uniforms) \
+    i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     array,                  samplers) \
     i_prop    (X,Y, required,   shader,                 s) \
     i_prop    (X,Y, intern,     array,                  resources) \
@@ -378,6 +426,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     VkPipeline,             vk_compute) \
     i_prop    (X,Y, intern,     VkPipelineLayout,       layout) \
     i_prop    (X,Y, intern,     VkDescriptorSet,        descriptor_set) \
+    i_method  (X,Y, public,     none, render,           handle) \
     i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, destructor)
 #ifndef pipeline_intern
@@ -390,16 +439,17 @@ declare_class(pipeline)
 typedef struct _Primitive* Primitive;
 #define part_schema(X,Y,...) \
     i_prop    (X,Y, required, Primitive, id) \
-    i_prop    (X,Y, required, shader, s)
+    i_prop    (X,Y, public  , shader, s)
 #ifndef part_intern
 #define part_intern
 #endif
 declare_class(part)
 
+// we definitely want to allow for a null parts, which will render the entire node with the default shader!
 typedef struct _Node* Node;
 #define node_schema(X,Y,...) \
     i_prop    (X,Y, public,   Node,   id) \
-    i_prop    (X,Y, required, array,  parts)
+    i_prop    (X,Y, public,   array,  parts)
 #ifndef node_intern
 #define node_intern
 #endif
@@ -409,17 +459,18 @@ declare_class(node)
 
 // lets store the uniform data for Camera on model
 // we render one model at a time (group of pipelines)
+// todo: no need for world object on model
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
     i_prop    (X,Y, required, trinity, t) \
     i_prop    (X,Y, required, window,  w) \
     i_prop    (X,Y, required, Model,   id) \
-    i_prop    (X,Y, required, array,   nodes) \
+    i_prop    (X,Y, public,   array,   nodes) \
+    i_prop    (X,Y, public,   shader,  shader) \
     i_prop    (X,Y, public,   array,   uniforms) \
     i_prop    (X,Y, public,   array,   samplers) \
-    i_prop    (X,Y, public,   Camera,  camera) \
+    i_prop    (X,Y, public,   World,   world) \
     i_prop    (X,Y, intern,   array,   pipelines) \
-    i_method  (X,Y, public,   none,    render, handle) \
     i_override(X,Y, method, init, destructor)
 #ifndef model_intern
 #define model_intern
@@ -564,12 +615,11 @@ declare_class(Accessor)
 #endif
 declare_class(BufferView)
 
-typedef struct _veci64* veci64;
 typedef struct _array_Transform* array_Transform;
 
 #define Skin_schema(X, Y,...) \
     i_prop(X, Y, public, string, name) \
-    i_prop(X, Y, public, veci64, joints) \
+    i_prop(X, Y, public, vector_i64, joints) \
     i_prop(X, Y, public, i32,    inverseBindMatrices) \
     i_prop(X, Y, public, object, extras) \
     i_prop(X, Y, public, object, extensions)
@@ -580,7 +630,7 @@ declare_class(Skin)
 
 
 #define JData_schema(X, Y,...) \
-    i_prop(X, Y, public, array_mat4f,       states) \
+    i_prop(X, Y, public, vector_mat4f,      states) \
     i_prop(X, Y, public, array_Transform,   transforms) \
     i_prop(X, Y, public, mat4f,             local)
 #ifndef JData_intern
@@ -596,7 +646,7 @@ declare_class(JData)
     i_prop(X, Y, public, mat4f,             local) \
     i_prop(X, Y, public, mat4f,             local_default) \
     i_prop(X, Y, public, i32,               iparent) \
-    i_prop(X, Y, public, veci64,            ichildren) \
+    i_prop(X, Y, public, vector_i64,        ichildren) \
     i_method(X, Y, public, none, multiply,  mat4f) \
     i_method(X, Y, public, none, set,       mat4f) \
     i_method(X, Y, public, none, set_default) \
@@ -608,6 +658,7 @@ declare_class(Transform)
 
 typedef struct _Primitive* Primitive;
 #define Node_schema(X, Y,...) \
+    i_prop(X, Y, public, array,             fields) \
     i_prop(X, Y, public, string,            name) \
     i_prop(X, Y, public, Node,              parent) \
     i_prop(X, Y, public, i32,               skin) \
@@ -615,8 +666,8 @@ typedef struct _Primitive* Primitive;
     i_prop(X, Y, public, vec3f,             translation) \
     i_prop(X, Y, public, quatf,             rotation) \
     i_prop(X, Y, public, vec3f,             scale) \
-    i_prop(X, Y, public, vecf,              weights) \
-    i_prop(X, Y, public, veci64,            children) \
+    i_prop(X, Y, public, vector_f32,        weights) \
+    i_prop(X, Y, public, vector_i64,        children) \
     i_prop(X, Y, public, i32,               joint_index) \
     i_prop(X, Y, public, bool,              processed) \
     i_prop(X, Y, public, object,            mx_joints) \
@@ -630,7 +681,7 @@ declare_class(Node)
 /// models need names on their primitives
 /// the json parser may error in this case (it doesnt, this is only used on init)
 #define Primitive_schema(X, Y,...) \
-    i_prop(X, Y, required, string,          name) \
+    i_prop(X, Y, public, string,            name) \
     i_prop(X, Y, public, map,               attributes) \
     i_prop(X, Y, public, u64,               indices) \
     i_prop(X, Y, public, i32,               material) \
@@ -655,7 +706,7 @@ typedef struct _array_Primitive* array_Primitive;
 #define Mesh_schema(X, Y,...) \
     i_prop(X, Y, public, string,            name) \
     i_prop(X, Y, public, array_Primitive,   primitives) \
-    i_prop(X, Y, public, vecf,              weights) \
+    i_prop(X, Y, public, vector_f32,        weights) \
     i_prop(X, Y, public, MeshExtras,        extras) \
     i_method(X, Y, public, Primitive, primitive, cstr)
 #ifndef Mesh_intern
@@ -666,7 +717,7 @@ declare_class(Mesh)
 
 #define Scene_schema(X, Y,...) \
     i_prop(X, Y, public, string,            name) \
-    i_prop(X, Y, public, veci64,            nodes)
+    i_prop(X, Y, public, vector_i64,        nodes)
 #ifndef Scene_intern
 #define Scene_intern
 #endif
