@@ -1,5 +1,6 @@
 A https://github.com/ar-visions/A main
 vec https://github.com/ar-visions/vec main
+gltf https://github.com/ar-visions/gltf main
 
 glfw https://github.com/glfw/glfw 7b6aead
 	-DBUILD_SHARED_LIBS=ON
@@ -32,6 +33,12 @@ tinyexr https://github.com/syoyo/tinyexr 648e47b
 	-DCMAKE_POSITION_INDEPENDENT_CODE=ON
 	> cp libtinyexr.so $IMPORT/lib/
 	> cp ../tinyexr.h $IMPORT/include/
+
+deflate https://github.com/ebiggers/libdeflate 682a668
+	-DBUILD_SHARED_LIBS=ON
+
+openexr https://github.com/AcademySoftwareFoundation/openexr 0b83825
+	-DBUILD_SHARED_LIBS=ON
 
 zlib https://github.com/madler/zlib 04f42ce
 
@@ -138,11 +145,13 @@ lib:
 	-I$IMPORT/include/opencv4
 	A
 	vec
+	gltf
 	glfw
 	SDL2
 	skia
 	osdCPU
-	tinyexr
+	OpenEXR
+	OpenEXRUtil
 	z
 	png
 	m

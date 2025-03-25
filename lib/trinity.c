@@ -1,28 +1,28 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <import>
+#include <gltf>
 #include <sys/stat.h>
+#include <math.h>
 
-static const int enable_validation = 1;
-static PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
-static u32 vk_version = VK_API_VERSION_1_2;
+const int enable_validation = 1;
+PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
+u32 vk_version = VK_API_VERSION_1_2;
 
-static void handle_glfw_key(
-    GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    }
-}
 
-static VkSampleCountFlagBits max_sample_count(VkPhysicalDevice physical_device) {
+VkSampleCountFlagBits max_sample_count(VkPhysicalDevice physical_device) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);
     VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts &
                                 props.limits.framebufferDepthSampleCounts;
+    if (counts & VK_SAMPLE_COUNT_16_BIT) return VK_SAMPLE_COUNT_16_BIT;
+    if (counts & VK_SAMPLE_COUNT_8_BIT) return VK_SAMPLE_COUNT_8_BIT;
     if (counts & VK_SAMPLE_COUNT_4_BIT) return VK_SAMPLE_COUNT_4_BIT;
+    if (counts & VK_SAMPLE_COUNT_2_BIT) return VK_SAMPLE_COUNT_2_BIT;
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-static u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
+u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(t->physical_device, &props);
 
@@ -34,54 +34,6 @@ static u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags fl
     return UINT32_MAX;
 }
 
-static VkBuffer create_buffer(trinity t, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, object data, VkDeviceMemory* mem) {
-    VkBuffer buffer;
-    VkBufferCreateInfo buffer_info = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = size,
-        .usage = usage,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-    };
-
-    VkResult result = vkCreateBuffer(t->device, &buffer_info, null, &buffer);
-    verify(result == VK_SUCCESS, "Failed to create buffer");
-
-    VkMemoryRequirements mem_requirements;
-    vkGetBufferMemoryRequirements(t->device, buffer, &mem_requirements);
-
-    VkMemoryAllocateInfo alloc_info = {
-        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize  = mem_requirements.size,
-        .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, properties),
-        .pNext           = &(VkMemoryAllocateFlagsInfo) {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT
-        }
-    };
-
-    VkDeviceMemory buffer_memory;
-    result = vkAllocateMemory(t->device, &alloc_info, null, &buffer_memory);
-    verify(result == VK_SUCCESS, "Failed to allocate buffer memory");
-
-    vkBindBufferMemory(t->device, buffer, buffer_memory, 0);
-
-    // Copy data if provided
-    if (data) {
-        void* mapped_memory;
-        result = vkMapMemory(t->device, buffer_memory, 0, size, 0, &mapped_memory);
-        verify(result == VK_SUCCESS, "Failed to map buffer memory");
-        memcpy(mapped_memory, data, size);
-        vkUnmapMemory(t->device, buffer_memory);
-    }
-
-    // set this to device_memory, so we may release later
-    if (mem)
-        *mem = buffer_memory;
-    else
-        set(t->device_memory, buffer, buffer_memory);
-    return buffer;
-}
-
 VkDeviceMemory device_memory(trinity t, VkBuffer b) {
     pairs (t->device_memory, i) {
         if (i->key == (object)b) return (VkDeviceMemory)i->value;
@@ -90,9 +42,9 @@ VkDeviceMemory device_memory(trinity t, VkBuffer b) {
     return null;
 }
 
-void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout);
+void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int);
 
-static void create_resolve(window w, VkImageViewCreateInfo* image_view_info) {
+void create_resolve(window w, VkImageViewCreateInfo* image_view_info) {
     trinity t = w->t;
     /// create resolve (for msaa)
     VkImageCreateInfo resolve_info = {
@@ -132,10 +84,10 @@ static void create_resolve(window w, VkImageViewCreateInfo* image_view_info) {
     w->resolve_memory = resolve_memory;
 
     transition_image_layout(t, w->resolve_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
 }
 
-static void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
+void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
     trinity t = w->t;
     /// create color image (for msaa)
     VkImageCreateInfo color_image_info = {
@@ -175,11 +127,170 @@ static void create_color_image(window w, VkImageViewCreateInfo* image_view_info)
     w->color_memory = color_memory;
 
     transition_image_layout(t, w->color_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
 }
 
-static void update_framebuffers(window w) {
+void transition_image_layout(
+    trinity t,
+    VkImage image,
+    VkImageLayout oldLayout,
+    VkImageLayout newLayout,
+    int baseMipLevel,
+    int levelCount,
+    int base_array_layer,
+    int layer_count
+) {
+    VkCommandBufferAllocateInfo allocInfo = {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool        = t->command_pool,
+        .commandBufferCount = 1
+    };
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(t->device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    };
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkImageMemoryBarrier barrier = {
+        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout           = oldLayout,
+        .newLayout           = newLayout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image               = image,
+        .subresourceRange    = {
+            .aspectMask       = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel     = baseMipLevel,
+            .levelCount       = levelCount,
+            .baseArrayLayer   = base_array_layer,
+            .layerCount       = layer_count
+        }
+    };
+
+    VkPipelineStageFlags srcStage = 0;
+    VkPipelineStageFlags dstStage = 0;
+
+    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else {
+        fault("unsupported layout transition");
+    }
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        srcStage, dstStage,
+        0, 0, null, 0, null, 1, &barrier
+    );
+
+    vkEndCommandBuffer(commandBuffer);
+    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
+        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers    = &commandBuffer
+    }, VK_NULL_HANDLE);
+    vkQueueWaitIdle(t->queue);
+    vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
+}
+
+void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
+    symbol* glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
+    symbol* result = malloc((*extension_count + 4) * sizeof(char*));
+    memcpy(result, glfw_extensions, (*extension_count) * sizeof(char*));
+
+#ifndef WIN32
+    result[(*extension_count)++] = "VK_KHR_portability_enumeration";
+#endif
+
+#ifdef __APPLE__
+    result[(*extension_count)++] = "VK_KHR_get_physical_device_properties2";
+#endif
+
+    if (enable_validation) result[(*extension_count)++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+    for (int i = 0; i < *extension_count; i++)
+        print("instance extension: %s", result[i]);
+
+    *extensions = result;
+}
+
+VkInstance vk_create() {
+    const char** extensions = null;
+    u32          extension_count = 0;
+    get_required_extensions(&extensions, &extension_count);
+    const char* validation_layer = enable_validation ? "VK_LAYER_KHRONOS_validation" : null;
+
+    VkInstance instance;
+    VkResult result = vkCreateInstance(&(VkInstanceCreateInfo) {
+            .sType                      = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .pApplicationInfo           = &(VkApplicationInfo) {
+                .sType                  = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                .pApplicationName       = "trinity",
+                .applicationVersion     = VK_MAKE_VERSION(1, 0, 0),
+                .pEngineName            = "trinity",
+                .engineVersion          = VK_MAKE_VERSION(1, 0, 0),
+                .apiVersion             = vk_version,
+            },
+            .enabledExtensionCount      = extension_count,
+            .ppEnabledExtensionNames    = extensions,
+            .enabledLayerCount          = (u32)enable_validation,
+            .ppEnabledLayerNames        = &validation_layer
+        }, null, &instance);
+
+    verify(result == VK_SUCCESS, "failed to create Vulkan instance, error: %d\n", result);
+
+    _vkCreateDebugUtilsMessengerEXT  = vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+    verify(_vkCreateDebugUtilsMessengerEXT, "cannot find vk debug function");
+    
+    free(extensions);
+    return instance;
+}
+
+
+
+
+
+
+
+static void handle_glfw_key(
+    GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+    }
+}
+
+void window_resize(window w, i32 width, i32 height) {
     trinity t = w->t;
+
+    w->width  = width;
+    w->height = height;
+    w->extent.width  = width;
+    w->extent.height = height;
 
     // Wait for the device to idle before resizing
     vkDeviceWaitIdle(t->device);
@@ -415,16 +526,7 @@ static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int
     if (width == 0 && height == 0) return; // Minimized window, no resize needed
 
     window w = glfwGetWindowUserPointer(glfw_window);
-    trinity t = w->t;
-
-    // Update window dimensions
-    w->width  = width;
-    w->height = height;
-    w->extent.width  = width;
-    w->extent.height = height;
-
-    // Recreate framebuffers
-    update_framebuffers(w);
+    resize(w, width, height);
 }
 
 void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
@@ -434,7 +536,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     i64        indices      = prim->indices;
     Accessor   ai           = get(mdl->accessors, indices);
     i64        mat_id       = prim->material;
-    AType      itype        = member_type(ai);
+    AType      itype        = Accessor_member_type(ai);
     BufferView iview        = get(mdl->bufferViews, ai->bufferView);
     Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
     verify(mat_id >= 0 && mat_id < len(mdl->materials), "Invalid material index");
@@ -463,7 +565,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         BufferView bv     = get(mdl->bufferViews, ac->bufferView);
         Buffer     b      = get(mdl->buffers, bv->buffer);
 
-        members[member_count].type   = member_type(ac);
+        members[member_count].type   = Accessor_member_type(ac);
         members[member_count].ac     = ac;
         members[member_count].size   = members[member_count].type->size;
         members[member_count].offset = vertex_size;
@@ -542,6 +644,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         s,          s,
         vbo,        vbo,
         model,      model,
+        material,   material,
         uniforms,   uniforms,
         samplers,   m->samplers);
     push(m->pipelines, pipe);
@@ -585,85 +688,8 @@ void World_init(World w) {
 }
 
 
-void model_destructor(model m) {
+void model_dealloc(model m) {
     /// pipelines should free automatically
-}
-
-void transition_image_layout(trinity t, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    // 1. Allocate a command buffer
-    VkCommandBufferAllocateInfo allocInfo = {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandPool        = t->command_pool,
-        .commandBufferCount = 1
-    };
-
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(t->device, &allocInfo, &commandBuffer);
-
-    // 2. Begin recording command buffer
-    VkCommandBufferBeginInfo beginInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-    };
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
-
-    // 3. Define an image memory barrier
-    VkImageMemoryBarrier barrier = {
-        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-        .oldLayout           = oldLayout,
-        .newLayout           = newLayout,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image               = image,
-        .subresourceRange    = {
-            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel   = 0,
-            .levelCount     = 1,
-            .baseArrayLayer = 0,
-            .layerCount     = 1
-        }
-    };
-
-    VkPipelineStageFlags sourceStage;
-    VkPipelineStageFlags destinationStage;
-
-    if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-        // Transition from undefined to transfer destination (used before copying image data)
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-        // Transition after transfer so it can be used in shaders
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        destinationStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    } else {
-        verify(false, "unsupported layout transition");
-    }
-
-    // 4. Submit pipeline barrier
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        sourceStage, destinationStage,
-        0, 0, null, 0, null, 1, &barrier
-    );
-
-    vkEndCommandBuffer(commandBuffer);
-    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
-        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers    = &commandBuffer
-    }, VK_NULL_HANDLE);
-    vkQueueWaitIdle(t->queue);
-    vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
 }
 
 
@@ -678,241 +704,26 @@ none gpu_sync(gpu a) {
                 t, t, size, u_type->size,
                 u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
                 data, a->uniform);
-        } else {
-            // map memory, update the uniform buffer, and unmap
+        } else
             update(a->vk_uniform, a->uniform);
-        }
     }
 
     /// vbo/ibo only need maintenance upon init, less we want to transfer out
-    if (a->vertex_size && !a->vk_vertex) {
-        VkBufferUsageFlags vertex_usage = 
-            (a->compute ? VK_BUFFER_USAGE_STORAGE_BUFFER_BIT : 0) |
-                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        
-        VkBufferUsageFlags index_usage = 
-                VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        
-        a->vk_vertex = create_buffer(t, a->vertex_size * a->vertex_count, vertex_usage,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, a->vertex_data, null);
+    if (a->vertex_size && !a->vertex) {
+        bool comp = a->compute;
+        a->vertex = buffer(t, t, size, a->vertex_size * a->vertex_count, 
+            u_storage, comp, u_vertex, !comp, u_dst, !comp, u_shader, !comp,
+            m_host_visible, true, m_host_coherent, true, data, a->vertex_data);
         
         if (a->index_size)
-            a->vk_index = create_buffer(t, a->index_size * a->index_count, index_usage,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, a->index_data, null);
+            a->index = buffer(
+                t, t, size, a->index_size * a->index_count,
+                u_index, true, u_dst, true, u_shader, true,
+                m_host_visible, true, m_host_coherent, true, data, a->index_data);
     }
 
-    if (a->sampler && !a->vk_image) {
-        /// check isa(a->sampler) against image, vec3f, vec4f, f32
-        image img    = instanceof(a->sampler, image);
-        Pixel format = Pixel_none;
-        i32 sampler_size = 0;
-        u8 fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
-            
-        if (img) {
-            format = img->format;
-            sampler_size = byte_count(img);
-        } else {
-            /// lets create a 4x4 based on a broadcast of data given
-            vector_i8    v_i8    = instanceof(a->sampler, vector_i8);     // grayscale i8
-            vector_f32   v_f32   = instanceof(a->sampler, vector_f32);    // grayscale f32
-            vector_rgb8  v_rgb8  = instanceof(a->sampler, vector_rgb8);   // rgb bytes
-            vector_rgbf  v_rgbf  = instanceof(a->sampler, vector_rgbf);   // rgb floats
-            vector_rgba8 v_rgba8 = instanceof(a->sampler, vector_rgba8);  // rgba bytes
-            vector_rgbaf v_rgbaf = instanceof(a->sampler, vector_rgbaf);  // rgba floats
-
-            i8*    data_i8    = v_i8    ? data(v_i8)    : null;
-            f32*   data_f32   = v_f32   ? data(v_f32)   : null;
-            rgb8*  data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
-            rgbf*  data_rgbf  = v_rgbf  ? data(v_rgbf)  : null;
-            rgba8* data_rgba8 = v_rgba8 ? data(v_rgba8) : null;
-            rgbaf* data_rgbaf = v_rgbaf ? data(v_rgbaf) : null;
-
-            /// placeholder samplers, (4x4 is minimum we may create)
-            if (data_f32) {
-                f32  *f32_fill = (f32*) fill;
-                for (int i = 0; i < 4; i++)
-                    f32_fill[i] = *data_f32;
-                format = Pixel_f32;
-                sampler_size = 4 * 4 * sizeof(f32);
-            } else if (data_i8) {
-                u8  *u8_fill = (u8*) fill;
-                for (int i = 0; i < 4*4; i++)
-                    u8_fill[i] = *data_i8;
-                format = Pixel_u8;
-                sampler_size = 4 * 4 * sizeof(u8);
-            } else if (data_rgbf) {
-                rgbf* v3_fill  = (rgbf*)fill;
-                for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgbf;
-                format = Pixel_rgbf32;
-                sampler_size = 4 * 4 * sizeof(rgbf);
-            } else if (data_rgb8) {
-                rgb8* v3_fill  = (rgb8*)fill;
-                for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgb8;
-                format = Pixel_rgb8;
-                sampler_size = 4 * 4 * sizeof(rgb8);
-            } else if (data_rgbaf) {
-                rgbaf* v4_fill  = (rgbaf*)fill;
-                for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgbaf;
-                format = Pixel_rgbaf32;
-                sampler_size = 4 * 4 * sizeof(rgbaf);
-            } else if (data_rgba8) {
-                rgba8* v4_fill  = (rgba8*)fill;
-                for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgba8;
-                format = Pixel_rgba8;
-                sampler_size = 4 * 4 * sizeof(rgba8);
-            } else {
-                fault("sampler data required");
-            }
-        }
-
-        VkFormat vk_format =
-            format == Pixel_f32     ? VK_FORMAT_R32_SFLOAT : 
-            format == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : 
-            format == Pixel_rgbf32  ? VK_FORMAT_R32G32B32_SFLOAT : 
-            format == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_UNORM : 
-            format == Pixel_rgb8    ? VK_FORMAT_R8G8B8_UNORM : 
-            format == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
-        verify(format, "incompatible image format: %o", e_str(Pixel, format));
-
-        verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
-            .sType     = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format    = vk_format,
-            .extent    = { img ? img->width : 2, img ? img->height : 2, 1 },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples   = VK_SAMPLE_COUNT_1_BIT,
-            .tiling    = VK_IMAGE_TILING_OPTIMAL,
-            .usage     = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-        }, null, &a->vk_image) == VK_SUCCESS,
-            "Failed to create VkImage");
-
-        // Allocate memory and bind
-        VkMemoryRequirements memReqs;
-        vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
-        verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = find_memory_type(t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        }, null, &a->vk_memory) == VK_SUCCESS, 
-            "Failed to allocate memory for image");
-
-        vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
-        
-        VkDeviceMemory stagingMemory;
-        VkBuffer stagingBuffer = create_buffer(
-            t,
-            sampler_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            img ? data(img) : (object)fill, &stagingMemory);
-
-        // Begin Command Buffer Recording
-        VkCommandBuffer commandBuffer;
-        vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
-            .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandPool        = t->command_pool,
-            .commandBufferCount = 1
-        }, &commandBuffer);
-
-        vkBeginCommandBuffer(commandBuffer, &(VkCommandBufferBeginInfo) {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-        });
-
-        // Transition Image Layout to TRANSFER_DST_OPTIMAL
-        VkImageMemoryBarrier barrier = {
-            .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
-            .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image               = a->vk_image,
-            .subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
-            .srcAccessMask       = 0,
-            .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT
-        };
-
-        vkCmdPipelineBarrier(commandBuffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, 0, NULL, 0, NULL, 1, &barrier);
-
-        // Copy Buffer to Image
-        VkBufferImageCopy region = {
-            .bufferOffset      = 0,
-            .bufferRowLength   = 0,  // Tightly packed
-            .bufferImageHeight = 0,
-            .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-            .imageOffset = {0, 0, 0},
-            .imageExtent = { img ? img->width : 2, img ? img->height : 2, 1 }
-        };
-
-        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, a->vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-        // Transition Image Layout to SHADER_READ_ONLY_OPTIMAL
-        barrier.oldLayout    = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(commandBuffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0, 0, NULL, 0, NULL, 1, &barrier);
-
-        vkEndCommandBuffer(commandBuffer);
-
-        vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
-            .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers    = &commandBuffer
-        }, VK_NULL_HANDLE);
-        vkQueueWaitIdle(t->queue);
-
-        // 1. Create Image View for Sampling
-        VkImageViewCreateInfo viewInfo = {
-            .sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image      = a->vk_image,
-            .viewType   = VK_IMAGE_VIEW_TYPE_2D,
-            .format     = vk_format,
-            .subresourceRange = {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel   = 0,
-                .levelCount     = 1,
-                .baseArrayLayer = 0,
-                .layerCount     = 1
-            }
-        };
-        verify(vkCreateImageView(t->device, &viewInfo, NULL, &a->vk_image_view) == VK_SUCCESS, 
-            "Failed to create VkImageView");
-
-        // 2. Define Sampler Properties
-        VkSamplerCreateInfo samplerInfo = {
-            .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter               = VK_FILTER_LINEAR,  // Smooth upscaling
-            .minFilter               = VK_FILTER_LINEAR,  // Smooth downscaling
-            .addressModeU            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .anisotropyEnable        = img ? VK_TRUE : VK_FALSE,
-            .maxAnisotropy           = img ? 16 : 1,
-            .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-            .unnormalizedCoordinates = VK_FALSE,
-            .compareEnable           = VK_FALSE,
-            .compareOp               = VK_COMPARE_OP_ALWAYS,
-            .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        };
-
-        // 3. Create Sampler
-        verify(vkCreateSampler(t->device, &samplerInfo, NULL, &a->vk_sampler) == VK_SUCCESS, 
-            "Failed to create VkSampler");
-
-        vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
-    }
-
+    if (a->sampler && !a->texture)
+        a->texture = texture(t, t, sampler, a->sampler);
 }
 
 none gpu_init(gpu a) {
@@ -920,29 +731,383 @@ none gpu_init(gpu a) {
     if (a->index_size)  a->index_data  = A_alloc(typeid(i8), a->index_size  * a->index_count,  false);
 }
 
-none gpu_destructor(gpu a) {
-    vkDestroyBuffer(a->t->device, a->vk_vertex, null);
-    vkDestroyBuffer(a->t->device, a->vk_index,  null);
+none gpu_dealloc(gpu a) {
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
 define_class(gpu);
 
-VkTransformMatrixKHR convert_matrix_to_transform(float* mat4) {
-    // Vulkan expects a 3x4 matrix in row-major order
-    // We only take the first 3 rows from the 4x4 matrix
-    VkTransformMatrixKHR transform = {
-        .matrix = {
-            // First row (0-3)
-            {mat4[0], mat4[1], mat4[2], mat4[3]},
-            // Second row (4-7)
-            {mat4[4], mat4[5], mat4[6], mat4[7]},
-            // Third row (8-11)
-            {mat4[8], mat4[9], mat4[10], mat4[11]}
+
+void sample_equirect_rgbaf(rgbaf* image, int width, int height, float u, float v, rgbaf* color) {
+    int x = (int)(u * width) % width;
+    int y = (int)(v * height) % height;
+    *color = image[(y * width + x)];
+}
+
+void sample_equirect_rgba8(rgba8* image, int width, int height, float u, float v, rgba8* color) {
+    int x = (int)(u * width) % width;
+    int y = (int)(v * height) % height;
+    *color = image[(y * width + x)];
+}
+
+void f_basis(int face, float* origin, float* right, float* up) {
+    switch (face) {
+        case 0: // +X
+            origin[0] = 1,  origin[1] = -1, origin[2] = -1;
+            right[0] = 0,  right[1] = 0,  right[2] = 2;
+            up[0] = 0,     up[1] = 2,     up[2] = 0;
+            break;
+        case 1: // -X
+            origin[0] = -1, origin[1] = -1, origin[2] = 1;
+            right[0] = 0,   right[1] = 0,   right[2] = -2;
+            up[0] = 0,      up[1] = 2,      up[2] = 0;
+            break;
+        case 2: // +Y
+            origin[0] = -1, origin[1] = 1, origin[2] = -1;
+            right[0] = 2,   right[1] = 0,  right[2] = 0;
+            up[0] = 0,      up[1] = 0,     up[2] = 2;
+            break;
+        case 3: // -Y
+            origin[0] = -1, origin[1] = -1, origin[2] = 1;
+            right[0] = 2,   right[1] = 0,   right[2] = 0;
+            up[0] = 0,      up[1] = 0,     up[2] = -2;
+            break;
+        case 4: // +Z
+            origin[0] = -1, origin[1] = -1, origin[2] = -1;
+            right[0] = 2,   right[1] = 0,   right[2] = 0;
+            up[0] = 0,      up[1] = 2,      up[2] = 0;
+            break;
+        case 5: // -Z
+            origin[0] = 1,  origin[1] = -1, origin[2] = 1;
+            right[0] = -2,  right[1] = 0,   right[2] = 0;
+            up[0] = 0,      up[1] = 2,      up[2] = 0;
+            break;
+    }
+}
+
+void convert_equirect_to_cubemap(image img, int size, object* output, int* sampler_size) {
+    if (img->format == Pixel_rgbaf32)
+        *sampler_size = size * size * 6 * sizeof(rgbaf);
+    else
+        *sampler_size = size * size * 6 * sizeof(rgba8);
+
+    object idata = data(img);
+    int width = img->width, height = img->height;
+
+    for (int face = 0; face < 6; ++face) {
+        float origin[3], right[3], up[3];
+        f_basis(face, origin, right, up);
+
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                float fx = (x + 0.5f) / size;
+                float fy = (y + 0.5f) / size;
+
+                float dir[3] = {
+                    origin[0] + fx * right[0] + fy * up[0],
+                    origin[1] + fx * right[1] + fy * up[1],
+                    origin[2] + fx * right[2] + fy * up[2],
+                };
+
+                float len = sqrtf(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
+                dir[0] /= len; dir[1] /= len; dir[2] /= len;
+
+                float theta = atan2f(dir[0], -dir[2]); // azimuth
+                float phi = acosf(dir[1]);            // elevation
+
+                float u = (theta + M_PI) / (2.0f * M_PI);
+                float v = phi / M_PI;
+
+                int index = face * size * size + y * size + x;
+
+                if (img->format == Pixel_rgbaf32) {
+                    rgbaf* out = &((rgbaf*)output)[index];
+                    sample_equirect_rgbaf((rgbaf*)idata, width, height, u, v, out);
+                } else {
+                    rgba8* out = &((rgba8*)output)[index];
+                    sample_equirect_rgba8((rgba8*)idata, width, height, u, v, out);
+                }
+            }
+        }
+    }
+}
+
+none texture_init(texture a) {
+    /// check isa(a->sampler) against image, vec3f, vec4f, f32
+    trinity t = a->t;
+    image img = instanceof(a->sampler, image);
+    int   lod = 0;
+    Pixel format = Pixel_none;
+    i32 sampler_size = 0;
+    u8 fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
+    
+    if (img) {
+        format = img->format;
+        sampler_size = byte_count(img);
+        lod = 8;
+        a->width  = img->width;
+        a->height = img->height;
+    } else {
+        a->width  = 4;
+        a->height = 4;
+        /// lets create a 4x4 based on a broadcast of data given
+        vector_i8    v_i8    = instanceof(a->sampler, vector_i8);     // grayscale i8
+        vector_f32   v_f32   = instanceof(a->sampler, vector_f32);    // grayscale f32
+        vector_rgb8  v_rgb8  = instanceof(a->sampler, vector_rgb8);   // rgb bytes
+        vector_rgbf  v_rgbf  = instanceof(a->sampler, vector_rgbf);   // rgb floats
+        vector_rgba8 v_rgba8 = instanceof(a->sampler, vector_rgba8);  // rgba bytes
+        vector_rgbaf v_rgbaf = instanceof(a->sampler, vector_rgbaf);  // rgba floats
+
+        i8*    data_i8    = v_i8    ? data(v_i8)    : null;
+        f32*   data_f32   = v_f32   ? data(v_f32)   : null;
+        rgb8*  data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
+        rgbf*  data_rgbf  = v_rgbf  ? data(v_rgbf)  : null;
+        rgba8* data_rgba8 = v_rgba8 ? data(v_rgba8) : null;
+        rgbaf* data_rgbaf = v_rgbaf ? data(v_rgbaf) : null;
+
+        /// placeholder samplers, (4x4 is minimum we may create)
+        if (data_f32) {
+            f32  *f32_fill = (f32*) fill;
+            for (int i = 0; i < 4 * 4; i++)
+                f32_fill[i] = *data_f32;
+            format = Pixel_f32;
+            sampler_size = 4 * 4 * sizeof(f32);
+        } else if (data_i8) {
+            u8  *u8_fill = (u8*) fill;
+            for (int i = 0; i < 4*4; i++)
+                u8_fill[i] = *data_i8;
+            format = Pixel_u8;
+            sampler_size = 4 * 4 * sizeof(u8);
+        } else if (data_rgbf) {
+            rgbf* v3_fill  = (rgbf*)fill;
+            for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgbf;
+            format = Pixel_rgbf32;
+            sampler_size = 4 * 4 * sizeof(rgbf);
+        } else if (data_rgb8) {
+            rgb8* v3_fill  = (rgb8*)fill;
+            for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgb8;
+            format = Pixel_rgb8;
+            sampler_size = 4 * 4 * sizeof(rgb8);
+        } else if (data_rgbaf) {
+            rgbaf* v4_fill  = (rgbaf*)fill;
+            for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgbaf;
+            format = Pixel_rgbaf32;
+            sampler_size = 4 * 4 * sizeof(rgbaf);
+        } else if (data_rgba8) {
+            rgba8* v4_fill  = (rgba8*)fill;
+            for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgba8;
+            format = Pixel_rgba8;
+            sampler_size = 4 * 4 * sizeof(rgba8);
+        } else {
+            fault("sampler data required");
+        }
+    }
+
+    VkFormat vk_format =
+        format == Pixel_f32     ? VK_FORMAT_R32_SFLOAT : 
+        format == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+        format == Pixel_rgbf32  ? VK_FORMAT_R32G32B32_SFLOAT : 
+        format == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_SRGB : 
+        format == Pixel_rgb8    ? VK_FORMAT_R8G8B8_SRGB : 
+        format == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
+    verify(format, "incompatible image format: %o", e_str(Pixel, format));
+    a->vk_format = vk_format;
+
+    float* cubemap = null;\
+    if (img && img->surface == Surface_environment) {
+        int size = 512; // or any power of two you want
+        cubemap = calloc((img->format  == Pixel_rgbaf32 ? sizeof(rgbaf) : sizeof(rgba8)), 6 * size * size);        
+        convert_equirect_to_cubemap(img, size, cubemap, &sampler_size);
+        a->width  = size;
+        a->height = size;
+        for (int f = 0; f < 6; f++) {
+            image  img      = image(width, size, height, size, format, Pixel_rgba8, channels, 4);
+            rgba8* img_data = data(img);
+            for (int y = 0; y < size; y++) {
+                rgba8* scan = &img_data[y * size];
+                for (int x = 0; x < size; x++, scan++) {
+                    rgbaf* src = &((rgbaf*)cubemap)[f * size * size + (y * size + x)];
+                    scan->r = (u8)(src->r / (1.0f + src->r) * 255.0);
+                    scan->g = (u8)(src->g / (1.0f + src->g) * 255.0);
+                    scan->b = (u8)(src->b / (1.0f + src->b) * 255.0);
+                    scan->a = (u8)(src->a * 255.0);
+                }
+            }
+            png(img, form(path, "/home/kalen/image_%i.png", f));
+        }
+    }
+
+    int layer_count = cubemap ? 6 : 1;
+
+    verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
+        .sType     = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format    = vk_format,
+        .flags     = cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+        .extent    = { a->width, a->height, 1 },
+        .mipLevels = max(1, lod),
+        .arrayLayers = cubemap ? 6 : 1,
+        .samples   = VK_SAMPLE_COUNT_1_BIT,
+        .tiling    = VK_IMAGE_TILING_OPTIMAL,
+        .usage     = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    }, null, &a->vk_image) == VK_SUCCESS,
+        "Failed to create VkImage");
+
+    // Allocate memory and bind
+    VkMemoryRequirements memReqs;
+    vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
+    verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memReqs.size,
+        .memoryTypeIndex = find_memory_type(t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    }, null, &a->vk_memory) == VK_SUCCESS, 
+        "Failed to allocate memory for image");
+
+    vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
+    
+    for (int f = 0; f < layer_count; f++)
+        transition_image_layout(t, a->vk_image,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 1, f, 1);
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandPool        = t->command_pool,
+        .commandBufferCount = 1
+    }, &commandBuffer);
+
+    vkBeginCommandBuffer(commandBuffer, &(VkCommandBufferBeginInfo) {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    });
+
+    buffer stagingBuffer = buffer(
+        t, t, size, sampler_size, u_src, true, u_shader, true,
+        m_host_visible, true, m_host_coherent, true,
+        data, cubemap ? (object)cubemap : img ? data(img) : (object)fill);
+    
+    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer->vk_buffer, a->vk_image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy) {
+        .bufferOffset      = 0,
+        .bufferRowLength   = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layer_count },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = { a->width, a->height, 1 }
+    });
+
+    vkEndCommandBuffer(commandBuffer);
+    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
+        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers    = &commandBuffer
+    }, VK_NULL_HANDLE);
+    vkQueueWaitIdle(t->queue);
+
+    if (lod > 1) {
+        int mipWidth  = a->width;
+        int mipHeight = a->height;
+
+        // transition mip level 0 to src optimal (needed for first blit)
+        for (int f = 0; f < layer_count; f++)
+            transition_image_layout(t, a->vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, f, 1);
+
+        for (uint32_t i = 1; i < lod; i++) {
+            for (int f = 0; f < layer_count; f++) {
+                transition_image_layout(t, a->vk_image,
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i, 1, f, 1);
+                
+                vkBeginCommandBuffer(commandBuffer, &(VkCommandBufferBeginInfo) {
+                    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+                });
+                vkCmdBlitImage(commandBuffer,
+                    a->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    a->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &(VkImageBlit){
+                        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, f, 1 },
+                        .srcOffsets     = { {0, 0, 0}, {mipWidth, mipHeight, 1} },
+                        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i, f, 1 },
+                        .dstOffsets     = { {0, 0, 0}, {max(1, mipWidth / 2), max(1, mipHeight / 2), 1} }
+                    },
+                    VK_FILTER_LINEAR);
+                vkEndCommandBuffer(commandBuffer);
+                vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
+                    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                    .commandBufferCount = 1,
+                    .pCommandBuffers    = &commandBuffer
+                }, VK_NULL_HANDLE);
+                vkQueueWaitIdle(t->queue);
+                transition_image_layout(t, a->vk_image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i, 1, f, 1);
+            }
+
+            mipWidth  = max(1, mipWidth / 2);
+            mipHeight = max(1, mipHeight / 2);
+        }
+        for (int f = 0; f < layer_count; f++)
+            transition_image_layout(t, a->vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, lod, f, 1);
+    } else {
+        transition_image_layout(t, a->vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+    }
+
+    VkImageViewCreateInfo viewInfo = {
+        .sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image      = a->vk_image,
+        .viewType   = cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D,
+        .format     = vk_format,
+        .subresourceRange = {
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = max(1, lod),
+            .baseArrayLayer = 0,
+            .layerCount     = layer_count
         }
     };
-    return transform;
+    verify(vkCreateImageView(t->device, &viewInfo, NULL, &a->vk_image_view) == VK_SUCCESS, 
+        "Failed to create VkImageView");
+
+    VkSamplerAddressMode address_mode = cubemap ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerCreateInfo samplerInfo = {
+        .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter               = VK_FILTER_LINEAR,  // Smooth upscaling
+        .minFilter               = VK_FILTER_LINEAR,  // Smooth downscaling
+        .addressModeU            = address_mode,
+        .addressModeV            = address_mode,
+        .addressModeW            = address_mode,
+        .anisotropyEnable        = img ? VK_TRUE : VK_FALSE,
+        .maxAnisotropy           = img ? 4 : 1,
+        .minLod                  = 0.0f,
+        .maxLod                  = (float)lod,    // ← important!
+        .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+        .unnormalizedCoordinates = VK_FALSE,
+        .compareEnable           = VK_FALSE,
+        .compareOp               = VK_COMPARE_OP_ALWAYS,
+        .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    };
+    verify(vkCreateSampler(t->device, &samplerInfo, NULL, &a->vk_sampler) == VK_SUCCESS, 
+        "Failed to create VkSampler");
+    vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
 }
+
+none texture_dealloc(texture a) {
+    vkDestroySampler  (a->t->device, a->vk_sampler,    null);
+    vkDestroyImageView(a->t->device, a->vk_image_view, null);
+    vkDestroyImage    (a->t->device, a->vk_image,      null);
+    vkFreeMemory      (a->t->device, a->vk_memory,     null);
+}
+
+define_class(texture)
+
 
 VkIndexType gpu_index_type(gpu a) {
     return a->index_size == 1 ?
@@ -950,6 +1115,36 @@ VkIndexType gpu_index_type(gpu a) {
         a->index_size == 2 ?
         VK_INDEX_TYPE_UINT16 :
         VK_INDEX_TYPE_UINT32;
+}
+
+static pbrMetallicRoughness pbr_defaults() {
+    static pbrMetallicRoughness pbr;
+    if (!pbr) {
+        pbr = pbrMetallicRoughness();
+        pbr->baseColorFactor            = vec4f(1, 1, 1, 1);
+        pbr->metallicFactor             = 1.0f;
+        pbr->roughnessFactor            = 1.0f;
+        pbr->emissiveFactor             = vec3f(0, 0, 0);
+        pbr->diffuseFactor              = vec4f(1, 1, 1, 1);
+        pbr->specularFactor             = vec3f(1, 1, 1);
+        pbr->glossinessFactor           = 1.0f;
+        pbr->sheenColorFactor           = vec3f(0, 0, 0);
+        pbr->sheenRoughnessFactor       = 0.0f;
+        pbr->clearcoatFactor            = 0.0f;
+        pbr->clearcoatRoughnessFactor   = 0.0f;
+        pbr->transmissionFactor         = 0.0f;
+        pbr->thicknessFactor            = 0.0f;
+        pbr->attenuationColor           = vec3f(1, 1, 1);
+        pbr->attenuationDistance        = 1e20f;
+        pbr->ior                        = 1.5f;
+        pbr->specularColorFactor        = vec3f(1, 1, 1);
+        pbr->emissiveStrength           = 1.0f;
+        pbr->iridescenceFactor          = 0.0f;
+        pbr->iridescenceIor             = 1.3f;
+        pbr->iridescenceThicknessMinimum= 100.0f;
+        pbr->iridescenceThicknessMaximum= 400.0f;
+    }
+    return pbr;
 }
 
 void pipeline_bind_resources(pipeline p) {
@@ -1014,10 +1209,13 @@ void pipeline_bind_resources(pipeline p) {
         }
 
         /// create resource fragment based on the texture type
+        pbrMetallicRoughness pbr_default = pbr_defaults();
+        pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
         if (!res) {
             rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
             rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
             rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
+            rgbaf f_color  = rgbaf(&pbr->baseColorFactor);
             shape single = shape_new(1, 0);
             switch (surface_value) {
                 case Surface_normal:
@@ -1026,19 +1224,23 @@ void pipeline_bind_resources(pipeline p) {
                     break;
                 case Surface_metal:
                     res = gpu(t, t, name, "metal", sampler,
-                        vector_f32_new(single, 0.0f)); // Default: Non-metallic
+                        vector_f32_new(single, pbr->metallicFactor)); // Default: Non-metallic
                     break;
                 case Surface_rough:
                     res = gpu(t, t, name, "rough", sampler,
-                        vector_f32_new(single, 1.0f)); // Default: Fully rough
+                        vector_f32_new(single, pbr->roughnessFactor)); // Default: Fully rough
                     break;
                 case Surface_emission:
+                    verify(pbr->emissiveStrength / 8.0f <= 1.0f, "refactor emissiveStrength");
+                    rgbaf f_emission = rgbaf(
+                        pbr->emissiveFactor.x, pbr->emissiveFactor.y, pbr->emissiveFactor.z,
+                        pbr->emissiveStrength / 8.0f);
                     res = gpu(t, t, name, "emission", sampler,
                         vector_rgbaf_new(single, f_zero)); // Default: No emission
                     break;
                 case Surface_height:
                     res = gpu(t, t, name, "height", sampler,
-                        vector_f32_new(single, 0.5f)); // Midpoint height (todo: should be 0 but look at this in pbr later)
+                        vector_f32_new(single, 0.5f)); // Midpoint height (0.5 = no change)
                     break;
                 case Surface_ao:
                     res = gpu(t, t, name, "ao", sampler,
@@ -1046,7 +1248,7 @@ void pipeline_bind_resources(pipeline p) {
                     break;
                 case Surface_color:
                     res = gpu(t, t, name, "color", sampler,
-                        vector_rgbaf_new(single, f_one)); // White base color
+                        vector_rgbaf_new(single, f_color)); // White base color
                     break;
                 case Surface_environment:
                     res = gpu(t, t, name, "environment", sampler,
@@ -1071,8 +1273,8 @@ void pipeline_bind_resources(pipeline p) {
         binding_count++;
 
         image_infos[sampler_count] = (VkDescriptorImageInfo) {
-            .sampler     = res->vk_sampler,
-            .imageView   = res->vk_image_view, 
+            .sampler     = res->texture->vk_sampler,
+            .imageView   = res->texture->vk_image_view, 
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         };
         sampler_count++;
@@ -1130,11 +1332,6 @@ void pipeline_init(pipeline p) {
     p->vbo    = vbo;
     p->memory = compute;
 
-    /// uniforms need to be bound, as well as samplers; lets compile the shader and verify
-    /// the #include must be processed after the file is copied in Makefile
-    /// however we might need to compile the shader at build; most targets have no access to glslang
-    /// to make this simple, lets support #include in our actual source here
-    
     //if (p->memory) sync(p->memory);
     verify(vbo, "no vbo or memory provided to form a compute or graphical pipeline");
     i32     vertex_size  = vbo->vertex_size;
@@ -1329,16 +1526,11 @@ void pipeline_init(pipeline p) {
 }
 
 
-void pipeline_destructor(pipeline p) {
+void pipeline_dealloc(pipeline p) {
     trinity t = p->t;
     vkDestroyPipelineLayout(t->device, p->layout, null);
     if (p->vk_render)     vkDestroyPipeline(t->device, p->vk_render,     null);
     if (p->vk_compute)    vkDestroyPipeline(t->device, p->vk_compute,    null);
-}
-
-void Buffer_init(Buffer b) {
-    vector    data = vector(b->uri);
-    b->data = data;
 }
 
 void pipeline_render(pipeline p, handle f) {
@@ -1359,10 +1551,10 @@ void pipeline_render(pipeline p, handle f) {
         VkDeviceSize offsets[] = { 0 };
 
         vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->layout, 0, 1, &p->descriptor_set, 0, null);
-        vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vk_vertex, offsets);
+        vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vertex->vk_buffer, offsets);
 
-        if (p->vbo->vk_index) {
-            vkCmdBindIndexBuffer(frame, p->vbo->vk_index, 0,
+        if (p->vbo->index) {
+            vkCmdBindIndexBuffer(frame, p->vbo->index->vk_buffer, 0,
                 gpu_index_type(p->vbo));
             vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
         } else
@@ -1473,10 +1665,12 @@ void window_init(window w) {
     // Choose a surface format
     w->surface_format = formats[0];  // Default to the first format
     for (uint32_t i = 0; i < format_count; ++i) {
+        print("format = %i, color space = %i", formats[i].format, formats[i].colorSpace);
         if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
             formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            VkSurfaceFormatKHR* f = &formats[i];
             w->surface_format = formats[i];
-            break;
+            //break;
         }
     }
     free(formats);
@@ -1609,7 +1803,7 @@ void window_init(window w) {
 
     result = vkCreateRenderPass(t->device, &render_pass_info, null, &w->render_pass);
     verify(result == VK_SUCCESS, "failed to create render pass");
-    update_framebuffers(w);  // Call the framebuffer update directly
+    resize(w, w->extent.width, w->extent.height);  // Call the framebuffer update directly
 }
 
 int window_loop(window w, ARef callback, ARef arg) {
@@ -1731,7 +1925,7 @@ int window_loop(window w, ARef callback, ARef arg) {
     return 0;
 }
 
-void window_destructor(window w) {
+void window_dealloc(window w) {
     trinity t = w->t;
     
     // Clean up synchronization objects
@@ -1831,11 +2025,6 @@ void replace_includes(const char *src, const char *dst) {
 
     fclose(src_file);
     fclose(dst_file);
-
-    printf("dst file: %s\n", src);
-    printf("dst file: %s\n", dst);
-
-    //exit(2);
 }
 
 void shader_init(shader s) {
@@ -1941,68 +2130,13 @@ void shader_init(shader s) {
     verify(found, "shader not found: %o", s->name);
 }
 
-
-
-
-void shader_destructor(shader s) {
+void shader_dealloc(shader s) {
     trinity t = s->t;
     vkDestroyShaderModule(t->device, s->vk_vert, null);
     vkDestroyShaderModule(t->device, s->vk_frag, null);
     vkDestroyShaderModule(t->device, s->vk_comp, null);
 }
 
-
-void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
-    symbol* glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
-    symbol* result = malloc((*extension_count + 4) * sizeof(char*));
-    memcpy(result, glfw_extensions, (*extension_count) * sizeof(char*));
-
-#ifndef WIN32
-    result[(*extension_count)++] = "VK_KHR_portability_enumeration";
-#endif
-
-#ifdef __APPLE__
-    result[(*extension_count)++] = "VK_KHR_get_physical_device_properties2";
-#endif
-
-    if (enable_validation) result[(*extension_count)++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-    for (int i = 0; i < *extension_count; i++)
-        print("instance extension: %s", result[i]);
-
-    *extensions = result;
-}
-
-VkInstance vk_create() {
-    const char** extensions = null;
-    u32          extension_count = 0;
-    get_required_extensions(&extensions, &extension_count);
-    const char* validation_layer = enable_validation ? "VK_LAYER_KHRONOS_validation" : null;
-
-    VkInstance instance;
-    VkResult result = vkCreateInstance(&(VkInstanceCreateInfo) {
-            .sType                      = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pApplicationInfo           = &(VkApplicationInfo) {
-                .sType                  = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-                .pApplicationName       = "trinity",
-                .applicationVersion     = VK_MAKE_VERSION(1, 0, 0),
-                .pEngineName            = "trinity",
-                .engineVersion          = VK_MAKE_VERSION(1, 0, 0),
-                .apiVersion             = vk_version,
-            },
-            .enabledExtensionCount      = extension_count,
-            .ppEnabledExtensionNames    = extensions,
-            .enabledLayerCount          = (u32)enable_validation,
-            .ppEnabledLayerNames        = &validation_layer
-        }, null, &instance);
-
-    verify(result == VK_SUCCESS, "failed to create Vulkan instance, error: %d\n", result);
-
-    _vkCreateDebugUtilsMessengerEXT  = vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    verify(_vkCreateDebugUtilsMessengerEXT, "cannot find vk debug function");
-    
-    free(extensions);
-    return instance;
-}
 
 void trinity_init(trinity t) {
     verify(glfwInit(), "glfw init");
@@ -2088,16 +2222,10 @@ void trinity_init(trinity t) {
             .ppEnabledExtensionNames    = device_extensions,
         }, null, &t->device);
     verify(result == VK_SUCCESS, "cannot create logical device");
-
-    //_vkCreateAccelerationStructureKHR = 
-    //    (PFN_vkCreateAccelerationStructureKHR)vkGetDeviceProcAddr(t->device, "vkCreateAccelerationStructureKHR");
-    //_vkGetAccelerationStructureBuildSizesKHR = 
-    //    (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(t->device, "vkGetAccelerationStructureBuildSizesKHR");
-    
     t->queue_family_index = -1;
 }
 
-void trinity_destructor(trinity t) {
+void trinity_dealloc(trinity t) {
     vkDeviceWaitIdle(t->device);
     pairs(t->device_memory, i) {
         VkBuffer      buffer  = (VkBuffer)      i->key;
@@ -2183,11 +2311,16 @@ none buffer_unmap(buffer b) {
     vkUnmapMemory(b->t->device, b->vk_memory);
 }
 
-none buffer_destructor(buffer a) {
+none buffer_dealloc(buffer a) {
     vkDestroyBuffer(a->t->device, a->vk_buffer, null);
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
+define_enum(Pixel)
+define_enum(Filter)
+define_enum(Polygon)
+define_enum(Asset)
+define_enum(Sampling)
 
 define_class(trinity)
 define_class(shader)
@@ -2203,300 +2336,3 @@ define_enum(Surface)
 define_class(World)
 
 
-Node Model_find(Model a, cstr name) {
-    each (a->nodes, Node, node)
-        if (cmp(node->name, name) == 0)
-            return node;
-    return (Node)null;
-}
-
-Node Model_parent(Model a, Node n) {
-    num node_index = index_of(a->nodes, n);
-    verify(node_index >= 0, "invalid node memory");
-    each (a->nodes->elements, Node, node) {
-        for (num i = 0, ln = len(node->children); i < ln; i++) {
-            i64 id = 0;//get(node->children, i);
-            if (node_index == id)
-                return node;
-        }
-    }
-    return (Node)null;
-}
-
-int Model_index_of(Model a, cstr name) {
-    int index = 0;
-    each (a->nodes, Node, node) {
-        if (cmp(node->name, name) == 0)
-            return index;
-        index++;
-    }
-    return -1;
-}
-
-Node Model_index_string(Model a, string name) {
-    return find(a, cstring(name));
-}
-
-/// builds Transform, separate from Model/Skin/Node and contains usable glm types
-Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node_index, Transform parent) {
-    Node node = a->nodes->elements[node_index];
-
-    node->processed = true;
-    Transform transform;
-    if (node->joint_index >= 0) {
-        transform->jdata     = joints;
-
-        mat4f i = mat4f((floats)null);
-        vec3f v = vec3f(1, 1, 1);
-        mat4f rotation_m4 = mat4f(&node->rotation); // calls the quaternion constructor on our struct
-        /// vectors have no special field on the end so we have to invoke their entire function names (not using macro or function table; people like this better)
-        transform->local = mat4f((floats)null);
-        transform->local = mat4f_translate(&transform->local, &node->translation);
-        transform->local = mat4f_mul      (&transform->local, &rotation_m4);
-        transform->local = mat4f_scale    (&transform->local, &node->scale);
-        transform->local_default = transform->local;
-        transform->iparent   = parent->istate;
-        transform->istate    = node->joint_index;
-        mat4f state_mat = mat4f_mul(&parent_mat, &transform->local_default);
-        mat4f* jstates = data(joints->states);
-        jstates[transform->istate] = state_mat;
-        each (node->children, object, p_node_index) {
-            int node_index = *(int*)p_node_index;
-            /// ch is referenced from the ops below, when called here (not released)
-            Transform ch = node_transform(a, joints, state_mat, node_index, transform);
-            if (ch) {
-                Node n = a->nodes->elements[node_index];
-                verify(n->joint_index == ch->istate, "joint index mismatch");
-                push(transform->ichildren, &ch->istate); /// there are cases where a referenced node is not part of the joints array; we dont add those.
-            }
-        }
-        push(joints->transforms, transform);
-    }
-    return transform;
-}
-
-JData Model_joints(Model a, Node node) {
-    if (node->mx_joints)
-        return node->mx_joints;
-
-    JData joints;
-    mat4f ident = mat4f_ident();
-    if (node->skin != -1) {
-        Skin skin         = a->skins->elements[node->skin];
-        map  all_children = map();
-        each (skin->joints, object, p_node_index) {
-            int node_index = *(int*)p_node_index;
-            Node node = a->nodes->elements[node_index];
-            each (node->children, object, i) {
-                verify(!contains(all_children, i), "already contained");
-                set(all_children, i, A_bool(true));
-            }
-        }
-
-        int j_index = 0;
-        values (skin->joints, int, node_index)
-            ((Node)a->nodes->elements[node_index])->joint_index = j_index++;
-
-        int n = len(skin->joints);
-        joints->transforms = array_Transform(n); /// we are appending, so dont set size (just verify)
-        joints->states     = vector_mat4f   (n);
-        
-        for (int i = 0; i < n; i++)
-            push(joints->states, &ident);
-        
-        /// for each root joint, resolve the local and global matrices
-        values (skin->joints, int, node_index) {
-            if (contains(all_children, &node_index)) // fix
-                continue;
-            
-            node_transform(a, joints, ident, node_index, null);
-        }
-    } else {
-        int n = len(joints->states);
-        for (int i = 0; i < n; i++)
-            push(joints->states, &ident);
-    }
-
-    /// adding transforms twice
-    verify(len(joints->states) == len(joints->transforms), "length mismatch");
-    node->mx_joints = joints;
-    return joints;
-}
-
-/// Data is Always upper-case, ...sometimes lower
-void Accessor_init(Accessor a) {
-    a->stride      = vcount(a) * component_size(a);
-    a->total_bytes = a->stride * vcount(a);
-    verify(a->count, "count is required");
-}
-
-u64 Accessor_vcount(Accessor a) {
-    u64 vsize = 0;
-    switch (a->type) {
-        case CompoundType_SCALAR: vsize = 1; break;
-        case CompoundType_VEC2:   vsize = 2; break;
-        case CompoundType_VEC3:   vsize = 3; break;
-        case CompoundType_VEC4:   vsize = 4; break;
-        case CompoundType_MAT2:   vsize = 4; break;
-        case CompoundType_MAT3:   vsize = 9; break;
-        case CompoundType_MAT4:   vsize = 16; break;
-        default: fault("invalid CompoundType");
-    }
-    return vsize;
-};
-
-u64 Accessor_component_size(Accessor a) {
-    u64 scalar_sz = 0;
-    switch (a->componentType) {
-        case ComponentType_BYTE:           scalar_sz = sizeof(u8); break;
-        case ComponentType_UNSIGNED_BYTE:  scalar_sz = sizeof(u8); break;
-        case ComponentType_SHORT:          scalar_sz = sizeof(u16); break;
-        case ComponentType_UNSIGNED_SHORT: scalar_sz = sizeof(u16); break;
-        case ComponentType_UNSIGNED_INT:   scalar_sz = sizeof(u32); break;
-        case ComponentType_FLOAT:          scalar_sz = sizeof(float); break;
-        default: fault("invalid ComponentType");
-    }
-    return scalar_sz;
-};
-
-AType Accessor_member_type(Accessor a) {
-    switch (a->componentType) {
-        case ComponentType_BYTE:
-        case ComponentType_UNSIGNED_BYTE:
-            switch (a->type) {
-                case CompoundType_SCALAR: return typeid(i8);
-                //case CompoundType_VEC2:   return typeid(vec2i8);
-                //case CompoundType_VEC3:   return typeid(vec3i8);
-                //case CompoundType_VEC4:   return typeid(vec4i8);
-                default: break;
-            }
-            break;
-        case ComponentType_SHORT:
-        case ComponentType_UNSIGNED_SHORT:
-            switch (a->type) {
-                case CompoundType_SCALAR: return typeid(i16);
-                default: break;
-            }
-            break;
-        case ComponentType_UNSIGNED_INT:
-            switch (a->type) {
-                case CompoundType_SCALAR: return typeid(i32);
-                default: break;
-            }
-            break;
-        case ComponentType_FLOAT:
-            switch (a->type) {
-                case CompoundType_SCALAR: return typeid(f32);
-                case CompoundType_VEC2:   return typeid(vec2f);
-                case CompoundType_VEC3:   return typeid(vec3f);
-                case CompoundType_VEC4:   return typeid(vec4f);
-                //case CompoundType_MAT2:   return typeid(mat2f); 
-                //case CompoundType_MAT3:   return typeid(mat3f); 
-                case CompoundType_MAT4:   return typeid(mat4f); 
-                default: fault("invalid CompoundType");
-            }
-            break;
-        default:
-            break;
-    }
-    fault("invalid CompoundType: %o", e_str(CompoundType, a->type));
-    return 0;
-};
-
-void Transform_multiply(Transform a, mat4f m) {
-    a->local = mat4f_mul(&a->local, &m);
-    propagate(a);
-}
-
-void Transform_set(Transform a, mat4f m) {
-    a->local = m;
-    propagate(a);
-}
-
-void Transform_set_default(Transform a) {
-    a->local = a->local_default;
-    propagate(a);
-}
-
-void Transform_operator__assign_mul(Transform a, mat4f m) {
-    multiply(a, m);
-}
-
-bool Transformer_cast_bool(Transform a) {
-    return a->jdata != null;
-}
-
-void Transform_propagate(Transform a) {
-    mat4f ident = mat4f_ident(); /// iparent's istate will always == iparent
-    mat4f m = (a->iparent != -1) ? *(mat4f*)get(a->jdata->states, a->iparent) : ident;
-    mat4f* jstates = data(a->jdata->states);
-    jstates[a->istate] = mat4f_mul(&m, &a->local);
-    each (a->ichildren, i64*, i)
-        propagate(a->jdata->transforms->elements[*i]);
-}
-
-Primitive Node_primitive(Node a, Model mdl, cstr name) {
-    Mesh m = get(mdl->meshes, a->mesh);
-    return m ? primitive(m, name) : null;
-}
-
-Primitive Mesh_primitive(Mesh a, cstr name) {
-    each (a->primitives, Primitive, p) {
-        if (cmp(p->name, name) == 0)
-            return p;
-    }
-    return null;
-}
-
-
-define_enum(ComponentType)
-define_enum(CompoundType)
-define_enum(TargetType)
-define_enum(Mode)
-define_enum(Interpolation)
-
-define_class(Sampler)
-define_class(ChannelTarget)
-define_class(Channel)
-define_class(Animation)
-define_class(SparseInfo)
-define_class(Sparse)
-define_class(Accessor)
-define_class(BufferView)
-define_class(Skin)
-define_class(JData)
-define_class(Transform)
-define_class(Node)
-define_class(Primitive)
-define_class(MeshExtras)
-define_class(Mesh)
-define_class(Scene)
-define_class(AssetDesc)
-define_class(Buffer)
-define_class(Model)
-
-define_enum(Pixel)
-define_enum(Filter)
-define_enum(Polygon)
-define_enum(Asset)
-define_enum(Sampling)
-
-define_class(pbrMetallicRoughness)
-define_class(TextureInfo)
-define_class(Material)
-
-//define_struct(HumanVertex)
-
-define_meta(array_Transform,  array, Transform)
-define_meta(array_Sampler,    array, Sampler)
-define_meta(array_Channel,    array, Channel)
-define_meta(array_Primitive,  array, Primitive)
-define_meta(array_Node,       array, Node)
-define_meta(array_Skin,       array, Skin)
-define_meta(array_Accessor,   array, Accessor)
-define_meta(array_BufferView, array, BufferView)
-define_meta(array_Mesh,       array, Mesh)
-define_meta(array_Scene,      array, Scene)
-define_meta(array_Material,   array, Material)
-define_meta(array_Buffer,     array, Buffer)
-define_meta(array_Animation,  array, Animation)

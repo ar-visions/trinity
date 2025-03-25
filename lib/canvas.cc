@@ -138,7 +138,7 @@ static SkColor get_color(object any) {
 none canvas_init(canvas a) {
 }
 
-none canvas_destructor(canvas a) {
+none canvas_dealloc(canvas a) {
 }
 
 none canvas_move(canvas a, object _to) {

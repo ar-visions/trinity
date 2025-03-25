@@ -1,8 +1,14 @@
 #include <vulkan/vulkan.h>
-#include <tinyexr.h>
+#include <OpenEXR/ImfRgbaFile.h>
+#include <OpenEXR/ImfArray.h>
+#include <OpenEXR/ImfInputFile.h>
+#include <OpenEXR/ImfHeader.h>
+//#include <OpenEXR/ImathBox.h>
 #include <png.h>
 #include <import>
 #include <immintrin.h>
+
+void opencv_resize_area(uint8_t* src, uint8_t* dst, int in_w, int in_h, int out_w, int out_h);
 
 // read images without conversion; for .png and .exr
 // this facilitates grayscale maps, environment color, 
@@ -13,30 +19,6 @@ image image_copy(image a) {
     memcpy(data(res), data(a), byte_count(a));
     return res;
 }
-
-static f32 floorf(f32 f) {
-    i32 i = (i32)f;
-    return (f32)((f < 0 && f != i) ? i - 1 : i);
-}
-
-static f32 ceilf(f32 f) {
-    i32 i = (i32)f;
-    return (f > i) ? i + 1.0f : f;
-}
-
-static f32 roundf(f32 in) {
-    i32 intPart = (i32)in;
-    f32 decimalPart = in - intPart;
-    
-    if (decimalPart >= 0.5f)
-        return intPart + 1.0f;
-    else if (decimalPart <= -0.5f)
-        return intPart - 1.0f;
-    
-    return intPart;
-}
-
-void opencv_resize_area(uint8_t* src, uint8_t* dst, int in_w, int in_h, int out_w, int out_h);
 
 image image_resize(image input, i32 out_w, i32 out_h) {
     verify(input->width > 0 && input->height, "null image given to resize");
@@ -56,108 +38,8 @@ image image_resize(image input, i32 out_w, i32 out_h) {
     u8* dst = (u8*)A_data((A)output);
 
     opencv_resize_area(src, dst, in_w, in_h, out_w, out_h);
-    // lets call opencv's imgproc with average; check against our approach
-
-
-
-    /*
-    for (int y = 0; y < out_h; y++) {
-        float start_y = (float)y / out_h * in_h;
-        float to_y = (float)(y + 1) / out_h * in_h;
-
-        for (int x = 0; x < out_w; x++) {
-            float start_x = (float)x / out_w * in_w;
-            float to_x = (float)(x + 1) / out_w * in_w;
-
-            int sx = (int)floorf(start_x);
-            int sy = (int)floorf(start_y);
-            int ex = (int)ceilf(to_x);
-            int ey = (int)ceilf(to_y);
-
-            float value = 0;
-            float weight = 0;
-
-            // Top-Left (TL)
-            float tl_weight = (ceilf(start_x) - start_x) * (ceilf(start_y) - start_y);
-            if (sx >= 0 && sy >= 0) {
-                value += src[sy * in_w + sx] * tl_weight;
-                weight += tl_weight;
-            }
-
-            // Top-Right (TR)
-            float tr_weight = (to_x - floorf(to_x)) * (ceilf(start_y) - start_y);
-            if (ex < in_w && sy >= 0) {
-                value += src[sy * in_w + ex] * tr_weight;
-                weight += tr_weight;
-            }
-
-            // Bottom-Left (BL)
-            float bl_weight = (ceilf(start_x) - start_x) * (to_y - floorf(to_y));
-            if (sx >= 0 && ey < in_h) {
-                value += src[ey * in_w + sx] * bl_weight;
-                weight += bl_weight;
-            }
-
-            // Bottom-Right (BR)
-            float br_weight = (to_x - floorf(to_x)) * (to_y - floorf(to_y));
-            if (ex < in_w && ey < in_h) {
-                value += src[ey * in_w + ex] * br_weight;
-                weight += br_weight;
-            }
-
-            // Top Edge
-            for (int tx = sx + 1; tx < ex; tx++) {
-                float t_weight = (ceilf(start_y) - start_y);
-                if (sy >= 0) {
-                    value += src[sy * in_w + tx] * t_weight;
-                    weight += t_weight;
-                }
-            }
-
-            // Bottom Edge
-            for (int bx = sx + 1; bx < ex; bx++) {
-                float b_weight = (to_y - floorf(to_y));
-                if (ey < in_h) {
-                    value += src[ey * in_w + bx] * b_weight;
-                    weight += b_weight;
-                }
-            }
-
-            // Left Edge
-            for (int ly = sy + 1; ly < ey; ly++) {
-                float l_weight = (ceilf(start_x) - start_x);
-                if (sx >= 0) {
-                    value += src[ly * in_w + sx] * l_weight;
-                    weight += l_weight;
-                }
-            }
-
-            // Right Edge
-            for (int ry = sy + 1; ry < ey; ry++) {
-                float r_weight = (to_x - floorf(to_x));
-                if (ex < in_w) {
-                    value += src[ry * in_w + ex] * r_weight;
-                    weight += r_weight;
-                }
-            }
-
-            // Middle Pixels
-            for (int my = sy + 1; my < ey; my++) {
-                for (int mx = sx + 1; mx < ex; mx++) {
-                    if (mx < in_w && my < in_h) {
-                        value += src[my * in_w + mx];
-                        weight += 1.0f;
-                    }
-                }
-            }
-
-            dst[y * out_w + x] = (u8)roundf(value / weight);
-        }
-    }
-    */
     return output;
 }
-
 
 image image_with_string(image a, string i) {
     a->uri = path(i);
@@ -190,36 +72,46 @@ none image_init(image a) {
     string ext = ext(a->uri);
     symbol uri = (symbol)a->uri->chars;
     if (eq(ext, "exr")) {
-        EXRImage      exr_image;
-        EXRHeader     exr_header;
-        EXRVersion    exr_version;
-        
-        InitEXRImage (&exr_image);
-        InitEXRHeader(&exr_header);
-        f32*   data = (f32*)null;
-        symbol err  = (symbol)null;
-        int    ret  = ParseEXRHeaderFromFile(&exr_header, &exr_version, uri, &err);
-        verify(ret == TINYEXR_SUCCESS, "error parsing EXR header: %s", err);
-        ret = LoadEXRImageFromFile(&exr_image, &exr_header, uri, &err);
-        verify(ret == TINYEXR_SUCCESS, "error loading EXR image: %s", err);
-        
-        a->width    = exr_image.width;
-        a->height   = exr_image.height;
-        a->channels = exr_image.num_channels;
-        a->format   = Pixel_rgbaf32;
-        header->count  = a->channels * a->width * a->height;
-        header->scalar = typeid(f32);
-        i64 plane_size = a->height * a->width;
-        f32* planes = (f32*)calloc(sizeof(f32), plane_size * a->channels);
-        for (int i = 0; i < a->channels; i++) {
-            data = (f32*) exr_image.images[i];  // EXR stores planes separately
-            i64 iplane = plane_size * i;
-            memcpy(&planes[iplane], data, plane_size * sizeof(f32));
+        using namespace OPENEXR_IMF_NAMESPACE;
+        using namespace IMATH_NAMESPACE;
+        using namespace Imath;
+        using namespace Imf;
+
+        RgbaInputFile f(uri);
+        Imath::Box2i dw = f.dataWindow();
+
+        int width  = dw.max.x - dw.min.x + 1;
+        int height = dw.max.y - dw.min.y + 1;
+
+        a->width = width;
+        a->height = height;
+        a->channels = 4;
+        a->format = Pixel_rgbaf32;
+        a->pixel_size = sizeof(f32) * a->channels;
+
+        int total_floats = width * height * 4;
+        f32* data = (f32*)calloc(sizeof(f32), total_floats);
+
+        Imf::Array2D<Rgba> pixels;
+        pixels.resizeErase(height, width); // [y][x] format
+
+        f.setFrameBuffer(&pixels[0][0] - dw.min.x - dw.min.y * width, 1, width);
+        f.readPixels(dw.min.y, dw.max.y);
+
+        int index = 0;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const Imf::Rgba& px = pixels[y][x];
+                data[index++] = px.r;
+                data[index++] = px.g;
+                data[index++] = px.b;
+                data[index++] = px.a;
+            }
         }
-        header->data   = (object)planes;  // <---- GPT is this right lol
-        a->pixel_size  = sizeof(f32) * a->channels; /// needs to know channel count
-        FreeEXRImage (&exr_image);
-        FreeEXRHeader(&exr_header);
+
+        header->count = total_floats;
+        header->scalar = typeid(f32);
+        header->data = (object)data;
     } else if (eq(ext, "png")) {
         FILE* file = fopen(uri, "rb");
         verify (file, "could not open PNG: %o", a->uri);
@@ -315,7 +207,7 @@ i32 image_png(image a, path uri) {
     return 1;
 }
 
-none image_destructor(image a) {
+none image_dealloc(image a) {
     A header = head(a);
     free(header->data);
 }
