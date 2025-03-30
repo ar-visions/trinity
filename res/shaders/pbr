@@ -1,3 +1,5 @@
+#version 450
+
 layout(set = 0, binding = 0) uniform World {
     vec4 pos;
     vec4 dir;
@@ -13,4 +15,4 @@ layout(set = 0, binding = 4)  uniform sampler2D tx_rough;       // 0.0 -> 1.0
 layout(set = 0, binding = 5)  uniform sampler2D tx_metal;       // 0.0 -> 1.0
 layout(set = 0, binding = 6)  uniform sampler2D tx_height;      // 0.0 -> 1.0 ( 0.5 mid )
 layout(set = 0, binding = 7)  uniform sampler2D tx_ao;          // 0.0 -> 1.0
-layout(set = 0, binding = 8)  uniform samplerCube tx_environment; // 0.0 -> 1.0
+layout(set = 0, binding = 8)  uniform samplerCubeArray tx_environment; // 0.0 -> 1.0

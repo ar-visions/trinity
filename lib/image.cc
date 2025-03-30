@@ -7,8 +7,7 @@
 #include <png.h>
 #include <import>
 #include <immintrin.h>
-
-void opencv_resize_area(uint8_t* src, uint8_t* dst, int in_w, int in_h, int out_w, int out_h);
+#include <opencv.h>
 
 // read images without conversion; for .png and .exr
 // this facilitates grayscale maps, environment color, 
@@ -36,8 +35,20 @@ image image_resize(image input, i32 out_w, i32 out_h) {
     
     u8* src = (u8*)A_data((A)input);
     u8* dst = (u8*)A_data((A)output);
+    opencv_resize_area(src, dst, input->format == Pixel_rgbaf32, in_w, in_h, input->channels, out_w, out_h);
+    return output;
+}
 
-    opencv_resize_area(src, dst, in_w, in_h, out_w, out_h);
+image image_gaussian(image input, float amount) {
+    if (amount < 0.1f)
+        return (image)copy((object)input);
+    int w = input->width;
+    int h = input->height;
+    image output = image(width, w, height, h, format, input->format, surface, input->surface, channels, input->channels);
+
+    u8* src = (u8*)A_data((A)input);
+    u8* dst = (u8*)A_data((A)output);
+    opencv_gaussian(src, dst, input->format == Pixel_rgbaf32, w, h, input->channels, amount);
     return output;
 }
 
@@ -58,14 +69,30 @@ image image_with_cstr(image a, cstr i) {
 
 none image_init(image a) {
     A header = head(a);
+    Pixel f = a->format;
+
+    if (!a->channels)
+        a->channels = f == Pixel_none ? 1 : f == Pixel_rgba8   ? 4 : f == Pixel_rgbf32 ? 4 :
+                      f == Pixel_u8   ? 1 : f == Pixel_rgbaf32 ? 4 : 1;
+    
+    if (a->source) {
+        A source_header = A_header(a->source);
+        header->data    = hold(a->source);
+        header->scalar  = source_header->scalar;
+        header->count   = source_header->count;
+        header->shape   = (shape)hold((object)source_header->shape);
+        return;
+    }
 
     if (!a->uri) {
-        Pixel f = a->format;
         AType pixel_type =
             f == Pixel_none ? typeid(i8) : f == Pixel_rgba8   ? typeid(rgba8) : f == Pixel_rgbf32 ? typeid(vec3f) :
             f == Pixel_u8   ? typeid(i8) : f == Pixel_rgbaf32 ? typeid(vec4f) : typeid(f32);
+        AType component_type =
+            f == Pixel_none ? typeid(i8) : f == Pixel_rgba8   ? typeid(i8)  : f == Pixel_rgbf32 ? typeid(f32) :
+            f == Pixel_u8   ? typeid(i8) : f == Pixel_rgbaf32 ? typeid(f32) : typeid(f32);
         /// validate with channels if set?
-        header->data = A_alloc(pixel_type, pixel_type->size * a->width * a->height, false);
+        header->data = A_alloc2(pixel_type, component_type, shape_new(a->height, a->width, component_type->size, 0), false);
         return;
     }
 
@@ -90,7 +117,7 @@ none image_init(image a) {
         a->pixel_size = sizeof(f32) * a->channels;
 
         int total_floats = width * height * 4;
-        f32* data = (f32*)calloc(sizeof(f32), total_floats);
+        f32* data = (f32*)A_alloc2(typeid(rgbaf), typeid(f32), shape_new(height, width, sizeof(f32), 0), false);
 
         Imf::Array2D<Rgba> pixels;
         pixels.resizeErase(height, width); // [y][x] format
@@ -134,7 +161,7 @@ none image_init(image a) {
         /// store the exact format read
         png_read_update_info (png, info);
         png_bytep* rows = (png_bytep*)malloc (sizeof(png_bytep) * a->height);
-        u8*        data = (u8*)malloc(a->width * a->height * a->channels * (bit_depth / 8));
+        u8*        data = (u8*)A_alloc(typeid(u8), a->width * a->height * a->channels * (bit_depth / 8), false);
         for (int y = 0; y < a->height; y++) {
             rows[y] = data + (y * a->width * a->channels * (bit_depth / 8));
         }
@@ -151,6 +178,49 @@ none image_init(image a) {
         header->data   = (object)data;
         a->pixel_size  = (bit_depth / 8) * a->channels;
     }
+}
+
+
+
+
+
+
+// save gray or colored png based on channel count; if we want conversion we may just use methods to alter an object
+i32 image_exr(image a, path uri) {
+    string e = ext(uri);
+    if (eq(e, "exr")) {
+        using namespace OPENEXR_IMF_NAMESPACE;
+        using namespace IMATH_NAMESPACE;
+        using namespace Imf;
+
+        if (a->format != Pixel_rgbaf32)
+            fault("Only Pixel_rgbaf32 supported for EXR save");
+
+        int width  = a->width;
+        int height = a->height;
+        f32* data  = (f32*)data(a); // assumes planar RGBA32F
+
+        Array2D<Rgba> pixels;
+        pixels.resizeErase(height, width); // [y][x]
+
+        int index = 0;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                Rgba px;
+                px.r = data[index++];
+                px.g = data[index++];
+                px.b = data[index++];
+                px.a = data[index++];
+                pixels[y][x] = px;
+            }
+        }
+
+        RgbaOutputFile out(cstring(uri), width, height, WRITE_RGBA);
+        out.setFrameBuffer(&pixels[0][0], 1, width);
+        out.writePixels(height);
+        return 1;
+    }
+    return 0;
 }
 
 // save gray or colored png based on channel count; if we want conversion we may just use methods to alter an object

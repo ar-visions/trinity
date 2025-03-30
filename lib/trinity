@@ -173,6 +173,16 @@ declare_sentry(Four);
 #endif
 declare_class(World)
 
+#define Env_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     vec2f, roughness_samples) \
+    i_override(X,Y, method, init)
+#ifndef Env_intern
+#define Env_intern
+#endif
+declare_class(Env)
+
 #define Surface_schema(X,Y,...) \
     enum_value_v_2(X,Y, none,           0, Zero) \
     enum_value_v_2(X,Y, color,          1, Four) \
@@ -185,8 +195,33 @@ declare_class(World)
     enum_value_v_2(X,Y, environment,    8, Four)
 declare_enum(Surface)
 
+#define Pixel_schema(X,Y,...) \
+    enum_value_v(X,Y, none,            0) \
+    enum_value_v(X,Y, rgba8,           1) \
+    enum_value_v(X,Y, rgb8,            2) \
+    enum_value_v(X,Y, rgbf32,          3) \
+    enum_value_v(X,Y, u8,              4) \
+    enum_value_v(X,Y, rgbaf32,         5) \
+    enum_value_v(X,Y, f32,             6)
+declare_enum(Pixel)
+
+// a good idea is to make this more of 'ANY' ability of filter
+// if filter set to an object, that object could dictate more filter arguments for a general purpose filter
+// this is something used by the system
+#define Filter_schema(X,Y,...) \
+    enum_value_v(X,Y, none,            0) \
+    enum_value_v(X,Y, nearest,         1) \
+    enum_value_v(X,Y, bilinear,        3) \
+    enum_value_v(X,Y, trilinear,       4) \
+    enum_value_v(X,Y, low,             5) \
+    enum_value_v(X,Y, med,             6) \
+    enum_value_v(X,Y, high,            7)
+declare_enum(Filter)
+
 typedef struct _pipeline* pipeline;
-typedef struct _shader* shader;
+typedef struct _shader*   shader;
+typedef struct _texture*  texture;
+typedef struct _image*    image;
 #define trinity_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkInstance,          instance) \
     i_prop    (X,Y, intern,     VkSampleCountFlagBits, msaa_samples) \
@@ -199,6 +234,7 @@ typedef struct _shader* shader;
     i_prop    (X,Y, intern,     map,                 device_memory) \
     i_prop    (X,Y, intern,     handle,              skia) \
     i_prop    (X,Y, public,     bool,                rt_support) \
+    i_method  (X,Y, public,     texture,             environment, image) \
     i_override(X,Y, method,     init, dealloc)
 #ifndef trinity_intern
 #define trinity_intern
@@ -222,7 +258,7 @@ declare_class(shader)
 
 typedef struct _pipeline* pipeline;
 typedef struct _model*    model;
-
+typedef struct _window*   window;
 
 #define buffer_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,            t) \
@@ -241,6 +277,7 @@ typedef struct _model*    model;
     i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory) \
     i_prop    (X,Y, intern,     VkBuffer,           vk_buffer) \
     i_method  (X,Y, public,     none,               update, ARef) \
+    i_method  (X,Y, public,     none,               transfer, window) \
     i_method  (X,Y, public,     ARef,               mmap) \
     i_method  (X,Y, public,     none,               unmap) \
     i_override(X,Y, method,     init, dealloc)
@@ -278,41 +315,25 @@ declare_class(buffer)
     i_prop    (X,Y, intern,     VkSwapchainCreateInfoKHR, config) \
     i_prop    (X,Y, intern,     ARef,                   loop_callback) \
     i_prop    (X,Y, intern,     ARef,                   loop_arg) \
+    i_prop    (X,Y, intern,     i32,                    semaphore_frame) \
+    i_prop    (X,Y, intern,     i32,                    last_fence) \
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
-    i_prop    (X,Y, required,   string,                 title) \
+    i_prop    (X,Y, public,     Pixel,                  format) \
+    i_prop    (X,Y, public,     string,                 title) \
+    i_prop    (X,Y, public,     bool,                   backbuffer) \
+    i_method  (X,Y, public,     none,                   process, array, object, object) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
     i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
     i_method  (X,Y, public,     none,                   push, model) \
+    i_cast    (X,Y, public,     image) \
     i_override(X,Y, method,     init, dealloc)
 #ifndef window_intern
 #define window_intern
 #endif
 declare_class(window)
 
-#define Pixel_schema(X,Y,...) \
-    enum_value_v(X,Y, none,            0) \
-    enum_value_v(X,Y, rgba8,           1) \
-    enum_value_v(X,Y, rgb8,            2) \
-    enum_value_v(X,Y, rgbf32,          3) \
-    enum_value_v(X,Y, u8,              4) \
-    enum_value_v(X,Y, rgbaf32,         5) \
-    enum_value_v(X,Y, f32,             6)
-declare_enum(Pixel)
-
-// a good idea is to make this more of 'ANY' ability of filter
-// if filter set to an object, that object could dictate more filter arguments for a general purpose filter
-// this is something used by the system
-#define Filter_schema(X,Y,...) \
-    enum_value_v(X,Y, none,            0) \
-    enum_value_v(X,Y, nearest,         1) \
-    enum_value_v(X,Y, bilinear,        3) \
-    enum_value_v(X,Y, trilinear,       4) \
-    enum_value_v(X,Y, low,             5) \
-    enum_value_v(X,Y, med,             6) \
-    enum_value_v(X,Y, high,            7)
-declare_enum(Filter)
 
 #define image_schema(X,Y,...) \
     i_ctr (X,Y, public, string) \
@@ -325,9 +346,13 @@ declare_enum(Filter)
     i_prop    (X,Y, public,     i32,                    width) \
     i_prop    (X,Y, public,     i32,                    height) \
     i_prop    (X,Y, public,     i32,                    channels) \
+    i_prop    (X,Y, public,     object,                 source) \
     i_prop    (X,Y, public,     Filter,                 filter) \
+    i_prop    (X,Y, public,     object,                 user) \
+    i_method  (X,Y, public,     image,                  gaussian, f32) \
     i_method  (X,Y, public,     image,                  resize, i32, i32) \
     i_method  (X,Y, public,     i32,                    png, path) \
+    i_method  (X,Y, public,     i32,                    exr, path) \
     i_method  (X,Y, public,     i64,                    byte_count) \
     i_method  (X,Y, public,     i64,                    len) \
     i_method  (X,Y, public,     object,                 get, num) \
@@ -351,11 +376,26 @@ declare_class(image)
 #endif
 declare_mod(canvas, image)
 
+#define command_schema(X,Y,...) \
+    i_prop(X,Y, required, trinity, t) \
+    i_prop(X,Y, intern,   VkCommandBuffer,  vk) \
+    i_method  (X,Y, public, none, begin) \
+    i_method  (X,Y, public, none, submit) \
+    i_override(X,Y, method, init, dealloc)
+#ifndef command_intern
+#define command_intern
+#endif
+declare_class(command)
+
 #define texture_schema(X,Y,...) \
     i_prop(X,Y, required, trinity,          t) \
+    i_prop(X,Y, public,   Pixel,            format) \
     i_prop(X,Y, public,   object,           sampler) \
     i_prop(X,Y, public,   i32,              width) \
     i_prop(X,Y, public,   i32,              height) \
+    i_prop(X,Y, public,   i32,              mip_levels) \
+    i_prop(X,Y, public,   i32,              layer_count) \
+    i_prop(X,Y, public,   Surface,          surface) \
     i_prop(X,Y, intern,   VkFormat,         vk_format) \
     i_prop(X,Y, intern,   VkImage,          vk_image) \
     i_prop(X,Y, intern,   VkImageView,      vk_image_view) \
@@ -397,7 +437,7 @@ typedef struct vertex_member_t {
     i_prop(X,Y, intern,   VkSampler,    vk_sampler) \
     i_prop(X,Y, intern,   VkDeviceMemory, vk_memory) \
     i_prop(X,Y, public,   bool,         compute) \
-    i_method(X,Y, public, none,         sync) \
+    i_method(X,Y, public, none,         sync, window) \
     i_override(X,Y, method, init, dealloc)
 #ifndef gpu_intern
 #define gpu_intern

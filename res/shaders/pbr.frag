@@ -1,4 +1,3 @@
-#version 450
 #include <pbr>
 
 layout(location = 0) out vec4 fragColor;
@@ -16,11 +15,13 @@ const float EPSILON = 0.0001;
 float pow2(float x) { return x * x; }
 float pow5(float x) { float x2 = x * x; return x2 * x2 * x; }
 
-vec3 energyCompensation(vec3 albedo, float roughness) {
-    float oneMinusRough = 1.0 - roughness;
-    float energyLoss = 0.0 * roughness; // tweak factor
-    vec3 desaturated = vec3(dot(albedo, vec3(0.3, 0.59, 0.11))); // luminance
-    return mix(desaturated * (1.0 - energyLoss), albedo, oneMinusRough);
+// Proper gamma handling
+vec3 sRGBToLinear(vec3 srgbColor) {
+    return pow(srgbColor, vec3(2.2));
+}
+
+vec3 linearToSRGB(vec3 srgbColor) {
+    return pow(srgbColor, vec3(1.0/2.2));
 }
 
 // Fresnel Schlick approximation
@@ -44,7 +45,8 @@ float G_Smith(float roughness, float NdotV, float NdotL) {
     return G1_V * G1_L;
 }
 
-// Cook-Torrance BRDF
+
+// Then modify the BRDF function to use these adjustments:
 vec3 BRDF(vec3 L, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
     // Clamp roughness to avoid divide by zero in D_GGX
     roughness = max(roughness, 0.05);
@@ -100,16 +102,15 @@ vec2 parallaxMapping(vec2 texCoords, vec3 viewDir) {
     return texCoords - p;
 }
 
-// Environment mapping
 vec3 environmentMapping(vec3 R, float roughness) {
-
-    float mip = roughness * 7.0;
-    float mipFloor = floor(mip);
-    float mipFrac = mip - mipFloor;
-    vec3 color0 = textureLod(tx_environment, R, mipFloor).rgb;
-    vec3 color1 = textureLod(tx_environment, R, mipFloor + 1.0).rgb;
-    vec3 prefilteredColor = mix(color0, color1, mipFrac);
-    return prefilteredColor;
+    float lod   = roughness * 7.0; // Adjust based on your mipmap count
+    float lodf  = floor(lod);
+    float lodfr = lod - lodf;
+    int   mip0  = int(lodf);
+    int   mip1  = min(mip0 + 1, 7); 
+    vec3  s0    = texture(tx_environment, vec4(R, mip0)).rgb;
+    vec3  s1    = texture(tx_environment, vec4(R, mip1)).rgb;
+    return mix(s0, s1, lodfr);
 }
 
 // Main PBR function
@@ -131,7 +132,7 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     vec3  emission      = texture(tx_emission, texCoordsMapped).rgb;
     float intensity     = texture(tx_emission, texCoordsMapped).a;
     
-    vec3 rough_color = energyCompensation(baseColor.rgb, roughness);
+    vec3 rough_color = baseColor.rgb; // energyCompensation(baseColor.rgb, roughness);
 
     // Apply normal mapping
     vec3 N = perturbNormal(normal, V, texCoordsMapped);
@@ -140,7 +141,7 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     vec3 R = reflect(-V, N);
     
     // Environment lighting
-    vec3 envColor = environmentMapping(R, roughness * 2.0);
+    vec3 envColor = environmentMapping(R, roughness);
     
     // Ambient light
     vec3 ambient = envColor * rough_color * ao;
@@ -155,58 +156,14 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     // Combine direct and indirect lighting
     vec3 color = ambient + Lo + emission * intensity;
     
-    // Tone mapping (simple Reinhard)
-    color = color / (color + vec3(1.0));
-    
-    // Gamma correction
-    //color = pow(color, vec3(1.0/2.2));
+    // Convert from linear to sRGB for display
+    color = linearToSRGB(color);
     
     return vec4(color, baseColor.a);
 }
 
 
 void main() {
-
-    // Normalize the interpolated normal
-
     // Calculate PBR lighting
     fragColor = calculatePBR(v_uv, v_world_pos, normalize(v_world_normal), v_view_pos);
 }
-/*
-    vec3 I = normalize(v_world_pos - v_view_pos);
-    vec3 R = normalize(reflect(I, normalize(v_world_normal)));
-
-    // equirect mapping: u = 0.5 + atan2(z, x) / (2π), v = 0.5 - asin(y) / π
-    vec2 uv_env;
-    uv_env.x = 0.5 + atan(R.z, R.x) / (2.0 * 3.14159265);
-    uv_env.y = 0.5 - asin(R.y)      /        3.14159265;
-
-    // base color
-    vec4 baseColor = texture(tx_color, vec2(0.0)); // assuming no UVs, fallback
-
-    // roughness & metal
-    float roughness = texture(tx_rough, vec2(0.5)).r;
-    float metallic  = texture(tx_metal, vec2(0.0)).r;
-
-    // normal
-    vec3 normal = normalize(texture(tx_normal, vec2(0.0)).rgb * 2.0 - 1.0);
-
-    // emission
-    vec4 emission = texture(tx_emission, vec2(0.0));
-
-    // environment reflection based on normal
-    vec3 envColor = textureLod(tx_environment, uv_env, roughness * 7.0).rgb;
-
-    // ambient occlusion
-    float ao = texture(tx_ao, vec2(0.0)).r;
-
-    // final color
-    vec3 diffuse  = baseColor.rgb; // * (1.0 - metallic);
-    vec3 specular = mix(vec3(0.04), baseColor.rgb, metallic);
-    vec3 color    = (diffuse + specular * envColor) * ao;
-
-    // add emission
-    color += emission.rgb * emission.a;
-
-    fragColor = vec4(envColor, baseColor.a);
-}*/

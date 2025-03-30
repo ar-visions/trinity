@@ -4,6 +4,7 @@
 #include <gltf>
 #include <sys/stat.h>
 #include <math.h>
+#include <opencv.h>
 
 const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
@@ -43,92 +44,7 @@ VkDeviceMemory device_memory(trinity t, VkBuffer b) {
 }
 
 void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int);
-
-void create_resolve(window w, VkImageViewCreateInfo* image_view_info) {
-    trinity t = w->t;
-    /// create resolve (for msaa)
-    VkImageCreateInfo resolve_info = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format = w->surface_format.format,
-        .extent = { w->width, w->height, 1 },
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-    };
-
-    VkImage resolve_image;
-    VkDeviceMemory resolve_memory;
-    vkCreateImage(t->device, &resolve_info, null, &resolve_image);
-    VkMemoryRequirements resolve_reqs;
-    vkGetImageMemoryRequirements(t->device, resolve_image, &resolve_reqs);
-    VkMemoryAllocateInfo resolve_alloc = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = resolve_reqs.size,
-        .memoryTypeIndex = find_memory_type(t, resolve_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-    };
-    vkAllocateMemory(t->device, &resolve_alloc, null, &resolve_memory);
-    vkBindImageMemory(t->device, resolve_image, resolve_memory, 0);
-
-    // Create resolve image view
-    image_view_info->image = resolve_image;
-    VkImageView resolve_view;
-    vkCreateImageView(t->device, image_view_info, null, &resolve_view);
-
-    w->resolve_image = resolve_image;
-    w->resolve_view  = resolve_view;
-    w->resolve_memory = resolve_memory;
-
-    transition_image_layout(t, w->resolve_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
-}
-
-void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
-    trinity t = w->t;
-    /// create color image (for msaa)
-    VkImageCreateInfo color_image_info = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format = w->surface_format.format,
-        .extent = { w->width, w->height, 1 },
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = t->msaa_samples,
-        .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-    };
-
-    VkImage color_image;
-    VkDeviceMemory color_memory;
-    vkCreateImage(t->device, &color_image_info, null, &color_image);
-    VkMemoryRequirements color_reqs;
-    vkGetImageMemoryRequirements(t->device, color_image, &color_reqs);
-    VkMemoryAllocateInfo color_alloc = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = color_reqs.size,
-        .memoryTypeIndex = find_memory_type(t, color_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-    };
-    vkAllocateMemory(t->device, &color_alloc, null, &color_memory);
-    vkBindImageMemory(t->device, color_image, color_memory, 0);
-
-    // Create color image view
-    image_view_info->image = color_image;
-    VkImageView color_view;
-    vkCreateImageView(t->device, image_view_info, null, &color_view);
-
-    w->color_image = color_image;
-    w->color_view = color_view;
-    w->color_memory = color_memory;
-
-    transition_image_layout(t, w->color_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
-}
+void buffer_get_image_bits(buffer b, VkImage image, uint32_t width, uint32_t height);
 
 void transition_image_layout(
     trinity t,
@@ -140,21 +56,8 @@ void transition_image_layout(
     int base_array_layer,
     int layer_count
 ) {
-    VkCommandBufferAllocateInfo allocInfo = {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandPool        = t->command_pool,
-        .commandBufferCount = 1
-    };
-
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(t->device, &allocInfo, &commandBuffer);
-
-    VkCommandBufferBeginInfo beginInfo = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-    };
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    command cmd = command(t, t);
+    begin(cmd);
 
     VkImageMemoryBarrier barrier = {
         .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -180,9 +83,19 @@ void transition_image_layout(
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
@@ -200,24 +113,49 @@ void transition_image_layout(
         barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR      && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR && newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        srcStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dstStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        
     } else {
         fault("unsupported layout transition");
     }
 
     vkCmdPipelineBarrier(
-        commandBuffer,
+        cmd->vk,
         srcStage, dstStage,
         0, 0, null, 0, null, 1, &barrier
     );
 
-    vkEndCommandBuffer(commandBuffer);
-    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
-        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers    = &commandBuffer
-    }, VK_NULL_HANDLE);
-    vkQueueWaitIdle(t->queue);
-    vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
+    submit(cmd);
+    drop(cmd);
 }
 
 void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
@@ -272,16 +210,91 @@ VkInstance vk_create() {
     return instance;
 }
 
-
-
-
-
-
-
 static void handle_glfw_key(
     GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
     }
+}
+
+void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
+    trinity t = w->t;
+    /// create color image (for msaa)
+    VkImageCreateInfo color_image_info = {
+        .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType      = VK_IMAGE_TYPE_2D,
+        .format         = w->surface_format.format,
+        .extent         = { w->width, w->height, 1 },
+        .mipLevels      = 1,
+        .arrayLayers    = 1,
+        .samples        = t->msaa_samples,
+        .tiling         = VK_IMAGE_TILING_OPTIMAL,
+        .usage          = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | 
+            (w->backbuffer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT),
+        .sharingMode    = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    VkImage color_image;
+    VkDeviceMemory color_memory;
+    vkCreateImage(t->device, &color_image_info, null, &color_image);
+    VkMemoryRequirements color_reqs;
+    vkGetImageMemoryRequirements(t->device, color_image, &color_reqs);
+    VkMemoryAllocateInfo color_alloc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = color_reqs.size,
+        .memoryTypeIndex = find_memory_type(t, color_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vkAllocateMemory(t->device, &color_alloc, null, &color_memory);
+    vkBindImageMemory(t->device, color_image, color_memory, 0);
+
+    // Create color image view
+    image_view_info->image = color_image;
+    VkImageView color_view;
+    vkCreateImageView(t->device, image_view_info, null, &color_view);
+
+    w->color_image = color_image;
+    w->color_view = color_view;
+    w->color_memory = color_memory;
+
+    transition_image_layout(t, w->color_image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+}
+
+
+void create_resolve_image(window w, VkImageViewCreateInfo* image_view_info) {
+    trinity t = w->t;
+    /// create resolve (for msaa)
+    VkImageCreateInfo resolve_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = w->surface_format.format,
+        .extent = { w->width, w->height, 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    vkCreateImage(t->device, &resolve_info, null, &w->resolve_image);
+    VkMemoryRequirements resolve_reqs;
+    vkGetImageMemoryRequirements(t->device, w->resolve_image, &resolve_reqs);
+    VkMemoryAllocateInfo resolve_alloc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = resolve_reqs.size,
+        .memoryTypeIndex = find_memory_type(t, resolve_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+    vkAllocateMemory(t->device, &resolve_alloc, null, &w->resolve_memory);
+    vkBindImageMemory(t->device, w->resolve_image, w->resolve_memory, 0);
+
+    // Create resolve image view
+    image_view_info->image = w->resolve_image;
+    vkCreateImageView(t->device, image_view_info, null, &w->resolve_view);
+
+    transition_image_layout(t, w->resolve_image,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
 }
 
 void window_resize(window w, i32 width, i32 height) {
@@ -310,76 +323,87 @@ void window_resize(window w, i32 width, i32 height) {
         vkFreeMemory(t->device, w->color_memory, null);
     }
 
-    VkSurfaceCapabilitiesKHR capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &capabilities);
+    if (!w->backbuffer) {
+        VkSurfaceCapabilitiesKHR capabilities;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &capabilities);
 
-    // Update window dimensions to match Vulkan requirements
-    if (capabilities.currentExtent.width != UINT32_MAX) {
-        // Vulkan specifies an exact extent
-        w->width = capabilities.currentExtent.width;
-        w->height = capabilities.currentExtent.height;
-    } else {
-        // Vulkan allows flexible extent; clamp to allowed range
-        w->width = clamp(w->width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-        w->height = clamp(w->height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+        // Update window dimensions to match Vulkan requirements
+        if (capabilities.currentExtent.width != UINT32_MAX) {
+            // Vulkan specifies an exact extent
+            w->width = capabilities.currentExtent.width;
+            w->height = capabilities.currentExtent.height;
+        } else {
+            // Vulkan allows flexible extent; clamp to allowed range
+            w->width = clamp(w->width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+            w->height = clamp(w->height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+        }
     }
 
-    // Recreate the swapchain with new dimensions
-    VkSwapchainCreateInfoKHR swapchain_info = {
-        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-        .surface = w->surface,
-        .minImageCount = w->surface_caps.minImageCount,
-        .imageFormat = w->surface_format.format,
-        .imageColorSpace = w->surface_format.colorSpace,
-        .imageExtent = {
-            .width = (uint32_t)w->width,
-            .height = (uint32_t)w->height,
-        },
-        .imageArrayLayers = 1,
-        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .preTransform = w->surface_caps.currentTransform,
-        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = w->present_mode,
-        .clipped = VK_TRUE,
-        .oldSwapchain = w->swapchain != VK_NULL_HANDLE ? w->swapchain : VK_NULL_HANDLE,
-    };
-
-    VkSwapchainKHR old_swapchain = w->swapchain;
-    VkResult result = vkCreateSwapchainKHR(t->device, &swapchain_info, null, &w->swapchain);
-    verify(result == VK_SUCCESS, "Failed to create swapchain");
-    
-    if (old_swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(t->device, old_swapchain, null);
+    VkResult result;
+    if (!w->backbuffer) {
+        // Recreate the swapchain with new dimensions
+        VkSwapchainCreateInfoKHR swapchain_info = {
+            .sType              = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+            .surface            = w->surface,
+            .minImageCount      = w->surface_caps.minImageCount,
+            .imageFormat        = w->surface_format.format,
+            .imageColorSpace    = w->surface_format.colorSpace,
+            .imageExtent        = {
+                .width          = (uint32_t)w->width,
+                .height         = (uint32_t)w->height,
+            },
+            .imageArrayLayers   = 1,
+            .imageUsage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            .imageSharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+            .preTransform       = w->surface_caps.currentTransform,
+            .compositeAlpha     = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+            .presentMode        = w->present_mode,
+            .clipped            = VK_TRUE,
+            .oldSwapchain       = w->swapchain != VK_NULL_HANDLE ? w->swapchain : VK_NULL_HANDLE,
+        };
+        VkSwapchainKHR old_swapchain = w->swapchain;
+        result = vkCreateSwapchainKHR(t->device, &swapchain_info, null, &w->swapchain);
+        verify(result == VK_SUCCESS, "Failed to create swapchain");
+        if (old_swapchain != VK_NULL_HANDLE)
+            vkDestroySwapchainKHR(t->device, old_swapchain, null);
     }
 
     if (w->command_buffers) {
         for (int i = 0; i < w->image_count; i++) {
-            vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
-            vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
+            if (w->image_available_semaphore) {
+                vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
+                vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
+            }
             vkDestroyFence(t->device, w->command_fences[i], null);
         }
 
         vkFreeCommandBuffers(t->device, t->command_pool, w->image_count, w->command_buffers);
         free(w->command_buffers);
         free(w->command_fences);
-        free(w->image_available_semaphore);
-        free(w->render_finished_semaphore);
+        if (w->image_available_semaphore) {
+            free(w->image_available_semaphore);
+            free(w->render_finished_semaphore);
+        }
     }
     
     // Query new swapchain image count
-    vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, null);
+    if (!w->backbuffer)
+        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, null);
+    else
+        w->image_count = 1;
 
     /// create synchronization semaphores (decoupled from swap-chain)
-    w->image_available_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
-    w->render_finished_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
-    w->command_buffers           = calloc(w->image_count, sizeof(VkCommandBuffer));
-    w->command_fences            = calloc(w->image_count, sizeof(VkFence));
+    if (!w->backbuffer) {
+        w->image_available_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
+        w->render_finished_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
+    }
+    w->command_buffers = calloc(w->image_count, sizeof(VkCommandBuffer));
+    w->command_fences  = calloc(w->image_count, sizeof(VkFence));
 
     VkCommandBufferAllocateInfo alloc_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = t->command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = t->command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = w->image_count,
     };
 
@@ -411,32 +435,39 @@ void window_resize(window w, i32 width, i32 height) {
     };
     
     // Create the multisampled color image (this will be attachment [0])
-    create_color_image(w, &image_view_info);
-    
+    create_color_image  (w, &image_view_info);
+    create_resolve_image(w, &image_view_info);
+
     // Get the swapchain images
-    vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, swapchain_images);
+    if (!w->backbuffer)
+        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, swapchain_images);
 
     // Allocate new framebuffers
     w->framebuffers = malloc(w->image_count * sizeof(VkFramebuffer));
     for (uint32_t i = 0; i < w->image_count; ++i) {
         VkResult result;
-        VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-        result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->image_available_semaphore[i]);
-        verify(result == VK_SUCCESS, "failed to create image available semaphore");
-        result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->render_finished_semaphore[i]);
-        verify(result == VK_SUCCESS, "failed to create render finished semaphore");
+
+        if (!w->backbuffer) {
+            VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+            result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->image_available_semaphore[i]);
+            verify(result == VK_SUCCESS, "failed to create image available semaphore");
+            result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->render_finished_semaphore[i]);
+            verify(result == VK_SUCCESS, "failed to create render finished semaphore");
+        }
 
         result = vkCreateFence(t->device, &(VkFenceCreateInfo) {
                 .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
                 .flags = VK_FENCE_CREATE_SIGNALED_BIT, // Initially signaled to allow the first use
             }, null, &w->command_fences[i]);
         verify(result == VK_SUCCESS, "failed to create fence");
+        VkImageView swapchain_view = VK_NULL_HANDLE;
 
-        // Create swapchain image view (this will be attachment [2] - the resolve target)
-        image_view_info.image = swapchain_images[i];
-        VkImageView swapchain_view;
-        result = vkCreateImageView(t->device, &image_view_info, null, &swapchain_view);
-        verify(result == VK_SUCCESS, "Failed to create swapchain image view");
+        if (!w->backbuffer) {
+            // Create swapchain image view (this will be attachment [3])
+            image_view_info.image = swapchain_images[i];
+            result = vkCreateImageView(t->device, &image_view_info, null, &swapchain_view);
+            verify(result == VK_SUCCESS, "Failed to create swapchain image view");
+        }
 
         // Create depth image (this will be attachment [1])
         VkImageCreateInfo depth_image_info = {
@@ -501,7 +532,7 @@ void window_resize(window w, i32 width, i32 height) {
         VkImageView attachments[3] = {
             w->color_view,  // [0] - Multisampled color attachment
             depth_view,     // [1] - Depth attachment
-            swapchain_view  // [2] - Resolve target (swapchain image)
+            !w->backbuffer ? swapchain_view : w->resolve_view  // [2] - Resolve target (swapchain image; if its set)
         };
 
         // Create framebuffer
@@ -539,8 +570,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     AType      itype        = Accessor_member_type(ai);
     BufferView iview        = get(mdl->bufferViews, ai->bufferView);
     Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
-    verify(mat_id >= 0 && mat_id < len(mdl->materials), "Invalid material index");
-    Material   material     = get(mdl->materials, mat_id);
+    Material   material     = mdl->materials ? get(mdl->materials, mat_id) : null;
     int        index        = 0;
     int        vertex_size  = 0;
     int        vertex_count = 0;
@@ -611,25 +641,29 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
     memcpy(idata, i_src, iview->byteLength);
 
+    if (cmp(n->name, "Cube") == 0) {
+        struct test_vertex {
+            vec3f pos;
+            vec2f uv;
+        };
+
+        struct test_vertex verts[14];
+        i16 index[36];
+        verify(index_size == 2, "invalid index");
+        memcpy(verts, vdata, sizeof(struct test_vertex) * vertex_count);
+        memcpy(index, idata, sizeof(i16) * index_count);
+        int test2 = 2;
+        test2 += 2;
+    }
+
     /// Construct pipeline, give uniforms in an order of usage; help user out with world ordering
-    World world = null;
-    each(m->uniforms, object, u) {
-        if (isa(u) == typeid(World)) {
-            world = u;
-            break;
-        }
-    }
-    bool add_world = false;
-    if (!world) {
-        world = World();
-        add_world = true;
-    }
-    m->world = world;
-    array uniforms = array_of(world, null);
-    each(m->uniforms, object, u) {
-        if (u != (object)world)
-            push(uniforms, u);
-    }
+    each(m->uniforms, object, u)
+        if (isa(u) == typeid(World))
+            m->world = u;
+
+    array uniforms = array();
+    each(m->uniforms, object, u)
+        push(uniforms, u);
     
     mat4f model = mat4f_ident();
     model = mat4f_translate(&model, &n->translation);
@@ -662,7 +696,6 @@ void model_init(model m) {
             each (n->parts, part, p)
                 model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->shader);
     } else {
-        // .. how do we iterate through all Primitives in glTF?
         each(mdl->nodes, Node, n) {
             bool has_mesh = n->mesh > 0;
             if (!has_mesh)
@@ -687,13 +720,302 @@ void World_init(World w) {
     mat4f_set_identity(&w->view);
 }
 
+void Env_init(Env e) {
+    mat4f_set_identity(&e->proj);
+    mat4f_set_identity(&e->view);
+}
 
 void model_dealloc(model m) {
     /// pipelines should free automatically
 }
 
+image window_cast_image(window w) {
+    trinity t = w->t;
+    int     color_size = w->format == Pixel_rgbaf32 ? 16 : 4;
+    int     image_size = w->width * w->height * color_size;
+    buffer  b = buffer(t, t, size, image_size,
+        u_dst, true, m_host_visible, true, m_host_coherent, true);
+    transfer(b, w);
+    void* data = mmap(b);
+    image result = image(
+        width,      w->width,
+        height,     w->height,
+        format,     w->format,
+        surface,    Surface_color);
+    memcpy(data(result), data, image_size);
+    unmap(b);
+    return result;
+}
 
-none gpu_sync(gpu a) {
+none command_init(command a) {
+    trinity t = a->t;
+    VkCommandBufferAllocateInfo alloc_info = {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = t->command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+    vkAllocateCommandBuffers(t->device, &alloc_info, &a->vk);
+}
+
+none command_begin(command a) {
+    trinity t = a->t;
+    vkBeginCommandBuffer(a->vk, &(VkCommandBufferBeginInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    });
+}
+
+none command_submit(command a) {
+    trinity t = a->t;
+    vkEndCommandBuffer(a->vk);
+    VkSubmitInfo submit = {
+        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers    = &a->vk
+    };
+    vkQueueSubmit(t->queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(t->queue);
+}
+
+none command_dealloc(command a) {
+    trinity t = a->t;
+    vkFreeCommandBuffers(t->device, t->command_pool, 1, &a->vk);
+}
+
+none create_mipmaps(trinity t, VkImage vk_image, int w, int h, int mips, int layers) {
+    if (mips > 1) {
+        int mipWidth  = w;
+        int mipHeight = h;
+
+        // transition mip level 0 to src optimal (needed for first blit)
+        for (int f = 0; f < layers; f++)
+            transition_image_layout(t, vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, f, 1);
+
+        for (uint32_t i = 1; i < mips; i++) {
+            for (int f = 0; f < layers; f++) {
+                transition_image_layout(t, vk_image,
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i, 1, f, 1);
+                
+                command cmd = command(t, t);
+                begin(cmd);
+                vkCmdBlitImage(cmd->vk,
+                    vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &(VkImageBlit){
+                        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, f, 1 },
+                        .srcOffsets     = { {0, 0, 0}, {mipWidth, mipHeight, 1} },
+                        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i, f, 1 },
+                        .dstOffsets     = { {0, 0, 0}, {max(1, mipWidth / 2), max(1, mipHeight / 2), 1} }
+                    },
+                    VK_FILTER_LINEAR);
+                submit(cmd);
+                drop(cmd);
+                transition_image_layout(t, vk_image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i, 1, f, 1);
+            }
+
+            mipWidth  = max(1, mipWidth / 2);
+            mipHeight = max(1, mipHeight / 2);
+        }
+        for (int f = 0; f < layers; f++)
+            transition_image_layout(t, vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, mips, f, 1);
+    } else {
+        transition_image_layout(t, vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+    }
+}
+
+texture trinity_environment(trinity t, image img) {
+    if (img->user) return (texture)img->user;
+
+    int    size    = 256;
+    const int mip_levels = 8;
+    const int cube_count = mip_levels;
+    window w       = window(t, t, format, Pixel_rgbaf32, backbuffer, true, width, size, height, size);
+    image  clone   = image(
+        source, data(img), width, img->width, height, img->height,
+        format, Pixel_rgbaf32, surface, Surface_color);
+
+    path   gltf    = path   ("models/env.gltf" );
+    Model  data    = read   (gltf, typeid(Model) );
+    shader eshader = shader (t, t, name, string("env"));
+    Env    e       = Env();
+    array uniforms = a(e, null);
+    array samplers = a(clone, null);
+    model  env     = model  (t, t, w, w, id, data, shader, eshader,
+        samplers, samplers, uniforms, uniforms);
+    array  models  = a(env, null);
+
+    e->proj = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
+
+    vec3f dirs[6] = {
+        { 1,  0,  0 }, {-1,  0,  0 },
+        { 0,  1,  0 }, { 0, -1,  0 },
+        { 0,  0,  1 }, { 0,  0, -1 }};
+
+    vec3f ups [6] = {
+        { 0, -1,  0 }, { 0, -1,  0 },
+        { 0,  0,  1 }, { 0,  0, -1 },
+        { 0, -1,  0 }, { 0, -1,  0 }};
+    vec3f eye = { 0, 0, 0 };
+
+    
+    VkImage vk_image[2]; /// cubes array that we return is of the number of mip levels;
+    VkDeviceMemory vk_memory[2];
+
+    VkImageCreateInfo image_info = {
+        .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType      = VK_IMAGE_TYPE_2D,
+        .format         = w->surface_format.format, // VK_FORMAT_R32G32B32A32_SFLOAT
+        .extent         = { w->width, w->height, 1 },
+        .mipLevels      = mip_levels, // usually log2(size) + 1
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .tiling         = VK_IMAGE_TILING_OPTIMAL,
+        .usage          = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        .flags          = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
+    };
+    
+    for (int i = 0; i < 2; i++) {
+        image_info.arrayLayers = i == 0 ? 6 : 6 * cube_count;
+        vkCreateImage(t->device, &image_info, NULL, &vk_image[i]);
+        VkMemoryRequirements memReqs;
+        vkGetImageMemoryRequirements(t->device, vk_image[i], &memReqs);
+        verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memReqs.size,
+            .memoryTypeIndex = find_memory_type(t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        }, null, &vk_memory[i]) == VK_SUCCESS, 
+            "Failed to allocate memory for image");
+        vkBindImageMemory(t->device, vk_image[i], vk_memory[i], 0);
+    }
+
+    command cmd = command(t, t);
+    for (int f = 0; f < 6; f++) { 
+        e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
+        process(w, models, null, null);
+        transition_image_layout(t, w->resolve_image,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+        transition_image_layout(t, vk_image[0],
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, 1, f, 1);
+
+        VkImageCopy region = {
+            .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+            .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1 },
+            .extent         = { size, size, 1 }
+        };
+
+        begin(cmd);
+        vkCmdCopyImage(cmd->vk,
+            w->resolve_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            vk_image[0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &region);
+        submit(cmd);
+    }
+
+    create_mipmaps(t, vk_image[0], size, size, mip_levels, 6);
+
+    texture cube = texture(
+        t, t, vk_image, vk_image[0], surface, Surface_environment, vk_format, w->surface_format.format, mip_levels, mip_levels, layer_count, 6);
+
+    /// convolve environment to create a multi-sampled cube
+    shader conv_shader   = shader (t, t, name, string("convolve"));
+    array  conv_samplers = a(cube, null); // must allow textures to register with gpu
+    model  conv          = model  (t, t, w, w, id, data, shader, conv_shader, samplers, conv_samplers, uniforms, uniforms);
+    array  conv_models   = a(conv, null);
+
+    for (int a = 0; a < cube_count; a++) {
+        float roughness = (float)a / (float)(mip_levels - 1);
+        e->roughness_samples = vec2f(roughness * roughness, 1024.0f);
+        
+        for (int f = 0; f < 6; f++) {
+            int face_id = a * 6 + f;
+            e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
+
+            process(w, conv_models, null, null);
+            //image img = cast(image, w);
+            //transition_image_layout(t, w->resolve_image,
+            //    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+            transition_image_layout(t, vk_image[1],
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                0, 1, face_id, 1);
+
+            VkImageCopy region = {
+                .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+                .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, face_id, 1 },
+                .extent         = { size, size, 1 }
+            };
+
+            begin(cmd);
+            vkCmdCopyImage(cmd->vk,
+                w->resolve_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                vk_image[1], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &region);
+            submit(cmd);
+            for (uint32_t m = 1; m < mip_levels; m++) {
+                int mip_size_src = size >> (m - 1);
+                int mip_size_dst = size >> m;
+
+                transition_image_layout(t, vk_image[1],
+                    m == 1 ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m - 1, 1, face_id, 1);
+
+                transition_image_layout(t, vk_image[1],
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, m, 1, face_id, 1);
+                
+                begin(cmd);
+                vkCmdBlitImage(cmd->vk,
+                    vk_image[1], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    vk_image[1], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1,
+                    &(VkImageBlit){
+                        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, m - 1, face_id, 1 },
+                        .srcOffsets     = { {0, 0, 0}, {mip_size_src, mip_size_src, 1} },
+                        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, m, face_id, 1 },
+                        .dstOffsets     = { {0, 0, 0}, {mip_size_dst, mip_size_dst, 1} }
+                    },
+                    VK_FILTER_LINEAR);
+                submit(cmd);
+            }
+        }
+    }
+    
+    for (int face_id = 0; face_id < 6 * cube_count; face_id++) {
+        for (int m = 0; m < mip_levels; m++) {
+            transition_image_layout(t, vk_image[1],
+                (m == mip_levels - 1) ?
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : 
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                m, 1, face_id, 1);
+        }
+    }
+
+    transition_image_layout(t, w->resolve_image,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+        
+    texture convolve = texture(
+        t, t,           vk_image, vk_image[1],
+        surface,        Surface_environment,
+        vk_format,      w->surface_format.format,
+        mip_levels,     mip_levels,
+        layer_count,    6 * cube_count);
+
+    drop(cmd);
+    drop(w);
+    drop(cube);
+    drop(clone);
+    img->user = convolve;
+    return img->user;
+}
+
+none gpu_sync(gpu a, window w) {
     trinity t = a->t;
 
     /// uniforms update continuously
@@ -722,8 +1044,18 @@ none gpu_sync(gpu a) {
                 m_host_visible, true, m_host_coherent, true, data, a->index_data);
     }
 
-    if (a->sampler && !a->texture)
-        a->texture = texture(t, t, sampler, a->sampler);
+    if (a->sampler && !a->texture) {
+        image img = instanceof(a->sampler, image);
+        texture tx = instanceof(a->sampler, texture);
+        if (tx)
+            a->texture = hold(tx);
+        else if (img && img->user)
+            a->texture = hold((texture)img->user);
+        else if (img && img->surface == Surface_environment)
+            a->texture = environment(t, img);
+        else
+            a->texture = texture(t, t, sampler, a->sampler);
+    }
 }
 
 none gpu_init(gpu a) {
@@ -738,365 +1070,200 @@ none gpu_dealloc(gpu a) {
 define_class(gpu);
 
 
-void sample_equirect_rgbaf(rgbaf* image, int width, int height, float u, float v, rgbaf* color) {
-    int x = (int)(u * width) % width;
-    int y = (int)(v * height) % height;
-    *color = image[(y * width + x)];
+VkFormat vk_format(Pixel f) {
+    VkFormat vk_format =
+        f == Pixel_f32     ? VK_FORMAT_R32_SFLOAT : 
+        f == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+        f == Pixel_rgbf32  ? VK_FORMAT_R32G32B32_SFLOAT : 
+        f == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_SRGB : 
+        f == Pixel_rgb8    ? VK_FORMAT_R8G8B8_SRGB : 
+        f == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
+    verify(vk_format, "incompatible image format: %o", e_str(Pixel, f));
+    return vk_format;
 }
 
-void sample_equirect_rgba8(rgba8* image, int width, int height, float u, float v, rgba8* color) {
-    int x = (int)(u * width) % width;
-    int y = (int)(v * height) % height;
-    *color = image[(y * width + x)];
-}
+none placeholder_image(object sampler, int size, u8* fill, int* sampler_size, Pixel* format) {
+    vector_i8    v_i8       = instanceof(sampler, vector_i8);     // grayscale i8
+    vector_f32   v_f32      = instanceof(sampler, vector_f32);    // grayscale f32
+    vector_rgb8  v_rgb8     = instanceof(sampler, vector_rgb8);   // rgb bytes
+    vector_rgbf  v_rgbf     = instanceof(sampler, vector_rgbf);   // rgb floats
+    vector_rgba8 v_rgba8    = instanceof(sampler, vector_rgba8);  // rgba bytes
+    vector_rgbaf v_rgbaf    = instanceof(sampler, vector_rgbaf);  // rgba floats
+    i8*          data_i8    = v_i8    ? data(v_i8)    : null;
+    f32*         data_f32   = v_f32   ? data(v_f32)   : null;
+    rgb8*        data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
+    rgbf*        data_rgbf  = v_rgbf  ? data(v_rgbf)  : null;
+    rgba8*       data_rgba8 = v_rgba8 ? data(v_rgba8) : null;
+    rgbaf*       data_rgbaf = v_rgbaf ? data(v_rgbaf) : null;
 
-void f_basis(int face, float* origin, float* right, float* up) {
-    switch (face) {
-        case 0: // +X
-            origin[0] = 1,  origin[1] = -1, origin[2] = -1;
-            right[0] = 0,  right[1] = 0,  right[2] = 2;
-            up[0] = 0,     up[1] = 2,     up[2] = 0;
-            break;
-        case 1: // -X
-            origin[0] = -1, origin[1] = -1, origin[2] = 1;
-            right[0] = 0,   right[1] = 0,   right[2] = -2;
-            up[0] = 0,      up[1] = 2,      up[2] = 0;
-            break;
-        case 2: // +Y
-            origin[0] = -1, origin[1] = 1, origin[2] = -1;
-            right[0] = 2,   right[1] = 0,  right[2] = 0;
-            up[0] = 0,      up[1] = 0,     up[2] = 2;
-            break;
-        case 3: // -Y
-            origin[0] = -1, origin[1] = -1, origin[2] = 1;
-            right[0] = 2,   right[1] = 0,   right[2] = 0;
-            up[0] = 0,      up[1] = 0,     up[2] = -2;
-            break;
-        case 4: // +Z
-            origin[0] = -1, origin[1] = -1, origin[2] = -1;
-            right[0] = 2,   right[1] = 0,   right[2] = 0;
-            up[0] = 0,      up[1] = 2,      up[2] = 0;
-            break;
-        case 5: // -Z
-            origin[0] = 1,  origin[1] = -1, origin[2] = 1;
-            right[0] = -2,  right[1] = 0,   right[2] = 0;
-            up[0] = 0,      up[1] = 2,      up[2] = 0;
-            break;
-    }
-}
-
-void convert_equirect_to_cubemap(image img, int size, object* output, int* sampler_size) {
-    if (img->format == Pixel_rgbaf32)
-        *sampler_size = size * size * 6 * sizeof(rgbaf);
-    else
-        *sampler_size = size * size * 6 * sizeof(rgba8);
-
-    object idata = data(img);
-    int width = img->width, height = img->height;
-
-    for (int face = 0; face < 6; ++face) {
-        float origin[3], right[3], up[3];
-        f_basis(face, origin, right, up);
-
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                float fx = (x + 0.5f) / size;
-                float fy = (y + 0.5f) / size;
-
-                float dir[3] = {
-                    origin[0] + fx * right[0] + fy * up[0],
-                    origin[1] + fx * right[1] + fy * up[1],
-                    origin[2] + fx * right[2] + fy * up[2],
-                };
-
-                float len = sqrtf(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
-                dir[0] /= len; dir[1] /= len; dir[2] /= len;
-
-                float theta = atan2f(dir[0], -dir[2]); // azimuth
-                float phi = acosf(dir[1]);            // elevation
-
-                float u = (theta + M_PI) / (2.0f * M_PI);
-                float v = phi / M_PI;
-
-                int index = face * size * size + y * size + x;
-
-                if (img->format == Pixel_rgbaf32) {
-                    rgbaf* out = &((rgbaf*)output)[index];
-                    sample_equirect_rgbaf((rgbaf*)idata, width, height, u, v, out);
-                } else {
-                    rgba8* out = &((rgba8*)output)[index];
-                    sample_equirect_rgba8((rgba8*)idata, width, height, u, v, out);
-                }
-            }
-        }
+    /// placeholder samplers, (4x4 is minimum we may create)
+    int s = size * size;
+    if (data_f32) {
+        f32  *f32_fill = (f32*) fill;
+        for (int i = 0; i < s; i++)
+            f32_fill[i] = *data_f32;
+        *format = Pixel_f32;
+        *sampler_size = s * sizeof(f32);
+    } else if (data_i8) {
+        u8  *u8_fill = (u8*) fill;
+        for (int i = 0; i < s; i++)
+            u8_fill[i] = *data_i8;
+        *format = Pixel_u8;
+        *sampler_size = s * sizeof(u8);
+    } else if (data_rgbf) {
+        rgbf* v3_fill  = (rgbf*)fill;
+        for (int i = 0; i < s; i++) v3_fill[i] = *data_rgbf;
+        *format = Pixel_rgbf32;
+        *sampler_size = s * sizeof(rgbf);
+    } else if (data_rgb8) {
+        rgb8* v3_fill  = (rgb8*)fill;
+        for (int i = 0; i < s; i++) v3_fill[i] = *data_rgb8;
+        *format = Pixel_rgb8;
+        *sampler_size = s * sizeof(rgb8);
+    } else if (data_rgbaf) {
+        rgbaf* v4_fill  = (rgbaf*)fill;
+        for (int i = 0; i < s; i++) v4_fill[i] = *data_rgbaf;
+        *format = Pixel_rgbaf32;
+        *sampler_size = s * sizeof(rgbaf);
+    } else if (data_rgba8) {
+        rgba8* v4_fill  = (rgba8*)fill;
+        for (int i = 0; i < s; i++) v4_fill[i] = *data_rgba8;
+        *format = Pixel_rgba8;
+        *sampler_size = s * sizeof(rgba8);
+    } else {
+        fault("sampler data required");
     }
 }
 
 none texture_init(texture a) {
-    /// check isa(a->sampler) against image, vec3f, vec4f, f32
-    trinity t = a->t;
-    image img = instanceof(a->sampler, image);
-    int   lod = 0;
-    Pixel format = Pixel_none;
-    i32 sampler_size = 0;
-    u8 fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
+    trinity t        = a->t;
+    image   img      = instanceof(a->sampler, image);
+    int     ansio    = 4;
+    i32     sampler_size = 0;
+    u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
     
-    if (img) {
-        format = img->format;
-        sampler_size = byte_count(img);
-        lod = 8;
-        a->width  = img->width;
-        a->height = img->height;
+    a->mip_levels  = a->mip_levels  ? a->mip_levels  : 1;
+    a->layer_count = a->layer_count ? a->layer_count : 1;
+
+    if (a->vk_image) {
+        if (!a->vk_format)
+            a->vk_format = vk_format(a->format);
+        verify(a->vk_format, "expected format");
+
     } else {
-        a->width  = 4;
-        a->height = 4;
-        /// lets create a 4x4 based on a broadcast of data given
-        vector_i8    v_i8    = instanceof(a->sampler, vector_i8);     // grayscale i8
-        vector_f32   v_f32   = instanceof(a->sampler, vector_f32);    // grayscale f32
-        vector_rgb8  v_rgb8  = instanceof(a->sampler, vector_rgb8);   // rgb bytes
-        vector_rgbf  v_rgbf  = instanceof(a->sampler, vector_rgbf);   // rgb floats
-        vector_rgba8 v_rgba8 = instanceof(a->sampler, vector_rgba8);  // rgba bytes
-        vector_rgbaf v_rgbaf = instanceof(a->sampler, vector_rgbaf);  // rgba floats
 
-        i8*    data_i8    = v_i8    ? data(v_i8)    : null;
-        f32*   data_f32   = v_f32   ? data(v_f32)   : null;
-        rgb8*  data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
-        rgbf*  data_rgbf  = v_rgbf  ? data(v_rgbf)  : null;
-        rgba8* data_rgba8 = v_rgba8 ? data(v_rgba8) : null;
-        rgbaf* data_rgbaf = v_rgbaf ? data(v_rgbaf) : null;
-
-        /// placeholder samplers, (4x4 is minimum we may create)
-        if (data_f32) {
-            f32  *f32_fill = (f32*) fill;
-            for (int i = 0; i < 4 * 4; i++)
-                f32_fill[i] = *data_f32;
-            format = Pixel_f32;
-            sampler_size = 4 * 4 * sizeof(f32);
-        } else if (data_i8) {
-            u8  *u8_fill = (u8*) fill;
-            for (int i = 0; i < 4*4; i++)
-                u8_fill[i] = *data_i8;
-            format = Pixel_u8;
-            sampler_size = 4 * 4 * sizeof(u8);
-        } else if (data_rgbf) {
-            rgbf* v3_fill  = (rgbf*)fill;
-            for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgbf;
-            format = Pixel_rgbf32;
-            sampler_size = 4 * 4 * sizeof(rgbf);
-        } else if (data_rgb8) {
-            rgb8* v3_fill  = (rgb8*)fill;
-            for (int i = 0; i < 4*4; i++) v3_fill[i] = *data_rgb8;
-            format = Pixel_rgb8;
-            sampler_size = 4 * 4 * sizeof(rgb8);
-        } else if (data_rgbaf) {
-            rgbaf* v4_fill  = (rgbaf*)fill;
-            for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgbaf;
-            format = Pixel_rgbaf32;
-            sampler_size = 4 * 4 * sizeof(rgbaf);
-        } else if (data_rgba8) {
-            rgba8* v4_fill  = (rgba8*)fill;
-            for (int i = 0; i < 4*4; i++) v4_fill[i] = *data_rgba8;
-            format = Pixel_rgba8;
-            sampler_size = 4 * 4 * sizeof(rgba8);
+        if (img) {
+            a->format    = img->format;
+            sampler_size = byte_count(img);
+            ansio        = 4;
+            a->mip_levels = 8;
+            a->width     = img->width;
+            a->height    = img->height;
         } else {
-            fault("sampler data required");
+            a->width     = 4;
+            a->height    = 4;
+            ansio        = 0;
+            placeholder_image(a->sampler, 4, fill, &sampler_size, &a->format);
         }
-    }
+        
+        a->vk_format = vk_format(a->format);
 
-    VkFormat vk_format =
-        format == Pixel_f32     ? VK_FORMAT_R32_SFLOAT : 
-        format == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : 
-        format == Pixel_rgbf32  ? VK_FORMAT_R32G32B32_SFLOAT : 
-        format == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_SRGB : 
-        format == Pixel_rgb8    ? VK_FORMAT_R8G8B8_SRGB : 
-        format == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
-    verify(format, "incompatible image format: %o", e_str(Pixel, format));
-    a->vk_format = vk_format;
+        float* cubemap = null;
+        verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
+            .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType      = VK_IMAGE_TYPE_2D,
+            .format         = a->vk_format,
+            .flags          = a->layer_count >= 6 ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+            .extent         = { a->width, a->height, 1 },
+            .mipLevels      = a->mip_levels,
+            .arrayLayers    = a->layer_count,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .tiling         = VK_IMAGE_TILING_OPTIMAL,
+            .usage          = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode    = VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
+        }, null, &a->vk_image) == VK_SUCCESS,
+            "Failed to create VkImage");
 
-    float* cubemap = null;\
-    if (img && img->surface == Surface_environment) {
-        int size = 512; // or any power of two you want
-        cubemap = calloc((img->format  == Pixel_rgbaf32 ? sizeof(rgbaf) : sizeof(rgba8)), 6 * size * size);        
-        convert_equirect_to_cubemap(img, size, cubemap, &sampler_size);
-        a->width  = size;
-        a->height = size;
-        for (int f = 0; f < 6; f++) {
-            image  img      = image(width, size, height, size, format, Pixel_rgba8, channels, 4);
-            rgba8* img_data = data(img);
-            for (int y = 0; y < size; y++) {
-                rgba8* scan = &img_data[y * size];
-                for (int x = 0; x < size; x++, scan++) {
-                    rgbaf* src = &((rgbaf*)cubemap)[f * size * size + (y * size + x)];
-                    scan->r = (u8)(src->r / (1.0f + src->r) * 255.0);
-                    scan->g = (u8)(src->g / (1.0f + src->g) * 255.0);
-                    scan->b = (u8)(src->b / (1.0f + src->b) * 255.0);
-                    scan->a = (u8)(src->a * 255.0);
-                }
-            }
-            png(img, form(path, "/home/kalen/image_%i.png", f));
-        }
-    }
+        // Allocate memory and bind
+        VkMemoryRequirements memReqs;
+        vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
+        verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memReqs.size,
+            .memoryTypeIndex = find_memory_type(t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        }, null, &a->vk_memory) == VK_SUCCESS, 
+            "Failed to allocate memory for image");
 
-    int layer_count = cubemap ? 6 : 1;
-
-    verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
-        .sType     = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format    = vk_format,
-        .flags     = cubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
-        .extent    = { a->width, a->height, 1 },
-        .mipLevels = max(1, lod),
-        .arrayLayers = cubemap ? 6 : 1,
-        .samples   = VK_SAMPLE_COUNT_1_BIT,
-        .tiling    = VK_IMAGE_TILING_OPTIMAL,
-        .usage     = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-    }, null, &a->vk_image) == VK_SUCCESS,
-        "Failed to create VkImage");
-
-    // Allocate memory and bind
-    VkMemoryRequirements memReqs;
-    vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
-    verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = memReqs.size,
-        .memoryTypeIndex = find_memory_type(t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-    }, null, &a->vk_memory) == VK_SUCCESS, 
-        "Failed to allocate memory for image");
-
-    vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
-    
-    for (int f = 0; f < layer_count; f++)
-        transition_image_layout(t, a->vk_image,
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 1, f, 1);
-
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandPool        = t->command_pool,
-        .commandBufferCount = 1
-    }, &commandBuffer);
-
-    vkBeginCommandBuffer(commandBuffer, &(VkCommandBufferBeginInfo) {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-    });
-
-    buffer stagingBuffer = buffer(
-        t, t, size, sampler_size, u_src, true, u_shader, true,
-        m_host_visible, true, m_host_coherent, true,
-        data, cubemap ? (object)cubemap : img ? data(img) : (object)fill);
-    
-    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer->vk_buffer, a->vk_image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy) {
-        .bufferOffset      = 0,
-        .bufferRowLength   = 0,
-        .bufferImageHeight = 0,
-        .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, layer_count },
-        .imageOffset = {0, 0, 0},
-        .imageExtent = { a->width, a->height, 1 }
-    });
-
-    vkEndCommandBuffer(commandBuffer);
-    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
-        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers    = &commandBuffer
-    }, VK_NULL_HANDLE);
-    vkQueueWaitIdle(t->queue);
-
-    if (lod > 1) {
-        int mipWidth  = a->width;
-        int mipHeight = a->height;
-
-        // transition mip level 0 to src optimal (needed for first blit)
-        for (int f = 0; f < layer_count; f++)
+        vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
+        
+        for (int f = 0; f < a->layer_count; f++)
             transition_image_layout(t, a->vk_image,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, f, 1);
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 1, f, 1);
 
-        for (uint32_t i = 1; i < lod; i++) {
-            for (int f = 0; f < layer_count; f++) {
-                transition_image_layout(t, a->vk_image,
-                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, i, 1, f, 1);
-                
-                vkBeginCommandBuffer(commandBuffer, &(VkCommandBufferBeginInfo) {
-                    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-                });
-                vkCmdBlitImage(commandBuffer,
-                    a->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    a->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    1,
-                    &(VkImageBlit){
-                        .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i - 1, f, 1 },
-                        .srcOffsets     = { {0, 0, 0}, {mipWidth, mipHeight, 1} },
-                        .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, i, f, 1 },
-                        .dstOffsets     = { {0, 0, 0}, {max(1, mipWidth / 2), max(1, mipHeight / 2), 1} }
-                    },
-                    VK_FILTER_LINEAR);
-                vkEndCommandBuffer(commandBuffer);
-                vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
-                    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                    .commandBufferCount = 1,
-                    .pCommandBuffers    = &commandBuffer
-                }, VK_NULL_HANDLE);
-                vkQueueWaitIdle(t->queue);
-                transition_image_layout(t, a->vk_image,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i, 1, f, 1);
-            }
-
-            mipWidth  = max(1, mipWidth / 2);
-            mipHeight = max(1, mipHeight / 2);
-        }
-        for (int f = 0; f < layer_count; f++)
-            transition_image_layout(t, a->vk_image,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, lod, f, 1);
-    } else {
-        transition_image_layout(t, a->vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, 0, 1);
+        command cmd = command(t, t);
+        begin(cmd);
+        buffer stagingBuffer = buffer(
+            t, t, size, sampler_size, u_src, true, u_shader, true,
+            m_host_visible, true, m_host_coherent, true,
+            data, cubemap ? (object)cubemap : img ? data(img) : (object)fill);
+        
+        vkCmdCopyBufferToImage(cmd->vk, stagingBuffer->vk_buffer, a->vk_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy) {
+            .bufferOffset      = 0,
+            .bufferRowLength   = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, a->layer_count },
+            .imageOffset = {0, 0, 0},
+            .imageExtent = { a->width, a->height, 1 }
+        });
+        submit(cmd);
+        create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
     }
 
-    VkImageViewCreateInfo viewInfo = {
-        .sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .image      = a->vk_image,
-        .viewType   = cubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D,
-        .format     = vk_format,
-        .subresourceRange = {
-            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel   = 0,
-            .levelCount     = max(1, lod),
-            .baseArrayLayer = 0,
-            .layerCount     = layer_count
-        }
-    };
-    verify(vkCreateImageView(t->device, &viewInfo, NULL, &a->vk_image_view) == VK_SUCCESS, 
-        "Failed to create VkImageView");
+    if (!a->vk_image_view) {
+        VkImageViewCreateInfo viewInfo = {
+            .sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image      = a->vk_image,
+            .viewType   = (a->layer_count >  6) ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : 
+                          (a->layer_count == 6) ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D,
+            .format     = a->vk_format,
+            .subresourceRange = {
+                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel   = 0,
+                .levelCount     = a->mip_levels,
+                .baseArrayLayer = 0,
+                .layerCount     = a->layer_count
+            }
+        };
+        verify(vkCreateImageView(t->device, &viewInfo, NULL, &a->vk_image_view) == VK_SUCCESS, 
+            "Failed to create VkImageView");
+    }
 
-    VkSamplerAddressMode address_mode = cubemap ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    VkSamplerCreateInfo samplerInfo = {
-        .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .magFilter               = VK_FILTER_LINEAR,  // Smooth upscaling
-        .minFilter               = VK_FILTER_LINEAR,  // Smooth downscaling
-        .addressModeU            = address_mode,
-        .addressModeV            = address_mode,
-        .addressModeW            = address_mode,
-        .anisotropyEnable        = img ? VK_TRUE : VK_FALSE,
-        .maxAnisotropy           = img ? 4 : 1,
-        .minLod                  = 0.0f,
-        .maxLod                  = (float)lod,    // ← important!
-        .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
-        .unnormalizedCoordinates = VK_FALSE,
-        .compareEnable           = VK_FALSE,
-        .compareOp               = VK_COMPARE_OP_ALWAYS,
-        .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-    };
-    verify(vkCreateSampler(t->device, &samplerInfo, NULL, &a->vk_sampler) == VK_SUCCESS, 
-        "Failed to create VkSampler");
-    vkFreeCommandBuffers(t->device, t->command_pool, 1, &commandBuffer);
+    if (!a->vk_sampler) {
+        VkSamplerAddressMode address_mode = (a->layer_count >= 6) ? 
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        VkSamplerCreateInfo samplerInfo = {
+            .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter               = VK_FILTER_LINEAR,  // Smooth upscaling
+            .minFilter               = VK_FILTER_LINEAR,  // Smooth downscaling
+            .addressModeU            = address_mode,
+            .addressModeV            = address_mode,
+            .addressModeW            = address_mode,
+            .anisotropyEnable        = (ansio > 0) ? VK_TRUE : VK_FALSE,
+            .maxAnisotropy           = ansio,
+            .minLod                  = 0.0f,
+            .maxLod                  = (float)a->mip_levels,
+            .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+            .unnormalizedCoordinates = VK_FALSE,
+            .compareEnable           = VK_FALSE,
+            .compareOp               = VK_COMPARE_OP_ALWAYS,
+            .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        };
+        verify(vkCreateSampler(t->device, &samplerInfo, NULL, &a->vk_sampler) == VK_SUCCESS, 
+            "Failed to create VkSampler");
+    }
 }
 
 none texture_dealloc(texture a) {
@@ -1159,7 +1326,7 @@ void pipeline_bind_resources(pipeline p) {
 
     p->resources = array(alloc, 32);
     if (p->vbo) {
-        sync(p->vbo);
+        sync(p->vbo, p->w);
         push(p->resources, p->vbo);
     }
     
@@ -1168,10 +1335,10 @@ void pipeline_bind_resources(pipeline p) {
     // populate bind layout for uniforms
     each(p->uniforms, object, u) {
         gpu    res   = gpu(t, t, name, "uniform", uniform, u);
-        sync(res);
+        sync(res, p->w);
         push(p->resources, res);
         AType  type  = isa(res->uniform); // Get type info
-        i32    size  = type->size;  // Get struct size
+        i32    size  = type->size - (type->traits & A_TRAIT_STRUCT ? 0 : sizeof(AType));  // Get struct size
         
         bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
             .binding         = binding_count,
@@ -1187,7 +1354,8 @@ void pipeline_bind_resources(pipeline p) {
         };
         uniform_count++;
     }
-
+    // we do not want to create Surfaces for shaders that do not use them; unfortunately we do not register this
+    // env would use Surface_color, and convolve would use Surface_environment
     // add sampler2Ds from Surface enum members (same name, and we must get the exact count of sampler2D members (1 for gray, 3 for rgb, 4 for rgba)
     // ok, so these are provided as images, but these only serve to override whats there.
     Surface_f* surface_t = &Surface_type;
@@ -1202,7 +1370,8 @@ void pipeline_bind_resources(pipeline p) {
 
         /// check if user provides an image
         each (p->samplers, image, img) {
-            if ((int)img->surface == surface_value) {
+            texture tx = instanceof((object)img, texture);
+            if ((tx && tx->surface == surface_value) || (int)img->surface == surface_value) {
                 res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, img);
                 break;
             }
@@ -1261,7 +1430,7 @@ void pipeline_bind_resources(pipeline p) {
         }
 
         /// add gpu resource; this is what will be updated when required
-        sync(res);
+        sync(res, p->w);
         push(p->resources, res);
 
         bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
@@ -1381,10 +1550,6 @@ void pipeline_init(pipeline p) {
               //(mem->type == typeid( i32 )) ? VK_FORMAT_R32_SINT            : -- glTF does not support
                 (mem->type == typeid( u32 )) ? VK_FORMAT_R32_UINT            :
                                                VK_FORMAT_UNDEFINED;
-            if (attributes[attr_count].format == VK_FORMAT_UNDEFINED) {
-                int test2 = 2;
-                test2 += 2;
-            }
             attributes[attr_count].offset = mem->offset;
             attr_count++;
         }
@@ -1440,7 +1605,7 @@ void pipeline_init(pipeline p) {
             .rasterizerDiscardEnable = VK_FALSE,
             .polygonMode             = VK_POLYGON_MODE_FILL,
             .lineWidth               = 1.0f,
-            .cullMode                = VK_CULL_MODE_BACK_BIT,
+            .cullMode                = VK_CULL_MODE_NONE,
             .frontFace               = VK_FRONT_FACE_CLOCKWISE,
             .depthBiasEnable         = VK_FALSE,
         };
@@ -1539,7 +1704,7 @@ void pipeline_render(pipeline p, handle f) {
     /// for each resource of uniform, call sync
     each(p->resources, gpu, res) {
         if (res->uniform)
-            sync(res);
+            sync(res, p->w);
     }
     if (p->vk_compute) {
         vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->vk_compute);
@@ -1602,19 +1767,23 @@ void window_init(window w) {
     trinity t = w->t;
 
     w->models = array();
+
+    VkResult result;
+
     // Initialize GLFW window with Vulkan compatibility
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    w->window = glfwCreateWindow(w->width, w->height,
-        w->title ? cstring(w->title) : "trinity", null, null);
-    verify(w->window, "Failed to create GLFW window");
+    if (!w->backbuffer) {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        w->window = glfwCreateWindow(w->width, w->height,
+            w->title ? cstring(w->title) : "trinity", null, null);
+        verify(w->window, "Failed to create GLFW window");
+        glfwSetWindowUserPointer(w->window, (void *)w);
+        glfwSetKeyCallback(w->window, handle_glfw_key);
+        glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
 
-    glfwSetWindowUserPointer(w->window, (void *)w);
-    glfwSetKeyCallback(w->window, handle_glfw_key);
-    glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
-
-    // Create Vulkan surface
-    VkResult result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
-    verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
+        // Create Vulkan surface
+        result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
+        verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
+    }
 
     /// this is done once for device, not once per window; however we must have a surface for it
     if (t->queue_family_index == -1) {
@@ -1650,65 +1819,60 @@ void window_init(window w) {
     verify(result == VK_SUCCESS, "failed to create command pool");
 
 
-    // Query surface capabilities
-    result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &w->surface_caps);
-    verify(result == VK_SUCCESS, "Failed to query surface capabilities");
+    if (!w->backbuffer) {
+        // Query surface capabilities
+        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &w->surface_caps);
+        verify(result == VK_SUCCESS, "Failed to query surface capabilities");
 
-    // Query supported surface formats
-    uint32_t format_count = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(t->physical_device, w->surface, &format_count, null);
-    verify(format_count > 0, "No surface formats found");
+        // Query supported surface formats
+        uint32_t format_count = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(t->physical_device, w->surface, &format_count, null);
+        verify(format_count > 0, "No surface formats found");
 
-    VkSurfaceFormatKHR* formats = malloc(format_count * sizeof(VkSurfaceFormatKHR));
-    vkGetPhysicalDeviceSurfaceFormatsKHR(t->physical_device, w->surface, &format_count, formats);
+        VkSurfaceFormatKHR* formats = malloc(format_count * sizeof(VkSurfaceFormatKHR));
+        vkGetPhysicalDeviceSurfaceFormatsKHR(t->physical_device, w->surface, &format_count, formats);
 
-    // Choose a surface format
-    w->surface_format = formats[0];  // Default to the first format
-    for (uint32_t i = 0; i < format_count; ++i) {
-        print("format = %i, color space = %i", formats[i].format, formats[i].colorSpace);
-        if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
-            formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            VkSurfaceFormatKHR* f = &formats[i];
-            w->surface_format = formats[i];
-            //break;
+        // Choose a surface format
+        w->surface_format = formats[0];  // Default to the first format
+        for (uint32_t i = 0; i < format_count; ++i) {
+            print("format = %i, color space = %i", formats[i].format, formats[i].colorSpace);
+            if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
+                VkSurfaceFormatKHR* f = &formats[i];
+                w->surface_format = formats[i];
+                //break;
+            }
         }
-    }
-    free(formats);
+        free(formats);
 
-    // Query supported present modes
-    uint32_t present_mode_count = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(t->physical_device, w->surface, &present_mode_count, null);
-    verify(present_mode_count > 0, "No present modes found");
+        // Query supported present modes
+        uint32_t present_mode_count = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(t->physical_device, w->surface, &present_mode_count, null);
+        verify(present_mode_count > 0, "No present modes found");
 
-    VkPresentModeKHR* present_modes = malloc(present_mode_count * sizeof(VkPresentModeKHR));
-    vkGetPhysicalDeviceSurfacePresentModesKHR(t->physical_device, w->surface, &present_mode_count, present_modes);
+        VkPresentModeKHR* present_modes = malloc(present_mode_count * sizeof(VkPresentModeKHR));
+        vkGetPhysicalDeviceSurfacePresentModesKHR(t->physical_device, w->surface, &present_mode_count, present_modes);
 
-    // Choose a present mode
-    w->present_mode = VK_PRESENT_MODE_FIFO_KHR;  // Default to FIFO (V-Sync)
-    for (uint32_t i = 0; i < present_mode_count; ++i) {
-        if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
-            w->present_mode = VK_PRESENT_MODE_MAILBOX_KHR;  // Prefer Mailbox (low latency)
-            break;
+        // Choose a present mode
+        w->present_mode = VK_PRESENT_MODE_FIFO_KHR;  // Default to FIFO (V-Sync)
+        for (uint32_t i = 0; i < present_mode_count; ++i) {
+            if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+                w->present_mode = VK_PRESENT_MODE_MAILBOX_KHR;  // Prefer Mailbox (low latency)
+                break;
+            }
         }
-    }
-    free(present_modes);
-
-    // Configure swapchain extent
-    int width, height;
-    glfwGetWindowSize(w->window, &width, &height);
-    w->extent.width = (uint32_t)width;
-    w->extent.height = (uint32_t)height;
-
-    if (w->surface_caps.currentExtent.width != UINT32_MAX) {
-        w->extent = w->surface_caps.currentExtent;  // Use the surface-defined extent if available
+        free(present_modes);
+        // Configure swapchain extent
+        int width, height;
+        glfwGetWindowSize(w->window, &width, &height);
+        w->extent.width              = (uint32_t)width;
+        w->extent.height             = (uint32_t)height;
     } else {
-        // Clamp extent to allowed dimensions
-        w->extent.width  = max(w->surface_caps.minImageExtent.width,
-                           min(w->surface_caps.maxImageExtent.width, w->extent.width));
-        w->extent.height = max(w->surface_caps.minImageExtent.height,
-                           min(w->surface_caps.maxImageExtent.height, w->extent.height));
+        w->surface_format.format     = w->format == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        w->surface_format.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        w->extent.width              = w->width;
+        w->extent.height             = w->height;
     }
-
+    
     // create render pass
     VkAttachmentDescription attachments[3] = {
         {
@@ -1742,7 +1906,7 @@ void window_init(window w) {
             .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .finalLayout    = !w->backbuffer ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         }
     };
 
@@ -1803,124 +1967,130 @@ void window_init(window w) {
 
     result = vkCreateRenderPass(t->device, &render_pass_info, null, &w->render_pass);
     verify(result == VK_SUCCESS, "failed to create render pass");
+    w->semaphore_frame = 0;
+    w->last_fence = -1;
     resize(w, w->extent.width, w->extent.height);  // Call the framebuffer update directly
 }
 
-int window_loop(window w, ARef callback, ARef arg) {
-    trinity t = w->t;
-    int semaphore_frame = 0;
-    int last_fence = -1;
+void window_process(window w, array models, object callback, object arg) {
+    trinity  t = w->t;
     void(*user_fn)(pipeline, ARef) = callback;
+    uint32_t index = 0;
+    VkResult result;
 
-    while (!glfwWindowShouldClose(w->window)) {
-        glfwPollEvents();
-        
-        uint32_t index;
-        VkResult result;
-
-        /// below is where we are using a fence
+    if (!w->backbuffer) {
         result = vkAcquireNextImageKHR(
             t->device, w->swapchain, UINT64_MAX,
-            w->image_available_semaphore[semaphore_frame], VK_NULL_HANDLE, &index);
+            w->image_available_semaphore[w->semaphore_frame], VK_NULL_HANDLE, &index);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             handle_glfw_framebuffer_size(w->window, w->width, w->height);
-            continue;
+            return
+            ;
         }
-        
         verify(result == VK_SUCCESS, "failed to acquire swapchain image");
+    }
 
-        vkResetFences  (t->device, 1, &w->command_fences[index]);
-        last_fence = index;
-        // Begin command buffer recording
-        VkCommandBuffer frame = w->command_buffers[index];
-        vkResetCommandBuffer(frame, 0);
-        vkBeginCommandBuffer(frame, &(VkCommandBufferBeginInfo) {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-        });
-        vkCmdSetViewport(frame, 0, 1, &(VkViewport) {
-            .x                  = 0.0f,
-            .y                  = 0.0f,
-            .width              = (float)w->extent.width,
-            .height             = (float)w->extent.height,
-            .minDepth           = 0.0f,
-            .maxDepth           = 1.0f
-        });
-        vkCmdSetScissor(frame, 0, 1, &(VkRect2D) {
-            .offset             = {0, 0},
-            .extent             = {w->extent.width, w->extent.height}
-        });
-        vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) {
-            .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass         = w->render_pass,  // Pre-configured render pass
-            .framebuffer        = w->framebuffers[index],  // Framebuffer for this image
-            .renderArea         = {
-                .offset         = { 0, 0 },
-                .extent         = w->extent,  // Swapchain image extent
-            },
-            .clearValueCount    = 3,
-            .pClearValues       = &(VkClearValue[3]) {
-                { .color        = { .float32 = { 0.2f, 0.0f, 0.5f, 1.0f }} },
-                { .depthStencil = { .depth   =   1.0f,
-                                    .stencil =   0 } },
-                { .color        = { .float32 = {0.0f, 0.0f, 0.0f, 1.0f} } }
-            }
-        }, VK_SUBPASS_CONTENTS_INLINE);
-
-        each(w->models, model, m) {
-            
-            each(m->pipelines, pipeline, p) {
-                // update World uniform with our model default (from glTF)
-                each(p->resources, gpu, res)
-                    if (res->uniform && isa(res->uniform) == typeid(World)) {
-                        ((World)res->uniform)->model = p->model;
-                    }
-                if (user_fn)
-                    user_fn(p, arg);
-                // user may indeed set uniforms different depending on the pipeline; this is quite natural and not always redundant
-                render(p, frame);
-            }
+    vkResetFences  (t->device, 1, &w->command_fences[index]);
+    w->last_fence = index;
+    // Begin command buffer recording
+    VkCommandBuffer frame = w->command_buffers[index];
+    vkResetCommandBuffer(frame, 0);
+    vkBeginCommandBuffer(frame, &(VkCommandBufferBeginInfo) {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    });
+    vkCmdSetViewport(frame, 0, 1, &(VkViewport) {
+        .x                  = 0.0f,
+        .y                  = 0.0f,
+        .width              = (float)w->extent.width,
+        .height             = (float)w->extent.height,
+        .minDepth           = 0.0f,
+        .maxDepth           = 1.0f
+    });
+    vkCmdSetScissor(frame, 0, 1, &(VkRect2D) {
+        .offset             = {0, 0},
+        .extent             = {w->extent.width, w->extent.height}
+    });
+    vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) {
+        .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass         = w->render_pass,  // Pre-configured render pass
+        .framebuffer        = w->framebuffers[index],  // Framebuffer for this image
+        .renderArea         = {
+            .offset         = { 0, 0 },
+            .extent         = w->extent,  // Swapchain image extent
+        },
+        .clearValueCount    = 3,
+        .pClearValues       = &(VkClearValue[3]) {
+            { .color        = { .float32 = { 0.044f, 0.044f, 0.044f, 1.0f }} },
+            { .depthStencil = { .depth   =   1.0f,
+                                .stencil =   0 } },
+            { .color        = { .float32 = {0.0f, 0.0f, 0.0f, 1.0f} } }
         }
-        vkCmdEndRenderPass(frame);   // End render pass
-        vkEndCommandBuffer(frame);   // End command buffer recording
+    }, VK_SUBPASS_CONTENTS_INLINE);
 
-        // Submit command buffer to the queue
-        VkPipelineStageFlags s_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo submitInfo = {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &frame,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &w->image_available_semaphore[semaphore_frame],
-            .pWaitDstStageMask = &s_flags,
-            .signalSemaphoreCount = 1,
-            .pSignalSemaphores = &w->render_finished_semaphore[semaphore_frame]
-        };
+    each(models, model, m) {
+        each(m->pipelines, pipeline, p) {
+            // update World uniform with our model default (from glTF)
+            each(p->resources, gpu, res)
+                if (res->uniform && isa(res->uniform) == typeid(World)) {
+                    ((World)res->uniform)->model = p->model;
+                }
+            if (user_fn)
+                user_fn(p, arg);
+            // user may indeed set uniforms different depending on the pipeline; this is quite natural and not always redundant
+            render(p, frame);
+        }
+    }
+    vkCmdEndRenderPass(frame);   // End render pass
+    vkEndCommandBuffer(frame);   // End command buffer recording
 
-        vkQueueSubmit(t->queue, 1, &submitInfo, w->command_fences[index]);
+    // Submit command buffer to the queue
+    VkPipelineStageFlags s_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo submitInfo     = {
+        .sType                  = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount     = 1,
+        .pCommandBuffers        = &frame,
+        .waitSemaphoreCount     = !w->backbuffer ? 1                                                 : 0,
+        .pWaitSemaphores        = !w->backbuffer ? &w->image_available_semaphore[w->semaphore_frame] : null,
+        .pWaitDstStageMask      = !w->backbuffer ? &s_flags                                          : null,
+        .signalSemaphoreCount   = !w->backbuffer ? 1                                                 : 0,
+        .pSignalSemaphores      = !w->backbuffer ? &w->render_finished_semaphore[w->semaphore_frame] : null
+    };
 
+    vkQueueSubmit(t->queue, 1, &submitInfo, w->command_fences[index]);
+
+    if (!w->backbuffer) {
         // Present the swapchain image
         VkPresentInfoKHR presentInfo = {
-            .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .swapchainCount     = 1,
-            .pSwapchains        = &w->swapchain,
-            .pImageIndices      = &index,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores    = &w->render_finished_semaphore[semaphore_frame]
+            .sType                  = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .swapchainCount         = 1,
+            .pSwapchains            = &w->swapchain,
+            .pImageIndices          = &index,
+            .waitSemaphoreCount     = 1,
+            .pWaitSemaphores        = &w->render_finished_semaphore[w->semaphore_frame]
         };
 
         result = vkQueuePresentKHR(t->queue, &presentInfo);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            semaphore_frame = (semaphore_frame + 1) % w->image_count;
-            continue;
+            w->semaphore_frame = (w->semaphore_frame + 1) % w->image_count;
+            return;
         }
-
         verify(result == VK_SUCCESS, "present");
-        result = vkWaitForFences(t->device, 1, &w->command_fences[index], VK_TRUE, UINT64_MAX);
-        verify(result == VK_SUCCESS, "fence wait failed: last_fence=%d", last_fence);
+    }
+    
+    result = vkWaitForFences(t->device, 1, &w->command_fences[index], VK_TRUE, UINT64_MAX);
+    verify(result == VK_SUCCESS, "fence wait failed: last_fence=%d", w->last_fence);
 
-        semaphore_frame = (semaphore_frame + 1) % w->image_count;
-        verify(result == VK_SUCCESS, "failed to present swapchain image");
+    if (!w->backbuffer)
+        w->semaphore_frame = (w->semaphore_frame + 1) % w->image_count;
+}
+
+int window_loop(window w, ARef callback, ARef arg) {
+    trinity t = w->t;
+    void(*user_fn)(pipeline, ARef) = callback;
+    while (!glfwWindowShouldClose(w->window)) {
+        glfwPollEvents();
+        process(w, w->models, user_fn, arg);
     }
     return 0;
 }
@@ -1930,8 +2100,10 @@ void window_dealloc(window w) {
     
     // Clean up synchronization objects
     for (int i = 0; i < w->image_count; i++) {
-        vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
-        vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
+        if (w->image_available_semaphore) {
+            vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
+            vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
+        }
         vkDestroyFence    (t->device, w->command_fences[i], null);
     }
     
@@ -1953,24 +2125,23 @@ void window_dealloc(window w) {
     // Clean up depth images
     if (w->depth_images) {
         for (uint32_t i = 0; i < w->image_count; ++i) {
-            if (w->depth_images[i]) {
-                // Note: You'll need to store depth view and memory per image
+            if (w->depth_images[i])
                 vkDestroyImage(t->device, w->depth_images[i], null);
-                // Free depth memory
-            }
         }
         free(w->depth_images);
     }
     
     free(w->command_buffers);
     free(w->command_fences);
-    free(w->image_available_semaphore);
-    free(w->render_finished_semaphore);
-    
     vkDestroyRenderPass(t->device, w->render_pass, null);
-    vkDestroySwapchainKHR(t->device, w->swapchain, null);
-    vkDestroySurfaceKHR(t->instance, w->surface, null);
-    glfwDestroyWindow(w->window);
+
+    if (!w->backbuffer) {
+        free(w->image_available_semaphore);
+        free(w->render_finished_semaphore);
+        vkDestroySwapchainKHR(t->device, w->swapchain, null);
+        vkDestroySurfaceKHR(t->instance, w->surface, null);
+        glfwDestroyWindow(w->window);
+    }
 }
 
 #define BUFFER_SIZE         4096
@@ -2293,6 +2464,78 @@ none buffer_init(buffer b) {
     }
 }
 
+void buffer_transfer(buffer b, window w) {
+    VkImage image = w->resolve_image;
+    trinity t = b->t;
+    VkBuffer buffer = b->vk_buffer;
+
+    VkCommandBufferAllocateInfo alloc_info = {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = t->command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    VkCommandBuffer cmd;
+    vkAllocateCommandBuffers(t->device, &alloc_info, &cmd);
+
+    vkBeginCommandBuffer(cmd, &(VkCommandBufferBeginInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+    });
+
+    VkImageSubresourceRange subres_range = {
+        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+        .baseMipLevel   = 0,
+        .levelCount     = 1,
+        .baseArrayLayer = 0,
+        .layerCount     = 1
+    };
+
+    // Transition image to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    VkImageMemoryBarrier barrier = {
+        .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+        .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .image               = image,
+        .subresourceRange    = subres_range
+    };
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, 0, 0, 0, 1, &barrier);
+
+    VkBufferImageCopy region = {
+        .bufferOffset      = 0,
+        .bufferRowLength   = 0, // tightly packed
+        .bufferImageHeight = 0,
+        .imageSubresource = {
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel       = 0,
+            .baseArrayLayer = 0,
+            .layerCount     = 1
+        },
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {w->width, w->height, 1}
+    };
+
+    vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd
+    };
+    vkQueueSubmit(t->queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(t->queue);
+
+    vkFreeCommandBuffers(t->device, t->command_pool, 1, &cmd);
+}
+
+
 none buffer_update(buffer a, ARef data) {
     ARef m = mmap(a);
     memcpy(m, data, a->size);
@@ -2330,9 +2573,12 @@ define_class(node)
 define_class(model)
 define_class(window)
 define_class(buffer)
+define_class(command)
+
 define_class(particle)
 
 define_enum(Surface)
-define_class(World)
 
+define_class(World)
+define_class(Env)
 
