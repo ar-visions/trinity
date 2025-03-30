@@ -8,6 +8,4 @@ layout(location = 0) out vec3 dir;
 void main() {
     dir          = in_pos;
     gl_Position  = e.proj * e.view * vec4(in_pos, 1.0);
-    //vec4 pos = e.proj * e.view * vec4(in_pos, 1.0);
-    //gl_Position = pos.xyww;
 }

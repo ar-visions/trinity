@@ -926,7 +926,7 @@ texture trinity_environment(trinity t, image img) {
 
     /// convolve environment to create a multi-sampled cube
     shader conv_shader   = shader (t, t, name, string("convolve"));
-    array  conv_samplers = a(cube, null); // must allow textures to register with gpu
+    array  conv_samplers = a(clone, cube, null); // must allow textures to register with gpu
     model  conv          = model  (t, t, w, w, id, data, shader, conv_shader, samplers, conv_samplers, uniforms, uniforms);
     array  conv_models   = a(conv, null);
 
@@ -940,8 +940,8 @@ texture trinity_environment(trinity t, image img) {
 
             process(w, conv_models, null, null);
             //image img = cast(image, w);
-            //transition_image_layout(t, w->resolve_image,
-            //    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
+            transition_image_layout(t, w->resolve_image,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
             transition_image_layout(t, vk_image[1],
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 0, 1, face_id, 1);
