@@ -1,7 +1,6 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <import>
-#include <gltf>
 #include <sys/stat.h>
 #include <math.h>
 #include <opencv.h>
@@ -655,15 +654,6 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         int test2 = 2;
         test2 += 2;
     }
-
-    /// Construct pipeline, give uniforms in an order of usage; help user out with world ordering
-    each(m->uniforms, object, u)
-        if (isa(u) == typeid(World))
-            m->world = u;
-
-    array uniforms = array();
-    each(m->uniforms, object, u)
-        push(uniforms, u);
     
     mat4f model = mat4f_ident();
     model = mat4f_translate(&model, &n->translation);
@@ -679,7 +669,6 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         vbo,        vbo,
         model,      model,
         material,   material,
-        uniforms,   uniforms,
         samplers,   m->samplers);
     push(m->pipelines, pipe);
 }
@@ -689,7 +678,6 @@ void model_init(model m) {
     trinity t    = m->t;
     m->pipelines = array();
     if (!m->samplers) m->samplers = array();
-    if (!m->uniforms) m->uniforms = array();
 
     if (m->nodes) {
         each (m->nodes, node, n)
@@ -714,7 +702,7 @@ void model_init(model m) {
     }
 }
 
-void World_init(World w) {
+void PBR_init(PBR w) {
     mat4f_set_identity(&w->proj);
     mat4f_set_identity(&w->model);
     mat4f_set_identity(&w->view);
@@ -841,15 +829,12 @@ texture trinity_environment(trinity t, image img) {
         source, data(img), width, img->width, height, img->height,
         format, Pixel_rgbaf32, surface, Surface_color);
 
-    path   gltf    = path   ("models/env.gltf" );
-    Model  data    = read   (gltf, typeid(Model) );
-    shader eshader = shader (t, t, name, string("env"));
-    Env    e       = Env();
-    array uniforms = a(e, null);
-    array samplers = a(clone, null);
-    model  env     = model  (t, t, w, w, id, data, shader, eshader,
-        samplers, samplers, uniforms, uniforms);
-    array  models  = a(env, null);
+    path   gltf     = path   ("models/env.gltf" );
+    Model  data     = read   (gltf, typeid(Model) );
+    Env    e        = Env    (t, t, name, string("env"));
+    array  samplers = a      (clone, null);
+    model  env      = model  (t, t, w, w, id, data, shader, e, samplers, samplers);
+    array  models   = a      (env, null);
 
     e->proj = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
 
@@ -925,9 +910,9 @@ texture trinity_environment(trinity t, image img) {
         t, t, vk_image, vk_image[0], surface, Surface_environment, vk_format, w->surface_format.format, mip_levels, mip_levels, layer_count, 6);
 
     /// convolve environment to create a multi-sampled cube
-    shader conv_shader   = shader (t, t, name, string("convolve"));
+    Convolve conv_shader = Convolve (t, t, name, string("convolve"));
     array  conv_samplers = a(clone, cube, null); // must allow textures to register with gpu
-    model  conv          = model  (t, t, w, w, id, data, shader, conv_shader, samplers, conv_samplers, uniforms, uniforms);
+    model  conv          = model  (t, t, w, w, id, data, shader, conv_shader, samplers, conv_samplers);
     array  conv_models   = a(conv, null);
 
     for (int a = 0; a < cube_count; a++) {
@@ -1015,20 +1000,62 @@ texture trinity_environment(trinity t, image img) {
     return img->user;
 }
 
+num uniform_size(AType type) {
+    num   total = 0;
+    for (int m = 0; m < type->member_count; m++) {
+        type_member_t* mem = &type->members[m];
+        if (mem->member_type == A_MEMBER_PROP || mem->member_type == A_MEMBER_INLAY)
+            total += mem->type->size;
+            // i am thinking if we could generically distinguish 
+            // between reference types of data and structures
+            // on the type basis then we may copy just parts or
+            // the entire data structure at once.  our type can
+            // tell us how to assemble the uniform
+    }
+    return total;
+}
+
+/// sub procedure of shader; transfer one type at a time
+/// we may perform this in meta as well, but i think poly should be a base implementation
+i64 uniform_transfer(object src, u8* data, AType src_type) {
+    verify(instanceof(src, shader), "shader instance not provided");
+    
+    AType type      = isa(src);
+    num   index     = 0;
+    u8*   src_bytes = src;
+    num   start     = typeid(shader)->size;
+    AType t         = src_type->parent_type;
+
+    while (t != typeid(shader)) {
+        start = t->size;
+        t     = t->parent_type;
+    }
+
+    for (int m = 0; m < type->member_count; m++) {
+        type_member_t* mem = &type->members[m];
+
+        /// lets skip the shader members, leaving our uniform data;
+        /// and this data need not be uniform; we may have object -> data
+        if (mem->offset < start)
+            continue;
+        
+        bool inlay = mem->member_type == A_MEMBER_INLAY; // inlay is when you take a normal object and effectively have all of its structure memory in your own -- dealloc still in our A_dealloc
+        if (mem->member_type == A_MEMBER_PROP || inlay) {
+            if (inlay || mem->type->traits & A_TRAIT_STRUCT || mem->type->traits & A_TRAIT_PRIMITIVE)
+                memcpy(&data[index], &src_bytes[mem->offset], mem->type->size);
+            else
+                memcpy(&data[index], A_data((object) &src_bytes[mem->offset]), mem->type->size);
+            index += mem->type->size;
+            if (index >= t->size)
+                break;
+        }
+    }
+    return index;
+}
+
+
 none gpu_sync(gpu a, window w) {
     trinity t = a->t;
-
-    /// uniforms update continuously
-    if (a->uniform) {
-        AType u_type  = isa(a->uniform);
-        if (!a->vk_uniform) {
-             a->vk_uniform = buffer(
-                t, t, size, u_type->size,
-                u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
-                data, a->uniform);
-        } else
-            update(a->vk_uniform, a->uniform);
-    }
 
     /// vbo/ibo only need maintenance upon init, less we want to transfer out
     if (a->vertex_size && !a->vertex) {
@@ -1314,6 +1341,72 @@ static pbrMetallicRoughness pbr_defaults() {
     return pbr;
 }
 
+gpu Surface_resource(int surface_value, pipeline p) {
+    gpu res = null;
+    trinity t = p->t;
+    /// check if user provides an image
+    each (p->samplers, image, img) {
+        texture tx = instanceof((object)img, texture);
+        if ((tx && tx->surface == surface_value) || (int)img->surface == surface_value) {
+            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, img);
+            break;
+        }
+    }
+
+    /// create resource fragment based on the texture type
+    pbrMetallicRoughness pbr_default = pbr_defaults();
+    pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
+    if (!res) {
+        rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
+        rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
+        rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
+        rgbaf f_color  = rgbaf(&pbr->baseColorFactor);
+        shape single = shape_new(1, 0);
+        switch (surface_value) {
+            case Surface_normal:
+                res = gpu(t, t, name, "normal", sampler,
+                    vector_rgbaf_new(single, f_normal)); // Default normal map
+                break;
+            case Surface_metal:
+                res = gpu(t, t, name, "metal", sampler,
+                    vector_f32_new(single, pbr->metallicFactor)); // Default: Non-metallic
+                break;
+            case Surface_rough:
+                res = gpu(t, t, name, "rough", sampler,
+                    vector_f32_new(single, pbr->roughnessFactor)); // Default: Fully rough
+                break;
+            case Surface_emission:
+                verify(pbr->emissiveStrength / 8.0f <= 1.0f, "refactor emissiveStrength");
+                rgbaf f_emission = rgbaf(
+                    pbr->emissiveFactor.x, pbr->emissiveFactor.y, pbr->emissiveFactor.z,
+                    pbr->emissiveStrength / 8.0f);
+                res = gpu(t, t, name, "emission", sampler,
+                    vector_rgbaf_new(single, f_zero)); // Default: No emission
+                break;
+            case Surface_height:
+                res = gpu(t, t, name, "height", sampler,
+                    vector_f32_new(single, 0.5f)); // Midpoint height (0.5 = no change)
+                break;
+            case Surface_ao:
+                res = gpu(t, t, name, "ao", sampler,
+                    vector_f32_new(single, 1.0f)); // Full ambient occlusion by default
+                break;
+            case Surface_color:
+                res = gpu(t, t, name, "color", sampler,
+                    vector_rgbaf_new(single, f_color)); // White base color
+                break;
+            case Surface_environment:
+                res = gpu(t, t, name, "environment", sampler,
+                    vector_rgbaf_new(single, f_one)); // White base color
+                break;
+            default:
+                verify(0, "Unhandled Surface enum value");
+                break;
+        }
+    }
+    return res;
+}
+
 void pipeline_bind_resources(pipeline p) {
     trinity t     = p->t;
     int binding_count = 0; // we start at 1, because its occupied by vulkan raytrace data
@@ -1333,13 +1426,9 @@ void pipeline_bind_resources(pipeline p) {
     VkShaderStageFlags stage_flags = VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;
 
     // populate bind layout for uniforms
-    each(p->uniforms, object, u) {
-        gpu    res   = gpu(t, t, name, "uniform", uniform, u);
-        sync(res, p->w);
-        push(p->resources, res);
-        AType  type  = isa(res->uniform); // Get type info
-        i32    size  = type->size - (type->traits & A_TRAIT_STRUCT ? 0 : sizeof(AType));  // Get struct size
-        
+    p->shader_uniforms = uniforms(t, t, s, p->s); // no need to have this in 'gpu' magic container
+
+    each (p->shader_uniforms->u_buffers, buffer, b) {
         bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
             .binding         = binding_count,
             .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -1348,86 +1437,34 @@ void pipeline_bind_resources(pipeline p) {
         };
         binding_count++;
         buffer_infos[uniform_count]  = (VkDescriptorBufferInfo) {
-            .buffer = res->vk_uniform->vk_buffer,
+            .buffer = b->vk_buffer,
             .offset = 0,
-            .range = size
+            .range = b->size
         };
         uniform_count++;
     }
-    // we do not want to create Surfaces for shaders that do not use them; unfortunately we do not register this
-    // env would use Surface_color, and convolve would use Surface_environment
-    // add sampler2Ds from Surface enum members (same name, and we must get the exact count of sampler2D members (1 for gray, 3 for rgb, 4 for rgba)
-    // ok, so these are provided as images, but these only serve to override whats there.
-    Surface_f* surface_t = &Surface_type;
-    for (int i = 0; i < surface_t->member_count; i++) {
-        type_member_t* mem = &surface_t->members[i];
-        if (mem->member_type != A_MEMBER_ENUMV) continue;
-        AType meta_cl = mem->args.meta_0;
-        verify(meta_cl, "meta data not set on Surface/extension");
-        int   surface_value = i;
-        if (!meta_cl || surface_value == 0) continue;
-        gpu res = null;
+    
+    // use enum type with value and meta type (context)
+    AType shader_schema = isa(p->s);
+    for (int i = 0; i < shader_schema->member_count; i++) {
+        type_member_t* mem = &shader_schema->members[i];
 
-        /// check if user provides an image
-        each (p->samplers, image, img) {
-            texture tx = instanceof((object)img, texture);
-            if ((tx && tx->surface == surface_value) || (int)img->surface == surface_value) {
-                res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, img);
-                break;
-            }
-        }
+        // only look at attributes
+        if (mem->member_type != A_MEMBER_ATTR)
+            continue;
 
-        /// create resource fragment based on the texture type
-        pbrMetallicRoughness pbr_default = pbr_defaults();
-        pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
-        if (!res) {
-            rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
-            rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
-            rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
-            rgbaf f_color  = rgbaf(&pbr->baseColorFactor);
-            shape single = shape_new(1, 0);
-            switch (surface_value) {
-                case Surface_normal:
-                    res = gpu(t, t, name, "normal", sampler,
-                        vector_rgbaf_new(single, f_normal)); // Default normal map
-                    break;
-                case Surface_metal:
-                    res = gpu(t, t, name, "metal", sampler,
-                        vector_f32_new(single, pbr->metallicFactor)); // Default: Non-metallic
-                    break;
-                case Surface_rough:
-                    res = gpu(t, t, name, "rough", sampler,
-                        vector_f32_new(single, pbr->roughnessFactor)); // Default: Fully rough
-                    break;
-                case Surface_emission:
-                    verify(pbr->emissiveStrength / 8.0f <= 1.0f, "refactor emissiveStrength");
-                    rgbaf f_emission = rgbaf(
-                        pbr->emissiveFactor.x, pbr->emissiveFactor.y, pbr->emissiveFactor.z,
-                        pbr->emissiveStrength / 8.0f);
-                    res = gpu(t, t, name, "emission", sampler,
-                        vector_rgbaf_new(single, f_zero)); // Default: No emission
-                    break;
-                case Surface_height:
-                    res = gpu(t, t, name, "height", sampler,
-                        vector_f32_new(single, 0.5f)); // Midpoint height (0.5 = no change)
-                    break;
-                case Surface_ao:
-                    res = gpu(t, t, name, "ao", sampler,
-                        vector_f32_new(single, 1.0f)); // Full ambient occlusion by default
-                    break;
-                case Surface_color:
-                    res = gpu(t, t, name, "color", sampler,
-                        vector_rgbaf_new(single, f_color)); // White base color
-                    break;
-                case Surface_environment:
-                    res = gpu(t, t, name, "environment", sampler,
-                        vector_rgbaf_new(single, f_one)); // White base color
-                    break;
-                default:
-                    verify(0, "Unhandled Surface enum value");
-                    break;
-            }
-        }
+        // get enum type, and value
+        AType  enum_type  = mem->type;
+        i64    enum_value = mem->id;
+        AType  meta_type  = mem->args.meta_0;
+        verify(meta_type, "meta data not set on Surface/extension");
+
+        type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
+        typedef object(*Resource)(i64, pipeline);
+        Resource resf = fn ? fn->ptr : null;
+        verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
+        gpu res = resf(enum_value, p);
+        verify(instanceof(res, gpu), "expected gpu resource");
 
         /// add gpu resource; this is what will be updated when required
         sync(res, p->w);
@@ -1701,11 +1738,9 @@ void pipeline_dealloc(pipeline p) {
 void pipeline_render(pipeline p, handle f) {
     VkCommandBuffer frame = f;
 
-    /// for each resource of uniform, call sync
-    each(p->resources, gpu, res) {
-        if (res->uniform)
-            sync(res, p->w);
-    }
+    /// for each uniform resource instanced from shader
+    update(p->shader_uniforms);
+
     if (p->vk_compute) {
         vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->vk_compute);
         vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_COMPUTE, p->layout, 0, 1, &p->bind, 0, null);
@@ -2030,13 +2065,17 @@ void window_process(window w, array models, object callback, object arg) {
 
     each(models, model, m) {
         each(m->pipelines, pipeline, p) {
-            // update World uniform with our model default (from glTF)
-            each(p->resources, gpu, res)
-                if (res->uniform && isa(res->uniform) == typeid(World)) {
-                    ((World)res->uniform)->model = p->model;
-                }
-            if (user_fn)
-                user_fn(p, arg);
+            // update PBR uniform with our model default (from glTF)
+            each(p->shader_uniforms->u_buffers, shader, s) {
+                if (instanceof(s, PBR))
+                    ((PBR)s)->model = p->model;
+            }
+        
+            if (callback) // user will always store their own references to their own shader
+                ((u_callback)callback)(p, arg);
+                
+            // important that this happen instantly after user sets
+            update(p->shader_uniforms);
             // user may indeed set uniforms different depending on the pipeline; this is quite natural and not always redundant
             render(p, frame);
         }
@@ -2198,9 +2237,43 @@ void replace_includes(const char *src, const char *dst) {
     fclose(dst_file);
 }
 
+/// instance uniforms data for a shader with uniforms
+void uniforms_update(uniforms a) {
+    each(a->u_buffers, buffer, b) {
+        uniform_transfer(a->s, b->data, (AType)b->user);
+        update(b, null);
+    }
+}
+
+void uniforms_init(uniforms a) {
+    trinity t = a->t;
+    list types = list();
+    AType ty = isa(a->s);
+    while (ty != typeid(shader)) {
+        insert_after(types, ty, -1); // todo: would be nice if AType can be an object -- we gave it static A header above each, so it should
+        ty = ty->parent_type;
+    }
+    int    u_index  = 0;
+    i32    total_uniform = 0;
+    each (types, AType, ty)
+        total_uniform += uniform_size(ty);
+    
+    a->u_memory = A_alloc(typeid(u8), total_uniform, false);
+    u8*     src = a->u_memory;
+    each (types, AType, ty) { // uniform data stays contiguous in one allocation -- referenced at index by many buffers
+        num u_size = uniform_size(ty);
+        buffer uniform = buffer(t, t, size, u_size,
+            u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
+            data, &src[u_index], user, (ARef)ty);
+        push(a->u_buffers, uniform);
+        u_index += u_size;
+    }
+}
+
 void shader_init(shader s) {
-    // generate .spv for shader resources
     trinity t = s->t;
+
+    // generate .spv for shader resources
     string spv_file;
     bool found = false;
     
@@ -2208,6 +2281,11 @@ void shader_init(shader s) {
     s->vert = form(string, "shaders/%o.vert", s->name);
     s->comp = form(string, "shaders/%o.comp", s->name);
 
+    if (!s->name) {
+        AType type = isa(s);
+        verify(type != typeid(shader), "base shader usage requires a shader name");
+        s->name = string(type->name);
+    }
     char cwd[255]; // PATH_MAX is system-defined maximum path length
 
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
@@ -2537,6 +2615,8 @@ void buffer_transfer(buffer b, window w) {
 
 
 none buffer_update(buffer a, ARef data) {
+    if (!a->size) return;
+    if (!data) data = (ARef)a->data;
     ARef m = mmap(a);
     memcpy(m, data, a->size);
     unmap(a);
@@ -2574,11 +2654,16 @@ define_class(model)
 define_class(window)
 define_class(buffer)
 define_class(command)
+define_class(IBL) 
+// abstract identifier to indicate functionality 
+// of non-texture case of attribute, still under the enumerable Surface
 
 define_class(particle)
 
 define_enum(Surface)
+ 
+define_mod(PBR,   shader)
+define_mod(Env,   shader)
+define_mod(Rays,  shader)
 
-define_class(World)
-define_class(Env)
 

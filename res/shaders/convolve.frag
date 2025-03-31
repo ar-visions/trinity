@@ -6,59 +6,112 @@ layout(location = 0) in vec3 dir;
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
+const float TwoPI = 2.0 * PI;
+const float Epsilon = 0.00001;
 
-// Radical inverse based on http://holger.dammertz.org/stuff/notes_HammersleyOnHemisphere.html
-vec2 hammersley2d(uint i, uint N) {
-    uint bits = (i << 16u) | (i >> 16u);
+// Compute Van der Corput radical inverse
+float radicalInverse_VdC(uint bits) {
+    bits = (bits << 16u) | (bits >> 16u);
     bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
     bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
     bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
     bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
-    float rdi = float(bits) * 2.3283064365386963e-10;
-    return vec2(float(i) / float(N), rdi);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
 }
 
-vec3 sampleHemisphere(vec2 Xi, vec3 center, float roughness) {
-    //float thetaMax = roughness * PI * 0.5; // max cone angle
-    float thetaMax = min(roughness * PI * 0.5, radians(75.0));
-    float cosTheta = mix(1.0, cos(thetaMax), Xi.y);
-    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-    float phi      = 2.0 * PI * Xi.x;
-    vec3  local    = vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-
-    // align to 'center' direction
-    vec3  up       = abs(center.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
-    vec3  tangentX = normalize(cross(up, center));
-    vec3  tangentY = cross(center, tangentX);
-    return normalize(local.x * tangentX + local.y * tangentY + local.z * center);
+// Sample i-th point from Hammersley point set
+vec2 sampleHammersley(uint i, int numSamples) {
+    float invNumSamples = 1.0 / float(numSamples);
+    return vec2(float(i) * invNumSamples, radicalInverse_VdC(i));
 }
 
-vec4 prefilterEnvMap(vec3 R, float roughness, int numSamples) {
-    vec3  color         = vec3(0.0);
-    float totalWeight   = 0.0;
-    float envMapDim     = float(textureSize(tx_environment, 0).s);
-    float sigma         = roughness * PI * 0.5;
+// Sample GGX normal distribution function
+vec3 sampleGGX(float u1, float u2, float roughness) {
+    float alpha = roughness * roughness;
 
-    for (uint i = 0u; i < uint(numSamples); ++i) {
-        vec2  Xi        = hammersley2d(i, uint(numSamples));
-        vec3  rand      = sampleHemisphere(Xi, dir, roughness); // <--- your actual random sample direction around R
-        float dotpr     = clamp(dot(dir, rand), 0.0, 1.0); // angular closeness to reflection direction
-        float theta     = acos(dotpr); // deviation angle
-        float w         = exp(-theta * theta / (2.0 * sigma * sigma)); // Gaussian weight
+    float cosTheta = sqrt((1.0 - u2) / (1.0 + (alpha*alpha - 1.0) * u2));
+    float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+    float phi = TwoPI * u1;
+
+    // Convert to Cartesian
+    return vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+}
+
+// GGX/Towbridge-Reitz normal distribution function
+float ndfGGX(float cosLh, float roughness) {
+    float alpha = roughness * roughness;
+    float alphaSq = alpha * alpha;
+
+    float denom = (cosLh * cosLh) * (alphaSq - 1.0) + 1.0;
+    return alphaSq / (PI * denom * denom);
+}
+
+// Compute orthonormal basis
+void computeBasisVectors(const vec3 N, out vec3 S, out vec3 T) {
+    T = cross(N, vec3(0.0, 1.0, 0.0));
+    T = mix(cross(N, vec3(1.0, 0.0, 0.0)), T, step(Epsilon, dot(T, T)));
+
+    T = normalize(T);
+    S = normalize(cross(N, T));
+}
+
+// Convert from tangent space to world space
+vec3 tangentToWorld(const vec3 v, const vec3 N, const vec3 S, const vec3 T) {
+    return S * v.x + T * v.y + N * v.z;
+}
+
+vec3 prefilterEnvMap(vec3 R, float roughness, int numSamples) {
+    // Using R as the normal direction
+    vec3 N = R;
+    vec3 Lo = N; // View direction equals normal direction (isotropic reflection)
+    
+    // Compute basis vectors for tangent space
+    vec3 S, T;
+    computeBasisVectors(N, S, T);
+    
+    vec3 color = vec3(0.0);
+    float weight = 0.0;
+    
+    // Get approximate size of the environment map for mip selection
+    vec2 envMapSize = vec2(textureSize(tx_environment, 0));
+    float wt = 4.0 * PI / (6.0 * envMapSize.x * envMapSize.y);
+    
+    // Convolve environment map using GGX NDF importance sampling
+    for (uint i = 0; i < uint(numSamples); ++i) {
+        vec2 u = sampleHammersley(i, numSamples);
+        vec3 Lh = tangentToWorld(sampleGGX(u.x, u.y, roughness), N, S, T);
         
-        if (dotpr > 0.0) {
-            vec3  s      = textureLod(tx_environment, rand, 0).rgb;
-            color       += s * w;
-            totalWeight +=     w;
+        // Compute incident direction by reflecting viewing direction around half-vector
+        vec3 Li = 2.0 * dot(Lo, Lh) * Lh - Lo;
+        
+        float cosLi = dot(N, Li);
+        if (cosLi > 0.0) {
+            float cosLh = max(dot(N, Lh), 0.0);
+            
+            // PDF for GGX NDF sampling
+            float pdf = ndfGGX(cosLh, roughness) * 0.25;
+            
+            // Solid angle of current sample
+            float ws = 1.0 / (float(numSamples) * pdf);
+            
+            // Mip level to sample from
+            float mipLevel = max(0.5 * log2(ws / wt), 0.0);
+            
+            color += textureLod(tx_environment, Li, mipLevel).rgb * cosLi;
+            weight += cosLi;
         }
     }
-
-    return vec4(color / totalWeight, 1.0);
+    
+    // Normalize by weight
+    return (weight > 0.0) ? (color / weight) : color;
 }
 
 void main() {
-    float roughness  = e.roughness_samples.x;
-    int   numSamples = int(e.roughness_samples.y);
-    outColor = (roughness < 0.01) ? texture(tx_environment, normalize(dir)) : 
-        prefilterEnvMap(normalize(dir), roughness, numSamples);
+    vec3 R = normalize(dir);
+    float roughness = pow(e.roughness_samples.x, 0.5); // 0...1
+    int numSamples = int(e.roughness_samples.y); // we use 1024
+
+    outColor = (roughness < 0.01)
+        ? texture(tx_environment, R)
+        : vec4(prefilterEnvMap(R, roughness, numSamples), 1.0);
 }

@@ -3,7 +3,7 @@
 
 #include <A>
 #include <vec>
-#include <gltf>
+#include <gltf-public>
 
 typedef void* skia_t;
 typedef void* handle_t;
@@ -161,28 +161,6 @@ declare_sentry(Two);
 declare_sentry(Three);
 declare_sentry(Four);
 
-#define World_schema(X,Y,...) \
-    i_prop   (X,Y, public,     vec4f, pos) \
-    i_prop   (X,Y, public,     vec4f, dir) \
-    i_prop   (X,Y, public,     mat4f, model) \
-    i_prop   (X,Y, public,     mat4f, view) \
-    i_prop   (X,Y, public,     mat4f, proj) \
-    i_override(X,Y, method, init)
-#ifndef World_intern
-#define World_intern
-#endif
-declare_class(World)
-
-#define Env_schema(X,Y,...) \
-    i_prop   (X,Y, public,     mat4f, view) \
-    i_prop   (X,Y, public,     mat4f, proj) \
-    i_prop   (X,Y, public,     vec2f, roughness_samples) \
-    i_override(X,Y, method, init)
-#ifndef Env_intern
-#define Env_intern
-#endif
-declare_class(Env)
-
 #define Surface_schema(X,Y,...) \
     enum_value_v_2(X,Y, none,           0, Zero) \
     enum_value_v_2(X,Y, color,          1, Four) \
@@ -236,10 +214,19 @@ typedef struct _image*    image;
     i_prop    (X,Y, public,     bool,                rt_support) \
     i_method  (X,Y, public,     texture,             environment, image) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef trinity_intern
-#define trinity_intern
-#endif
 declare_class(trinity)
+
+#define uniforms_schema(X,Y,...) \
+    i_prop    (X,Y, required,   trinity,            t) \
+    i_prop    (X,Y, required,   shader,             s) \
+    i_prop    (X,Y, intern,     array,              u_memory) \
+    i_prop    (X,Y, intern,     array,              u_buffers) \
+    i_method  (X,Y, public,     none,      update) \
+    i_override(X,Y, method,     init)
+declare_class(uniforms)
+
+typedef struct _shader* shader;
+typedef none(*u_callback)(pipeline, object);
 
 #define shader_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,            t) \
@@ -251,10 +238,45 @@ declare_class(trinity)
     i_prop    (X,Y, intern,     VkShaderModule,     vk_frag) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_comp) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef shader_intern
-#define shader_intern
-#endif
 declare_class(shader)
+
+#define IBL_schema(X,Y,...)
+declare_class(IBL)
+
+/// attribute is a type, and a value; name is baked into enumerables
+#define PBR_schema(X,Y,...) \
+    i_prop   (X,Y, public,     vec4f,   pos) \
+    i_prop   (X,Y, public,     vec4f,   dir) \
+    i_prop   (X,Y, public,     mat4f,   model) \
+    i_prop   (X,Y, public,     mat4f,   view) \
+    i_prop   (X,Y, public,     mat4f,   proj) \
+    i_attr   (X,Y, Surface,    color,         rgba8) \
+    i_attr   (X,Y, Surface,    normal,        rgba8) \
+    i_attr   (X,Y, Surface,    emission,      rgbaf) \
+    i_attr   (X,Y, Surface,    rough,         u8) \
+    i_attr   (X,Y, Surface,    metal,         u8) \
+    i_attr   (X,Y, Surface,    height,        f32) \
+    i_attr   (X,Y, Surface,    ao,            u8) \
+    i_attr   (X,Y, Surface,    environment,   rgbaf, IBL) \
+    i_override(X,Y, method, init)
+declare_mod(PBR, shader)
+ 
+#define Rays_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     f32,   time)
+declare_mod(Rays, shader)
+
+#define Env_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     vec2f, roughness_samples) \
+    i_override(X,Y, method, init)
+declare_mod(Env, shader)
+
+#define Convolve_schema(X,Y,...)
+declare_mod(Convolve, PBR, shader)
 
 typedef struct _pipeline* pipeline;
 typedef struct _model*    model;
@@ -274,6 +296,7 @@ typedef struct _window*   window;
     i_prop    (X,Y, public,     bool,               m_device_local) \
     i_prop    (X,Y, public,     bool,               m_host_visible) \
     i_prop    (X,Y, public,     bool,               m_host_coherent) \
+    i_prop    (X,Y, intern,     ARef,               user) \
     i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory) \
     i_prop    (X,Y, intern,     VkBuffer,           vk_buffer) \
     i_method  (X,Y, public,     none,               update, ARef) \
@@ -281,9 +304,6 @@ typedef struct _window*   window;
     i_method  (X,Y, public,     ARef,               mmap) \
     i_method  (X,Y, public,     none,               unmap) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef buffer_intern
-#define buffer_intern
-#endif
 declare_class(buffer)
 
 #define window_schema(X,Y,...) \
@@ -329,9 +349,6 @@ declare_class(buffer)
     i_method  (X,Y, public,     none,                   push, model) \
     i_cast    (X,Y, public,     image) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef window_intern
-#define window_intern
-#endif
 declare_class(window)
 
 
@@ -358,9 +375,6 @@ declare_class(window)
     i_method  (X,Y, public,     object,                 get, num) \
     i_override(X,Y, method,     init, dealloc) \
     i_override(X,Y, method,     copy)
-#ifndef image_intern
-#define image_intern
-#endif
 declare_class(image)
 
 #define canvas_schema(X,Y,...) \
@@ -371,9 +385,6 @@ declare_class(image)
     i_method  (X,Y, public, none, color,  object) \
     i_method  (X,Y, public, none, bezier, object, object, object) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef canvas_intern
-#define canvas_intern
-#endif
 declare_mod(canvas, image)
 
 #define command_schema(X,Y,...) \
@@ -382,9 +393,6 @@ declare_mod(canvas, image)
     i_method  (X,Y, public, none, begin) \
     i_method  (X,Y, public, none, submit) \
     i_override(X,Y, method, init, dealloc)
-#ifndef command_intern
-#define command_intern
-#endif
 declare_class(command)
 
 #define texture_schema(X,Y,...) \
@@ -402,9 +410,6 @@ declare_class(command)
     i_prop(X,Y, intern,   VkSampler,        vk_sampler) \
     i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory) \
     i_override(X,Y, method, init, dealloc)
-#ifndef texture_intern
-#define texture_intern
-#endif
 declare_class(texture)
 
 typedef struct _Accessor* Accessor;
@@ -420,7 +425,6 @@ typedef struct vertex_member_t {
     i_prop(X,Y, required, cstr,         name) \
     i_prop(X,Y, public,   image,        sampler) \
     i_prop(X,Y, intern,   texture,      texture) \
-    i_prop(X,Y, public,   object,       uniform) \
     i_prop(X,Y, public,   object,       vertex_data) \
     i_prop(X,Y, public,   object,       index_data) \
     i_vprop(X,Y, public,  vertex_member_t, members) \
@@ -431,7 +435,6 @@ typedef struct vertex_member_t {
     i_prop(X,Y, public,   i32,          vertex_count) \
     i_prop(X,Y, intern,   buffer,       vertex) \
     i_prop(X,Y, intern,   buffer,       index) \
-    i_prop(X,Y, intern,   buffer,       vk_uniform) \
     i_prop(X,Y, intern,   VkImage,      vk_image) \
     i_prop(X,Y, intern,   VkImageView,  vk_image_view) \
     i_prop(X,Y, intern,   VkSampler,    vk_sampler) \
@@ -439,9 +442,6 @@ typedef struct vertex_member_t {
     i_prop(X,Y, public,   bool,         compute) \
     i_method(X,Y, public, none,         sync, window) \
     i_override(X,Y, method, init, dealloc)
-#ifndef gpu_intern
-#define gpu_intern
-#endif
 declare_class(gpu)
 
 /// shader is an array
@@ -450,12 +450,12 @@ typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   window,                 w) \
-    i_prop    (X,Y, required,   array,                  uniforms) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
     i_prop    (X,Y, public,     array,                  samplers) \
     i_prop    (X,Y, required,   shader,                 s) \
     i_prop    (X,Y, intern,     array,                  resources) \
+    i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
     i_vprop   (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout) \
@@ -468,9 +468,6 @@ typedef struct _Material* Material;
     i_method  (X,Y, public,     none, render,           handle) \
     i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, dealloc)
-#ifndef pipeline_intern
-#define pipeline_intern
-#endif
 declare_class(pipeline)
 
 /// will handle different texture overrides and uniforms
@@ -479,9 +476,6 @@ typedef struct _Primitive* Primitive;
 #define part_schema(X,Y,...) \
     i_prop    (X,Y, required, Primitive, id) \
     i_prop    (X,Y, public  , shader, s)
-#ifndef part_intern
-#define part_intern
-#endif
 declare_class(part)
 
 // we definitely want to allow for a null parts, which will render the entire node with the default shader!
@@ -489,16 +483,10 @@ typedef struct _Node* Node;
 #define node_schema(X,Y,...) \
     i_prop    (X,Y, public,   Node,   id) \
     i_prop    (X,Y, public,   array,  parts)
-#ifndef node_intern
-#define node_intern
-#endif
 declare_class(node)
 
 #define node_default null
 
-// lets store the uniform data for Camera on model
-// we render one model at a time (group of pipelines)
-// todo: no need for world object on model
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
     i_prop    (X,Y, required, trinity, t) \
@@ -506,14 +494,9 @@ typedef struct _Model* Model;
     i_prop    (X,Y, required, Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
     i_prop    (X,Y, public,   shader,  shader) \
-    i_prop    (X,Y, public,   array,   uniforms) \
     i_prop    (X,Y, public,   array,   samplers) \
-    i_prop    (X,Y, public,   World,   world) \
     i_prop    (X,Y, intern,   array,   pipelines) \
     i_override(X,Y, method, init, dealloc)
-#ifndef model_intern
-#define model_intern
-#endif
 declare_class(model)
 
 #define particle_schema(X,Y,...) \
@@ -521,9 +504,6 @@ declare_class(model)
     i_inlay(X,Y, public, vec2f,  velocity) \
     i_prop(X,Y,  public, f32,    density) \
     i_prop(X,Y,  public, f32,    pressure)
-#ifndef particle_intern
-#define particle_intern
-#endif
 declare_class(particle)
 
 #endif

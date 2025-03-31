@@ -174,17 +174,3 @@ lib:
 		IOKit
 		CoreGraphics
 		CoreFoundation
-app:
-	A
-	m
-	linux:
-		vulkan
-	windows:
-		vulkan-1
-	darwin:
-		MoltenVK
-		Foundation
-		AppKit
-		IOKit
-		CoreGraphics
-		CoreFoundation
