@@ -161,6 +161,8 @@ declare_sentry(Two);
 declare_sentry(Three);
 declare_sentry(Four);
 
+typedef struct _pipeline* pipeline;
+typedef struct _gpu* gpu;
 #define Surface_schema(X,Y,...) \
     enum_value_v_2(X,Y, none,           0, Zero) \
     enum_value_v_2(X,Y, color,          1, Four) \
@@ -170,7 +172,8 @@ declare_sentry(Four);
     enum_value_v_2(X,Y, metal,          5, One) \
     enum_value_v_2(X,Y, height,         6, One) \
     enum_value_v_2(X,Y, ao,             7, One) \
-    enum_value_v_2(X,Y, environment,    8, Four)
+    enum_value_v_2(X,Y, environment,    8, Four) \
+    enum_method(X,Y, gpu, resource, pipeline)
 declare_enum(Surface)
 
 #define Pixel_schema(X,Y,...) \
@@ -201,14 +204,14 @@ typedef struct _shader*   shader;
 typedef struct _texture*  texture;
 typedef struct _image*    image;
 #define trinity_schema(X,Y,...) \
-    i_prop    (X,Y, intern,     VkInstance,          instance) \
-    i_prop    (X,Y, intern,     VkSampleCountFlagBits, msaa_samples) \
-    i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device) \
-    i_prop    (X,Y, intern,     VkDevice,            device) \
-    i_prop    (X,Y, intern,     VkQueue,             queue) \
-    i_prop    (X,Y, intern,     VkDebugUtilsMessengerEXT, debug) \
-    i_prop    (X,Y, intern,     VkCommandPool,       command_pool) \
-    i_prop    (X,Y, intern,     i32,                 queue_family_index) \
+    i_prop    (X,Y, intern,     VkInstance,          instance,        as, ARef) \
+    i_prop    (X,Y, intern,     i64,                 msaa_samples) \
+    i_prop    (X,Y, intern,     VkPhysicalDevice,    physical_device, as, ARef) \
+    i_prop    (X,Y, intern,     VkDevice,            device,          as, ARef) \
+    i_prop    (X,Y, intern,     VkQueue,             queue,           as, ARef) \
+    i_prop    (X,Y, intern,     VkDebugUtilsMessengerEXT, debug,      as, ARef) \
+    i_prop    (X,Y, intern,     VkCommandPool,       command_pool,    as, ARef) \
+    i_prop    (X,Y, public,     i32,                 queue_family_index) \
     i_prop    (X,Y, intern,     map,                 device_memory) \
     i_prop    (X,Y, intern,     handle,              skia) \
     i_prop    (X,Y, public,     bool,                rt_support) \
@@ -229,16 +232,24 @@ typedef struct _shader* shader;
 typedef none(*u_callback)(pipeline, object);
 
 #define shader_schema(X,Y,...) \
-    i_prop    (X,Y, required,   trinity,            t) \
-    i_prop    (X,Y, required,   string,             name) \
+    i_prop    (X,Y, public,     trinity,            t) \
+    i_prop    (X,Y, public,     string,             name) \
     i_prop    (X,Y, public,     string,             vert)  \
     i_prop    (X,Y, public,     string,             frag)  \
     i_prop    (X,Y, public,     string,             comp)  \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_vert) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_frag) \
-    i_prop    (X,Y, intern,     VkShaderModule,     vk_comp) \
+    i_prop    (X,Y, intern,     VkShaderModule,     vk_vert, as, ARef) \
+    i_prop    (X,Y, intern,     VkShaderModule,     vk_frag, as, ARef) \
+    i_prop    (X,Y, intern,     VkShaderModule,     vk_comp, as, ARef) \
     i_override(X,Y, method,     init, dealloc)
 declare_class(shader)
+
+ #define Basic_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_attr   (X,Y, Surface,    color,  rgbaf)
+declare_mod(Basic, shader)
+
 
 #define IBL_schema(X,Y,...)
 declare_class(IBL)
@@ -260,7 +271,7 @@ declare_class(IBL)
     i_attr   (X,Y, Surface,    environment,   rgbaf, IBL) \
     i_override(X,Y, method, init)
 declare_mod(PBR, shader)
- 
+
 #define Rays_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
@@ -272,11 +283,16 @@ declare_mod(Rays, shader)
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
+    i_attr   (X,Y, Surface,    color,  rgbaf) \
     i_override(X,Y, method, init)
 declare_mod(Env, shader)
 
-#define Convolve_schema(X,Y,...)
-declare_mod(Convolve, PBR, shader)
+#define Convolve_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     vec2f, roughness_samples) \
+    i_attr   (X,Y, Surface,    environment,  rgbaf)
+declare_mod(Convolve, shader)
 
 typedef struct _pipeline* pipeline;
 typedef struct _model*    model;
@@ -297,8 +313,8 @@ typedef struct _window*   window;
     i_prop    (X,Y, public,     bool,               m_host_visible) \
     i_prop    (X,Y, public,     bool,               m_host_coherent) \
     i_prop    (X,Y, intern,     ARef,               user) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory) \
-    i_prop    (X,Y, intern,     VkBuffer,           vk_buffer) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory, as, ARef) \
+    i_prop    (X,Y, intern,     VkBuffer,           vk_buffer, as, ARef) \
     i_method  (X,Y, public,     none,               update, ARef) \
     i_method  (X,Y, public,     none,               transfer, window) \
     i_method  (X,Y, public,     ARef,               mmap) \
@@ -306,33 +322,33 @@ typedef struct _window*   window;
     i_override(X,Y, method,     init, dealloc)
 declare_class(buffer)
 
+
 #define window_schema(X,Y,...) \
     i_prop    (X,Y, intern,     handle,                 window) \
-    i_prop    (X,Y, intern,     VkSurfaceKHR,           surface) \
-    i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain) \
+    i_prop    (X,Y, intern,     VkSurfaceKHR,           surface,        as, ARef) \
+    i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain,        as, ARef) \
     i_prop    (X,Y, intern,     array,                  models) \
-    i_prop    (X,Y, intern,     VkSurfaceCapabilitiesKHR, surface_caps) \
-    i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format) \
-    i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode) \
-    i_prop    (X,Y, intern,     VkExtent2D,             extent) \
-    i_prop    (X,Y, intern,     VkRenderPass,           render_pass) \
-    i_prop    (X,Y, intern,     VkFramebuffer*,         framebuffers) \
-    i_prop    (X,Y, intern,     VkImage*,               depth_images) \
-    i_prop    (X,Y, intern,     VkImageView*,           depth_image_views) \
-    i_prop    (X,Y, intern,     VkDeviceMemory*,        depth_image_memory) \
-    i_prop    (X,Y, intern,     VkImage,                resolve_image) \
-    i_prop    (X,Y, intern,     VkImageView,            resolve_view) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,         resolve_memory) \
-    i_prop    (X,Y, intern,     VkImage,                color_image) \
-    i_prop    (X,Y, intern,     VkImageView,            color_view) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,         color_memory) \
+    i_prop    (X,Y, intern,     VkSurfaceCapabilitiesKHR*, surface_caps,        as, ARef) \
+    i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format,        as, i64) \
+    i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode,          as, i32) \
+    i_prop    (X,Y, intern,     VkExtent2D,             extent,                as, i64) \
+    i_prop    (X,Y, intern,     VkRenderPass,           render_pass,           as, ARef) \
+    i_prop    (X,Y, intern,     VkFramebuffer*,         framebuffers,          as, ARef) \
+    i_prop    (X,Y, intern,     VkImage*,               depth_images,          as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView*,           depth_image_views,     as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory*,        depth_image_memory,    as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                resolve_image,         as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            resolve_view,          as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         resolve_memory,        as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                color_image,           as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            color_view,            as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         color_memory,          as, ARef) \
     i_prop    (X,Y, intern,     u32,                    image_count) \
-    i_prop    (X,Y, intern,     VkFence*,               command_fences) \
-    i_prop    (X,Y, intern,     VkCommandBuffer*,       command_buffers) \
-    i_prop    (X,Y, intern,     VkSemaphore*,           image_available_semaphore) \
-    i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore) \
-    i_prop    (X,Y, intern,     VkFence,                in_flight_fence) \
-    i_prop    (X,Y, intern,     VkSwapchainCreateInfoKHR, config) \
+    i_prop    (X,Y, intern,     VkFence*,               command_fences,        as, ARef) \
+    i_prop    (X,Y, intern,     VkCommandBuffer*,       command_buffers,       as, ARef) \
+    i_prop    (X,Y, intern,     VkSemaphore*,           image_available_semaphore, as, ARef) \
+    i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore, as, ARef) \
+    i_prop    (X,Y, intern,     VkFence,                in_flight_fence,      as, ARef) \
     i_prop    (X,Y, intern,     ARef,                   loop_callback) \
     i_prop    (X,Y, intern,     ARef,                   loop_arg) \
     i_prop    (X,Y, intern,     i32,                    semaphore_frame) \
@@ -389,7 +405,7 @@ declare_mod(canvas, image)
 
 #define command_schema(X,Y,...) \
     i_prop(X,Y, required, trinity, t) \
-    i_prop(X,Y, intern,   VkCommandBuffer,  vk) \
+    i_prop(X,Y, intern,   VkCommandBuffer,  vk, as, ARef) \
     i_method  (X,Y, public, none, begin) \
     i_method  (X,Y, public, none, submit) \
     i_override(X,Y, method, init, dealloc)
@@ -404,11 +420,11 @@ declare_class(command)
     i_prop(X,Y, public,   i32,              mip_levels) \
     i_prop(X,Y, public,   i32,              layer_count) \
     i_prop(X,Y, public,   Surface,          surface) \
-    i_prop(X,Y, intern,   VkFormat,         vk_format) \
-    i_prop(X,Y, intern,   VkImage,          vk_image) \
-    i_prop(X,Y, intern,   VkImageView,      vk_image_view) \
-    i_prop(X,Y, intern,   VkSampler,        vk_sampler) \
-    i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory) \
+    i_prop(X,Y, intern,   VkFormat,         vk_format,      as, i32) \
+    i_prop(X,Y, intern,   VkImage,          vk_image,       as, ARef) \
+    i_prop(X,Y, intern,   VkImageView,      vk_image_view,  as, ARef) \
+    i_prop(X,Y, intern,   VkSampler,        vk_sampler,     as, ARef) \
+    i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory,      as, ARef) \
     i_override(X,Y, method, init, dealloc)
 declare_class(texture)
 
@@ -424,7 +440,7 @@ typedef struct vertex_member_t {
     i_prop(X,Y, required, trinity,      t) \
     i_prop(X,Y, required, cstr,         name) \
     i_prop(X,Y, public,   image,        sampler) \
-    i_prop(X,Y, intern,   texture,      texture) \
+    i_prop(X,Y, intern,   texture,      tx) \
     i_prop(X,Y, public,   object,       vertex_data) \
     i_prop(X,Y, public,   object,       index_data) \
     i_vprop(X,Y, public,  vertex_member_t, members) \
@@ -435,10 +451,10 @@ typedef struct vertex_member_t {
     i_prop(X,Y, public,   i32,          vertex_count) \
     i_prop(X,Y, intern,   buffer,       vertex) \
     i_prop(X,Y, intern,   buffer,       index) \
-    i_prop(X,Y, intern,   VkImage,      vk_image) \
-    i_prop(X,Y, intern,   VkImageView,  vk_image_view) \
-    i_prop(X,Y, intern,   VkSampler,    vk_sampler) \
-    i_prop(X,Y, intern,   VkDeviceMemory, vk_memory) \
+    i_prop(X,Y, intern,   VkImage,      vk_image,       as, ARef) \
+    i_prop(X,Y, intern,   VkImageView,  vk_image_view,  as, ARef) \
+    i_prop(X,Y, intern,   VkSampler,    vk_sampler,     as, ARef) \
+    i_prop(X,Y, intern,   VkDeviceMemory, vk_memory,    as, ARef) \
     i_prop(X,Y, public,   bool,         compute) \
     i_method(X,Y, public, none,         sync, window) \
     i_override(X,Y, method, init, dealloc)
@@ -458,13 +474,13 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
-    i_vprop   (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout) \
-    i_prop    (X,Y, intern,     VkDescriptorPool,       descriptor_pool) \
-    i_prop    (X,Y, intern,     VkDescriptorSet,        bind) \
-    i_prop    (X,Y, intern,     VkPipeline,             vk_render) \
-    i_prop    (X,Y, intern,     VkPipeline,             vk_compute) \
-    i_prop    (X,Y, intern,     VkPipelineLayout,       layout) \
-    i_prop    (X,Y, intern,     VkDescriptorSet,        descriptor_set) \
+    i_prop    (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout,  as, ARef) \
+    i_prop    (X,Y, intern,     VkDescriptorPool,       descriptor_pool,    as, ARef) \
+    i_prop    (X,Y, intern,     VkDescriptorSet,        bind,               as, ARef) \
+    i_prop    (X,Y, intern,     VkPipeline,             vk_render,          as, ARef) \
+    i_prop    (X,Y, intern,     VkPipeline,             vk_compute,         as, ARef) \
+    i_prop    (X,Y, intern,     VkPipelineLayout,       layout,             as, ARef) \
+    i_prop    (X,Y, intern,     VkDescriptorSet,        descriptor_set,     as, ARef) \
     i_method  (X,Y, public,     none, render,           handle) \
     i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, dealloc)
@@ -493,7 +509,7 @@ typedef struct _Model* Model;
     i_prop    (X,Y, required, window,  w) \
     i_prop    (X,Y, required, Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
-    i_prop    (X,Y, public,   shader,  shader) \
+    i_prop    (X,Y, public,   shader,  s) \
     i_prop    (X,Y, public,   array,   samplers) \
     i_prop    (X,Y, intern,   array,   pipelines) \
     i_override(X,Y, method, init, dealloc)

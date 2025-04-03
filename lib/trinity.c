@@ -102,6 +102,11 @@ void transition_image_layout(
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -344,7 +349,7 @@ void window_resize(window w, i32 width, i32 height) {
         VkSwapchainCreateInfoKHR swapchain_info = {
             .sType              = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface            = w->surface,
-            .minImageCount      = w->surface_caps.minImageCount,
+            .minImageCount      = w->surface_caps->minImageCount,
             .imageFormat        = w->surface_format.format,
             .imageColorSpace    = w->surface_format.colorSpace,
             .imageExtent        = {
@@ -354,7 +359,7 @@ void window_resize(window w, i32 width, i32 height) {
             .imageArrayLayers   = 1,
             .imageUsage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
             .imageSharingMode   = VK_SHARING_MODE_EXCLUSIVE,
-            .preTransform       = w->surface_caps.currentTransform,
+            .preTransform       = w->surface_caps->currentTransform,
             .compositeAlpha     = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
             .presentMode        = w->present_mode,
             .clipped            = VK_TRUE,
@@ -682,7 +687,7 @@ void model_init(model m) {
     if (m->nodes) {
         each (m->nodes, node, n)
             each (n->parts, part, p)
-                model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->shader);
+                model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
     } else {
         each(mdl->nodes, Node, n) {
             bool has_mesh = n->mesh > 0;
@@ -696,7 +701,7 @@ void model_init(model m) {
             if (has_mesh) {
                 Mesh mesh = get(mdl->meshes, n->mesh);
                 each(mesh->primitives, Primitive, prim)
-                    model_init_pipeline(m, n, prim, m->shader);
+                    model_init_pipeline(m, n, prim, m->s);
             }
         }
     }
@@ -833,7 +838,7 @@ texture trinity_environment(trinity t, image img) {
     Model  data     = read   (gltf, typeid(Model) );
     Env    e        = Env    (t, t, name, string("env"));
     array  samplers = a      (clone, null);
-    model  env      = model  (t, t, w, w, id, data, shader, e, samplers, samplers);
+    model  env      = model  (t, t, w, w, id, data, s, e, samplers, samplers);
     array  models   = a      (env, null);
 
     e->proj = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
@@ -884,6 +889,10 @@ texture trinity_environment(trinity t, image img) {
     for (int f = 0; f < 6; f++) { 
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         process(w, models, null, null);
+
+        //image screen = cast(image, w);
+        //exr(screen, form(path, "screenshot.exr"));
+
         transition_image_layout(t, w->resolve_image,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
         transition_image_layout(t, vk_image[0],
@@ -910,21 +919,25 @@ texture trinity_environment(trinity t, image img) {
         t, t, vk_image, vk_image[0], surface, Surface_environment, vk_format, w->surface_format.format, mip_levels, mip_levels, layer_count, 6);
 
     /// convolve environment to create a multi-sampled cube
-    Convolve conv_shader = Convolve (t, t, name, string("convolve"));
-    array  conv_samplers = a(clone, cube, null); // must allow textures to register with gpu
-    model  conv          = model  (t, t, w, w, id, data, shader, conv_shader, samplers, conv_samplers);
+    Convolve conv_shader = Convolve (t, t, name, string("conv"), proj, e->proj);
+    array  conv_samplers = a(cube, null); // must allow textures to register with gpu
+    model  conv          = model  (t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  conv_models   = a(conv, null);
 
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
-        e->roughness_samples = vec2f(roughness * roughness, 1024.0f);
+        conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
         
         for (int f = 0; f < 6; f++) {
             int face_id = a * 6 + f;
-            e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
+            conv_shader->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
 
             process(w, conv_models, null, null);
             //image img = cast(image, w);
+
+            //image screen = cast(image, w);
+            //exr(screen, form(path, "conv.exr"));
+
             transition_image_layout(t, w->resolve_image,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
             transition_image_layout(t, vk_image[1],
@@ -1000,54 +1013,44 @@ texture trinity_environment(trinity t, image img) {
     return img->user;
 }
 
+i64 A_virtual_size(AType t) {
+    i64 type_size = t->size;
+    if (!(t->traits & A_TRAIT_STRUCT || t->traits & A_TRAIT_PRIMITIVE))
+        type_size -= sizeof(ARef);
+    return type_size;
+}
+
 num uniform_size(AType type) {
     num   total = 0;
     for (int m = 0; m < type->member_count; m++) {
-        type_member_t* mem = &type->members[m];
-        if (mem->member_type == A_MEMBER_PROP || mem->member_type == A_MEMBER_INLAY)
-            total += mem->type->size;
-            // i am thinking if we could generically distinguish 
-            // between reference types of data and structures
-            // on the type basis then we may copy just parts or
-            // the entire data structure at once.  our type can
-            // tell us how to assemble the uniform
+        struct type_member_t* mem = &type->members[m];
+        bool inlay = mem->member_type == A_MEMBER_INLAY;
+        if (mem->member_type == A_MEMBER_PROP || inlay)
+            total += A_virtual_size(mem->type);
     }
     return total;
 }
+
+
 
 /// sub procedure of shader; transfer one type at a time
 /// we may perform this in meta as well, but i think poly should be a base implementation
 i64 uniform_transfer(object src, u8* data, AType src_type) {
     verify(instanceof(src, shader), "shader instance not provided");
-    
     AType type      = isa(src);
     num   index     = 0;
     u8*   src_bytes = src;
-    num   start     = typeid(shader)->size;
-    AType t         = src_type->parent_type;
-
-    while (t != typeid(shader)) {
-        start = t->size;
-        t     = t->parent_type;
-    }
 
     for (int m = 0; m < type->member_count; m++) {
         type_member_t* mem = &type->members[m];
-
-        /// lets skip the shader members, leaving our uniform data;
-        /// and this data need not be uniform; we may have object -> data
-        if (mem->offset < start)
-            continue;
-        
         bool inlay = mem->member_type == A_MEMBER_INLAY; // inlay is when you take a normal object and effectively have all of its structure memory in your own -- dealloc still in our A_dealloc
         if (mem->member_type == A_MEMBER_PROP || inlay) {
+            int type_size = A_virtual_size(mem->type);
             if (inlay || mem->type->traits & A_TRAIT_STRUCT || mem->type->traits & A_TRAIT_PRIMITIVE)
-                memcpy(&data[index], &src_bytes[mem->offset], mem->type->size);
+                memcpy(&data[index], &src_bytes[mem->offset], type_size);
             else
-                memcpy(&data[index], A_data((object) &src_bytes[mem->offset]), mem->type->size);
-            index += mem->type->size;
-            if (index >= t->size)
-                break;
+                memcpy(&data[index], A_data((object) &src_bytes[mem->offset]), type_size);
+            index += type_size;
         }
     }
     return index;
@@ -1071,17 +1074,17 @@ none gpu_sync(gpu a, window w) {
                 m_host_visible, true, m_host_coherent, true, data, a->index_data);
     }
 
-    if (a->sampler && !a->texture) {
+    if (a->sampler && !a->tx) {
         image img = instanceof(a->sampler, image);
         texture tx = instanceof(a->sampler, texture);
         if (tx)
-            a->texture = hold(tx);
+            a->tx = hold(tx);
         else if (img && img->user)
-            a->texture = hold((texture)img->user);
+            a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
-            a->texture = environment(t, img);
+            a->tx = environment(t, img);
         else
-            a->texture = texture(t, t, sampler, a->sampler);
+            a->tx = texture(t, t, sampler, a->sampler);
     }
 }
 
@@ -1169,7 +1172,7 @@ none texture_init(texture a) {
     i32     sampler_size = 0;
     u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
     
-    a->mip_levels  = a->mip_levels  ? a->mip_levels  : 1;
+    a->mip_levels  = 1;//a->mip_levels  ? a->mip_levels  : 1;
     a->layer_count = a->layer_count ? a->layer_count : 1;
 
     if (a->vk_image) {
@@ -1341,7 +1344,7 @@ static pbrMetallicRoughness pbr_defaults() {
     return pbr;
 }
 
-gpu Surface_resource(int surface_value, pipeline p) {
+gpu Surface_resource(Surface surface_value, pipeline p) {
     gpu res = null;
     trinity t = p->t;
     /// check if user provides an image
@@ -1356,6 +1359,8 @@ gpu Surface_resource(int surface_value, pipeline p) {
     /// create resource fragment based on the texture type
     pbrMetallicRoughness pbr_default = pbr_defaults();
     pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
+    shader s = p->s;
+
     if (!res) {
         rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1446,61 +1451,73 @@ void pipeline_bind_resources(pipeline p) {
     
     // use enum type with value and meta type (context)
     AType shader_schema = isa(p->s);
-    for (int i = 0; i < shader_schema->member_count; i++) {
-        type_member_t* mem = &shader_schema->members[i];
+    while (shader_schema != typeid(shader)) {
+        for (int i = 0; i < shader_schema->member_count; i++) {
+            type_member_t* mem = &shader_schema->members[i];
 
-        // only look at attributes
-        if (mem->member_type != A_MEMBER_ATTR)
-            continue;
+            // only look at attributes
+            if (mem->member_type != A_MEMBER_ATTR)
+                continue;
 
-        // get enum type, and value
-        AType  enum_type  = mem->type;
-        i64    enum_value = mem->id;
-        AType  meta_type  = mem->args.meta_0;
-        verify(meta_type, "meta data not set on Surface/extension");
+            // get enum type, and value
+            AType  enum_type  = mem->type;
+            i64    enum_value = mem->id;
+            AType  meta_type  = mem->args.meta_0;
+            verify(meta_type, "meta data not set on Surface/extension");
 
-        type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
-        typedef object(*Resource)(i64, pipeline);
-        Resource resf = fn ? fn->ptr : null;
-        verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
-        gpu res = resf(enum_value, p);
-        verify(instanceof(res, gpu), "expected gpu resource");
+            type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
+            typedef object(*Resource)(i64, pipeline);
+            Resource resf = fn ? fn->ptr : null;
+            verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
+            gpu res = resf(enum_value, p);
+            verify(instanceof(res, gpu), "expected gpu resource");
 
-        /// add gpu resource; this is what will be updated when required
-        sync(res, p->w);
-        push(p->resources, res);
+            /// add gpu resource; this is what will be updated when required
+            sync(res, p->w);
+            push(p->resources, res);
 
-        bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
-            .binding = binding_count,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = stage_flags
-        };
-        binding_count++;
+            bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
+                .binding = binding_count,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = stage_flags
+            };
+            binding_count++;
 
-        image_infos[sampler_count] = (VkDescriptorImageInfo) {
-            .sampler     = res->texture->vk_sampler,
-            .imageView   = res->texture->vk_image_view, 
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-        sampler_count++;
+            image_infos[sampler_count] = (VkDescriptorImageInfo) {
+                .sampler     = res->tx->vk_sampler,
+                .imageView   = res->tx->vk_image_view, 
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            };
+            sampler_count++;
+        }
+        shader_schema = shader_schema->parent_type;
     }
 
+    print("sampler count = %i", sampler_count);
+    // at this point, somehow sampler count is 0? wtf. it went did ++ about 6 times above, as i traced it. seems to be a namespace issue but i see no other places for it
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = binding_count,
         .pBindings = bindings
     }, null, &p->descriptor_layout);
 
-    vkCreateDescriptorPool(p->t->device, &(VkDescriptorPoolCreateInfo) {
+    VkDescriptorPoolSize sizes[2] = {};
+    VkDescriptorPoolCreateInfo desc = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .poolSizeCount = 2,
-        .pPoolSizes = &(VkDescriptorPoolSize[2]) {
-            { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         .descriptorCount = uniform_count },
-            { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = sampler_count }
-        },
+        .poolSizeCount = 0,
+        .pPoolSizes = sizes,
         .maxSets = 1
-    }, null, &p->descriptor_pool);
+    };
+    if (uniform_count) {
+        sizes[desc.poolSizeCount].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        sizes[desc.poolSizeCount++].descriptorCount = uniform_count;
+    }
+    if (sampler_count) {
+        sizes[desc.poolSizeCount].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        sizes[desc.poolSizeCount++].descriptorCount = sampler_count;
+    }
+    vkCreateDescriptorPool(p->t->device, &desc, null, &p->descriptor_pool);
 
     vkAllocateDescriptorSets(p->t->device, &(VkDescriptorSetAllocateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -1546,6 +1563,9 @@ void pipeline_init(pipeline p) {
     i32     index_count  = vbo->index_count;
     trinity t            = p->t;
     window  w            = p->w;
+
+    Basic basic = p->s;
+    mat4f* addr = &basic->proj;
 
     bind_resources(p);
     
@@ -1785,6 +1805,10 @@ static void set_queue_index(trinity t, window w) {
     VkQueueFamilyProperties* queue_families = calloc(queue_family_count, sizeof(VkQueueFamilyProperties));
     vkGetPhysicalDeviceQueueFamilyProperties(t->physical_device, &queue_family_count, queue_families);
     bool found = false;
+    if (!w->surface) {
+        t->queue_family_index = 0; // works for testing
+        found = true;
+    } else
     for (uint32_t i = 0; i < queue_family_count; i++) {
         VkBool32 present_support = VK_FALSE;
         vkGetPhysicalDeviceSurfaceSupportKHR(t->physical_device, i, w->surface, &present_support);
@@ -1856,7 +1880,8 @@ void window_init(window w) {
 
     if (!w->backbuffer) {
         // Query surface capabilities
-        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &w->surface_caps);
+        w->surface_caps = calloc(1, sizeof(VkSurfaceCapabilitiesKHR));
+        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, w->surface_caps);
         verify(result == VK_SUCCESS, "Failed to query surface capabilities");
 
         // Query supported surface formats
@@ -2065,11 +2090,8 @@ void window_process(window w, array models, object callback, object arg) {
 
     each(models, model, m) {
         each(m->pipelines, pipeline, p) {
-            // update PBR uniform with our model default (from glTF)
-            each(p->shader_uniforms->u_buffers, shader, s) {
-                if (instanceof(s, PBR))
-                    ((PBR)s)->model = p->model;
-            }
+            if (instanceof(p->s, PBR))
+                ((PBR)p->s)->model = p->model;
         
             if (callback) // user will always store their own references to their own shader
                 ((u_callback)callback)(p, arg);
@@ -2248,6 +2270,9 @@ void uniforms_update(uniforms a) {
 void uniforms_init(uniforms a) {
     trinity t = a->t;
     list types = list();
+    Basic basic = a->s;
+    print("from uniforms_init: basic = %p, &basic->proj = %p", basic, &basic->proj); 
+
     AType ty = isa(a->s);
     while (ty != typeid(shader)) {
         insert_after(types, ty, -1); // todo: would be nice if AType can be an object -- we gave it static A header above each, so it should
@@ -2255,12 +2280,17 @@ void uniforms_init(uniforms a) {
     }
     int    u_index  = 0;
     i32    total_uniform = 0;
-    each (types, AType, ty)
+
+    for (item i = types->first; i; i = i->next) {
+        AType ty = i->value;
         total_uniform += uniform_size(ty);
+    }
     
+    a->u_buffers = array(4);
     a->u_memory = A_alloc(typeid(u8), total_uniform, false);
     u8*     src = a->u_memory;
-    each (types, AType, ty) { // uniform data stays contiguous in one allocation -- referenced at index by many buffers
+    for (item i = types->first; i; i = i->next) {
+        AType ty = i->value;
         num u_size = uniform_size(ty);
         buffer uniform = buffer(t, t, size, u_size,
             u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
@@ -2272,6 +2302,7 @@ void uniforms_init(uniforms a) {
 
 void shader_init(shader s) {
     trinity t = s->t;
+    if (!t) return; // for mock data and testing
 
     // generate .spv for shader resources
     string spv_file;
@@ -2389,6 +2420,8 @@ void shader_dealloc(shader s) {
 
 void trinity_init(trinity t) {
     verify(glfwInit(), "glfw init");
+    int wsize2 = sizeof(struct _window);
+    int bsize2 = sizeof(struct _Basic);
     if (!glfwVulkanSupported()) {
         fault("glfw does not support vulkan");
         glfwTerminate();
@@ -2654,7 +2687,9 @@ define_class(model)
 define_class(window)
 define_class(buffer)
 define_class(command)
+define_class(uniforms) 
 define_class(IBL) 
+
 // abstract identifier to indicate functionality 
 // of non-texture case of attribute, still under the enumerable Surface
 
@@ -2665,5 +2700,6 @@ define_enum(Surface)
 define_mod(PBR,   shader)
 define_mod(Env,   shader)
 define_mod(Rays,  shader)
+define_mod(Convolve,  shader)
 
-
+define_mod(Basic, shader)

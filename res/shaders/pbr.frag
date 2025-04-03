@@ -166,4 +166,5 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
 void main() {
     // Calculate PBR lighting
     fragColor = calculatePBR(v_uv, v_world_pos, normalize(v_world_normal), v_view_pos);
+    //fragColor = vec4(vec3(1.0), 1.0);
 }

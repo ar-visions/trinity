@@ -1,6 +1,6 @@
-#include <env>
+#include <conv>
 
-layout(set = 0, binding = 8) uniform samplerCube tx_environment;
+layout(set = 0, binding = 1) uniform samplerCube tx_environment;
 
 layout(location = 0) in vec3 dir;
 layout(location = 0) out vec4 outColor;
@@ -108,10 +108,10 @@ vec3 prefilterEnvMap(vec3 R, float roughness, int numSamples) {
 
 void main() {
     vec3 R = normalize(dir);
-    float roughness = pow(e.roughness_samples.x, 0.5); // 0...1
-    int numSamples = int(e.roughness_samples.y); // we use 1024
+    float roughness = pow(conv.roughness_samples.x, 0.5); // 0...1
+    int numSamples = int(conv.roughness_samples.y); // we use 1024
 
     outColor = (roughness < 0.01)
         ? texture(tx_environment, R)
-        : vec4(prefilterEnvMap(R, roughness, numSamples), 1.0);
+        : vec4(prefilterEnvMap(R, 0.8, numSamples), 1.0);
 }
