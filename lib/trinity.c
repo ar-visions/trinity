@@ -1,6 +1,7 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <import>
+#include <orbiter>
 #include <sys/stat.h>
 #include <math.h>
 #include <opencv.h>
@@ -823,7 +824,7 @@ none create_mipmaps(trinity t, VkImage vk_image, int w, int h, int mips, int lay
     }
 }
 
-texture trinity_environment(trinity t, image img) {
+texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotation) {
     if (img->user) return (texture)img->user;
 
     int    size    = 256;
@@ -889,10 +890,6 @@ texture trinity_environment(trinity t, image img) {
     for (int f = 0; f < 6; f++) { 
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         process(w, models, null, null);
-
-        //image screen = cast(image, w);
-        //exr(screen, form(path, "screenshot.exr"));
-
         transition_image_layout(t, w->resolve_image,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
         transition_image_layout(t, vk_image[0],
@@ -924,6 +921,10 @@ texture trinity_environment(trinity t, image img) {
     model  conv          = model  (t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  conv_models   = a(conv, null);
 
+    vec4f v = vec4f(rotation_axis.x, rotation_axis.y, rotation_axis.z, radians(90.0f));
+    quatf q = quatf(&v);
+    conv_shader->env = mat4f_ident();
+    conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -933,10 +934,8 @@ texture trinity_environment(trinity t, image img) {
             conv_shader->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
 
             process(w, conv_models, null, null);
-            //image img = cast(image, w);
-
             //image screen = cast(image, w);
-            //exr(screen, form(path, "conv.exr"));
+            //exr(screen, form(path, "screenshot.exr"));
 
             transition_image_layout(t, w->resolve_image,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
@@ -1082,7 +1081,7 @@ none gpu_sync(gpu a, window w) {
         else if (img && img->user)
             a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
-            a->tx = environment(t, img);
+            a->tx = environment(t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
         else
             a->tx = texture(t, t, sampler, a->sampler);
     }
@@ -1172,7 +1171,7 @@ none texture_init(texture a) {
     i32     sampler_size = 0;
     u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
     
-    a->mip_levels  = 1;//a->mip_levels  ? a->mip_levels  : 1;
+    a->mip_levels  = a->mip_levels  ? a->mip_levels  : 1;
     a->layer_count = a->layer_count ? a->layer_count : 1;
 
     if (a->vk_image) {
@@ -1414,13 +1413,13 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
 
 void pipeline_bind_resources(pipeline p) {
     trinity t     = p->t;
-    int binding_count = 0; // we start at 1, because its occupied by vulkan raytrace data
     int sampler_count = 0;
     int uniform_count = 0;
-    VkDescriptorSetLayoutBinding bindings         [16];
-    VkDescriptorBufferInfo       buffer_infos     [16];
-    VkDescriptorImageInfo        image_infos      [16];
-    VkWriteDescriptorSet         descriptor_writes[16];
+    VkDescriptorSetLayoutBinding sampler_bindings [32];
+    VkDescriptorSetLayoutBinding uniform_bindings [32];
+    VkDescriptorBufferInfo       buffer_infos     [32];
+    VkDescriptorImageInfo        image_infos      [32];
+    VkWriteDescriptorSet         descriptor_writes[32];
 
     p->resources = array(alloc, 32);
     if (p->vbo) {
@@ -1434,13 +1433,12 @@ void pipeline_bind_resources(pipeline p) {
     p->shader_uniforms = uniforms(t, t, s, p->s); // no need to have this in 'gpu' magic container
 
     each (p->shader_uniforms->u_buffers, buffer, b) {
-        bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
-            .binding         = binding_count,
+        uniform_bindings[uniform_count] = (VkDescriptorSetLayoutBinding) {
+            .binding         = uniform_count,
             .descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount = 1,
             .stageFlags      = stage_flags
         };
-        binding_count++;
         buffer_infos[uniform_count]  = (VkDescriptorBufferInfo) {
             .buffer = b->vk_buffer,
             .offset = 0,
@@ -1476,14 +1474,12 @@ void pipeline_bind_resources(pipeline p) {
             sync(res, p->w);
             push(p->resources, res);
 
-            bindings[binding_count] = (VkDescriptorSetLayoutBinding) {
-                .binding = binding_count,
+            sampler_bindings[sampler_count] = (VkDescriptorSetLayoutBinding) {
+                .binding = sampler_count,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = 1,
                 .stageFlags = stage_flags
             };
-            binding_count++;
-
             image_infos[sampler_count] = (VkDescriptorImageInfo) {
                 .sampler     = res->tx->vk_sampler,
                 .imageView   = res->tx->vk_image_view, 
@@ -1498,16 +1494,22 @@ void pipeline_bind_resources(pipeline p) {
     // at this point, somehow sampler count is 0? wtf. it went did ++ about 6 times above, as i traced it. seems to be a namespace issue but i see no other places for it
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = binding_count,
-        .pBindings = bindings
-    }, null, &p->descriptor_layout);
+        .bindingCount = uniform_count,
+        .pBindings = uniform_bindings
+    }, null, &p->descriptor_layouts[0]);
+
+    vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = sampler_count,
+        .pBindings = sampler_bindings
+    }, null, &p->descriptor_layouts[1]);
 
     VkDescriptorPoolSize sizes[2] = {};
     VkDescriptorPoolCreateInfo desc = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .poolSizeCount = 0,
         .pPoolSizes = sizes,
-        .maxSets = 1
+        .maxSets = 2
     };
     if (uniform_count) {
         sizes[desc.poolSizeCount].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1522,31 +1524,33 @@ void pipeline_bind_resources(pipeline p) {
     vkAllocateDescriptorSets(p->t->device, &(VkDescriptorSetAllocateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = p->descriptor_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &p->descriptor_layout
-    }, &p->descriptor_set);
+        .descriptorSetCount = 2,
+        .pSetLayouts = p->descriptor_layouts
+    }, p->descriptor_sets);
     
     // Update descriptor set with uniform buffers
     for (int i = 0; i < uniform_count; i++) {
         descriptor_writes[i] = (VkWriteDescriptorSet) {
             .sType              = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet             = p->descriptor_set,
+            .dstSet             = p->descriptor_sets[0],
             .dstBinding         = i,
             .descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .descriptorCount    = 1,
             .pBufferInfo        = &buffer_infos[i]
         };
     }
+    // inadequate because we have lost the polymorphic relationship; we should instead iterate through the types here
     for (int i = 0; i < sampler_count; i++) {
         descriptor_writes[uniform_count + i] = (VkWriteDescriptorSet) {
             .sType              = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet             = p->descriptor_set,
-            .dstBinding         = uniform_count + i,
+            .dstSet             = p->descriptor_sets[1],
+            .dstBinding         = i,
             .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount    = 1,
             .pImageInfo         = &image_infos[i]
         };
     }
+
     vkUpdateDescriptorSets(p->t->device, uniform_count + sampler_count, descriptor_writes, 0, null);
 }
 
@@ -1572,8 +1576,8 @@ void pipeline_init(pipeline p) {
     // Pipeline Layout (Bindings and Layouts)
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount         = 1,
-        .pSetLayouts            = &p->descriptor_layout,
+        .setLayoutCount         = 2,
+        .pSetLayouts            = p->descriptor_layouts,
         .pushConstantRangeCount = 0,
     };
 
@@ -1770,7 +1774,7 @@ void pipeline_render(pipeline p, handle f) {
         vkCmdBindPipeline(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->vk_render);
         VkDeviceSize offsets[] = { 0 };
 
-        vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->layout, 0, 1, &p->descriptor_set, 0, null);
+        vkCmdBindDescriptorSets(frame, VK_PIPELINE_BIND_POINT_GRAPHICS, p->layout, 0, 2, p->descriptor_sets, 0, null);
         vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vertex->vk_buffer, offsets);
 
         if (p->vbo->index) {

@@ -1,6 +1,6 @@
 #include <conv>
 
-layout(set = 0, binding = 1) uniform samplerCube tx_environment;
+layout(set = 1, binding = 0) uniform samplerCube tx_environment;
 
 layout(location = 0) in vec3 dir;
 layout(location = 0) out vec4 outColor;
@@ -89,29 +89,31 @@ vec3 prefilterEnvMap(vec3 R, float roughness, int numSamples) {
             float cosLh = max(dot(N, Lh), 0.0);
             
             // PDF for GGX NDF sampling
-            float pdf = ndfGGX(cosLh, roughness) * 0.25;
+            float pdf = ndfGGX(cosLh, roughness) * cosLh / max(4.0 * dot(Lh, Lo), 0.001);
             
             // Solid angle of current sample
             float ws = 1.0 / (float(numSamples) * pdf);
             
             // Mip level to sample from
-            float mipLevel = max(0.5 * log2(ws / wt), 0.0);
-            
+            //float mipLevel =   max(0.5 * log2(ws / wt), 0.0);
+            float mipLevel = clamp(0.5 * log2(ws / wt), 0.0, 7);
+
             color += textureLod(tx_environment, Li, mipLevel).rgb * cosLi;
             weight += cosLi;
         }
     }
     
     // Normalize by weight
-    return (weight > 0.0) ? (color / weight) : color;
+    //return (weight > 0.0) ? (color / weight) : color;
+    return (weight > Epsilon) ? (color / weight) : vec3(0.0);
 }
 
 void main() {
     vec3 R = normalize(dir);
-    float roughness = pow(conv.roughness_samples.x, 0.5); // 0...1
+    float roughness = conv.roughness_samples.x * conv.roughness_samples.x; // 0...1
     int numSamples = int(conv.roughness_samples.y); // we use 1024
 
     outColor = (roughness < 0.01)
         ? texture(tx_environment, R)
-        : vec4(prefilterEnvMap(R, 0.8, numSamples), 1.0);
+        : vec4(prefilterEnvMap(R, roughness, numSamples), 1.0);
 }

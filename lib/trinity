@@ -215,7 +215,7 @@ typedef struct _image*    image;
     i_prop    (X,Y, intern,     map,                 device_memory) \
     i_prop    (X,Y, intern,     handle,              skia) \
     i_prop    (X,Y, public,     bool,                rt_support) \
-    i_method  (X,Y, public,     texture,             environment, image) \
+    i_method  (X,Y, public,     texture,             environment, image, vec3f, f32) \
     i_override(X,Y, method,     init, dealloc)
 declare_class(trinity)
 
@@ -272,6 +272,7 @@ declare_class(IBL)
     i_override(X,Y, method, init)
 declare_mod(PBR, shader)
 
+
 #define Rays_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
@@ -288,6 +289,7 @@ declare_mod(Rays, shader)
 declare_mod(Env, shader)
 
 #define Convolve_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, env) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
@@ -474,13 +476,13 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
-    i_prop    (X,Y, intern,     VkDescriptorSetLayout,  descriptor_layout,  as, ARef) \
+    i_array   (X,Y, intern,     VkDescriptorSetLayout,  2, descriptor_layouts) \
     i_prop    (X,Y, intern,     VkDescriptorPool,       descriptor_pool,    as, ARef) \
     i_prop    (X,Y, intern,     VkDescriptorSet,        bind,               as, ARef) \
     i_prop    (X,Y, intern,     VkPipeline,             vk_render,          as, ARef) \
     i_prop    (X,Y, intern,     VkPipeline,             vk_compute,         as, ARef) \
     i_prop    (X,Y, intern,     VkPipelineLayout,       layout,             as, ARef) \
-    i_prop    (X,Y, intern,     VkDescriptorSet,        descriptor_set,     as, ARef) \
+    i_array   (X,Y, intern,     VkDescriptorSet, 2,     descriptor_sets) \
     i_method  (X,Y, public,     none, render,           handle) \
     i_method  (X,Y, public,     none, bind_resources) \
     i_override(X,Y, method,     init, dealloc)
