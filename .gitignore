@@ -1,7 +1,4 @@
 .DS_Store
-build
-build-*
-silver-build
-silver-debug
-rs/target
+release
 debug
+rs/target
