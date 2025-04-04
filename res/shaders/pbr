@@ -15,7 +15,8 @@ layout(set = 1, binding = 3)  uniform sampler2D tx_rough;       // 0.0 -> 1.0
 layout(set = 1, binding = 4)  uniform sampler2D tx_metal;       // 0.0 -> 1.0
 layout(set = 1, binding = 5)  uniform sampler2D tx_height;      // 0.0 -> 1.0 ( 0.5 mid )
 layout(set = 1, binding = 6)  uniform sampler2D tx_ao;          // 0.0 -> 1.0
-layout(set = 1, binding = 7)  uniform samplerCubeArray tx_environment; // 0.0 -> 1.0
+layout(set = 1, binding = 7)  uniform sampler2D tx_ior;         // 0.0 -> 1.0
+layout(set = 1, binding = 8)  uniform samplerCubeArray tx_environment; // 0.0 -> 1.0
 
 
 // PBR functions based on Disney standard
@@ -57,9 +58,16 @@ float G_Smith(float roughness, float NdotV, float NdotL) {
     return G1_V * G1_L;
 }
 
+float fresnelSchlick(float cosTheta, float F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+float computeF0FromIOR(float ior) {
+    return pow((ior - 1.0) / (ior + 1.0), 2.0);
+}
 
 // Then modify the BRDF function to use these adjustments:
-vec3 BRDF(vec3 L, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) {
+vec3 BRDF(vec3 L, vec3 V, vec3 N, vec3 albedo, float ior, float metallic, float roughness) {
     // Clamp roughness to avoid divide by zero in D_GGX
     roughness = max(roughness, 0.05);
     
@@ -71,9 +79,11 @@ vec3 BRDF(vec3 L, vec3 V, vec3 N, vec3 albedo, float metallic, float roughness) 
     float HdotV = max(dot(H, V), 0.0);
     
     // F0 represents the base reflectivity
-    vec3 F0 = vec3(0.04);
-    F0 = mix(F0, albedo, metallic);
-    
+    //vec3 F0 = vec3(0.04);
+    //F0 = mix(F0, albedo, metallic);
+    float nonMetalF0 = pow((ior - 1.0) / (ior + 1.0), 2.0); // e.g. 0.3086 for IOR 4.5
+    vec3 F0 = mix(vec3(nonMetalF0), albedo, metallic);
+
     // Calculate Cook-Torrance components
     vec3 F = F_Schlick(F0, HdotV);
     float D = D_GGX(roughness, NdotH);

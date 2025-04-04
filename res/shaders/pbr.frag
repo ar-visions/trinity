@@ -6,8 +6,6 @@ layout(location = 2) in  vec3 v_world_pos;
 layout(location = 3) in  vec3 v_view_pos;
 layout(location = 4) in  vec2 v_uv;
 
-
-
 // Normal mapping function
 vec3 perturbNormal(vec3 N, vec3 V, vec2 texcoord) {
     vec3 map = texture(tx_normal, texcoord).rgb * 2.0 - 1.0;
@@ -56,10 +54,11 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     vec2 texCoordsMapped = parallaxMapping(texCoords, V);
     
     // Get material properties
-    vec4  baseColor     = texture(tx_color, texCoordsMapped);
-    float metallic      = texture(tx_metal, texCoordsMapped).r;
-    float roughness     = texture(tx_rough, texCoordsMapped).r;
-    float ao            = texture(tx_ao, texCoordsMapped).r;
+    vec4  baseColor     = texture(tx_color,    texCoordsMapped);
+    float ior           = texture(tx_ior,      texCoordsMapped).r;
+    float metallic      = texture(tx_metal,    texCoordsMapped).r;
+    float roughness     = texture(tx_rough,    texCoordsMapped).r;
+    float ao            = texture(tx_ao,       texCoordsMapped).r;
     vec3  emission      = texture(tx_emission, texCoordsMapped).rgb;
     float intensity     = texture(tx_emission, texCoordsMapped).a;
     
@@ -82,7 +81,7 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     vec3 lightColor = vec3(1.0);
     
     // Calculate BRDF
-    vec3 Lo = BRDF(lightDir, V, N, rough_color, metallic, roughness) * lightColor;
+    vec3 Lo = BRDF(lightDir, V, N, rough_color, ior, metallic, roughness) * lightColor;
     
     // Combine direct and indirect lighting
     vec3 color = ambient + Lo + emission * intensity;
@@ -92,6 +91,7 @@ vec4 calculatePBR(vec2 texCoords, vec3 worldPos, vec3 normal, vec3 viewPos) {
     
     return vec4(color, baseColor.a);
 }
+
 
 void main() {
     // Calculate PBR lighting

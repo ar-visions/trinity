@@ -172,7 +172,8 @@ typedef struct _gpu* gpu;
     enum_value_v_2(X,Y, metal,          5, One) \
     enum_value_v_2(X,Y, height,         6, One) \
     enum_value_v_2(X,Y, ao,             7, One) \
-    enum_value_v_2(X,Y, environment,    8, Four) \
+    enum_value_v_2(X,Y, ior,            8, One) \
+    enum_value_v_2(X,Y, environment,    9, Four) \
     enum_method(X,Y, gpu, resource, pipeline)
 declare_enum(Surface)
 
@@ -268,6 +269,7 @@ declare_class(IBL)
     i_attr   (X,Y, Surface,    metal,         u8) \
     i_attr   (X,Y, Surface,    height,        f32) \
     i_attr   (X,Y, Surface,    ao,            u8) \
+    i_attr   (X,Y, Surface,    ior,           f32) \
     i_attr   (X,Y, Surface,    environment,   rgbaf, IBL) \
     i_override(X,Y, method, init)
 declare_mod(PBR, shader)
@@ -523,5 +525,17 @@ declare_class(model)
     i_prop(X,Y,  public, f32,    density) \
     i_prop(X,Y,  public, f32,    pressure)
 declare_class(particle)
+
+
+#define Orbiter_schema(X,Y,...) \
+    i_prop   (X,Y, public,     vec4f,   pos_radius) \
+    i_prop   (X,Y, public,     vec4f,   normal_falloff) \
+    i_prop   (X,Y, public,     vec4f,   color_intensity) \
+    i_prop   (X,Y, public,     f32,     moment) \
+    i_prop   (X,Y, public,     f32,     moment_amount) \
+    i_prop   (X,Y, public,     f32,     moment_angle) \
+    i_override(X,Y, method, init)
+declare_mod(Orbiter, PBR, shader)
+
 
 #endif

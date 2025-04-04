@@ -1034,21 +1034,20 @@ num uniform_size(AType type) {
 
 /// sub procedure of shader; transfer one type at a time
 /// we may perform this in meta as well, but i think poly should be a base implementation
-i64 uniform_transfer(object src, u8* data, AType src_type) {
-    verify(instanceof(src, shader), "shader instance not provided");
-    AType type      = isa(src);
-    num   index     = 0;
-    u8*   src_bytes = src;
+i64 uniform_transfer(shader instance, u8* data, AType type) {
+    verify(instanceof(instance, shader), "shader instance not provided");
+    num   index = 0;
+    u8*   src   = instance;
 
     for (int m = 0; m < type->member_count; m++) {
-        type_member_t* mem = &type->members[m];
+        type_member_t* mem   = &type->members[m];
         bool inlay = mem->member_type == A_MEMBER_INLAY; // inlay is when you take a normal object and effectively have all of its structure memory in your own -- dealloc still in our A_dealloc
         if (mem->member_type == A_MEMBER_PROP || inlay) {
             int type_size = A_virtual_size(mem->type);
             if (inlay || mem->type->traits & A_TRAIT_STRUCT || mem->type->traits & A_TRAIT_PRIMITIVE)
-                memcpy(&data[index], &src_bytes[mem->offset], type_size);
+                memcpy(&data[index], &src[mem->offset], type_size);
             else
-                memcpy(&data[index], A_data((object) &src_bytes[mem->offset]), type_size);
+                memcpy(&data[index], A_data((object) &src[mem->offset]), type_size);
             index += type_size;
         }
     }
@@ -1359,7 +1358,7 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
     pbrMetallicRoughness pbr_default = pbr_defaults();
     pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
     shader s = p->s;
-
+ 
     if (!res) {
         rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1394,6 +1393,10 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
             case Surface_ao:
                 res = gpu(t, t, name, "ao", sampler,
                     vector_f32_new(single, 1.0f)); // Full ambient occlusion by default
+                break;
+            case Surface_ior:
+                res = gpu(t, t, name, "ior", sampler,
+                    vector_f32_new(single, pbr->ior)); // IOR = 1.5 is blenders default
                 break;
             case Surface_color:
                 res = gpu(t, t, name, "color", sampler,
@@ -1446,6 +1449,8 @@ void pipeline_bind_resources(pipeline p) {
         };
         uniform_count++;
     }
+
+    //uniform_count = 1; // test !
     
     // use enum type with value and meta type (context)
     AType shader_schema = isa(p->s);
@@ -1603,6 +1608,7 @@ void pipeline_init(pipeline p) {
                 (mem->type == typeid(vec2f)) ? VK_FORMAT_R32G32_SFLOAT       :
                 (mem->type == typeid(vec3f)) ? VK_FORMAT_R32G32B32_SFLOAT    :
                 (mem->type == typeid(vec4f)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+                (mem->type == typeid(rgba8)) ? VK_FORMAT_R8G8B8A8_UNORM      : 
                 (mem->type == typeid( f32 )) ? VK_FORMAT_R32_SFLOAT          :
                 (mem->type == typeid( i8  )) ? VK_FORMAT_R8_SINT             :
                 (mem->type == typeid( u8  )) ? VK_FORMAT_R8_UINT             :
@@ -1611,6 +1617,8 @@ void pipeline_init(pipeline p) {
               //(mem->type == typeid( i32 )) ? VK_FORMAT_R32_SINT            : -- glTF does not support
                 (mem->type == typeid( u32 )) ? VK_FORMAT_R32_UINT            :
                                                VK_FORMAT_UNDEFINED;
+            verify(attributes[attr_count].format != VK_FORMAT_UNDEFINED,
+                "undefined vertex attribute for type %s", mem->type->name);
             attributes[attr_count].offset = mem->offset;
             attr_count++;
         }
@@ -2285,9 +2293,11 @@ void uniforms_init(uniforms a) {
     int    u_index  = 0;
     i32    total_uniform = 0;
 
+    print("types for %s", isa(a->s)->name);
     for (item i = types->first; i; i = i->next) {
-        AType ty = i->value;
-        total_uniform += uniform_size(ty);
+        AType ty       = i->value;
+        i32   u_size   = uniform_size(ty);
+        total_uniform += u_size;
     }
     
     a->u_buffers = array(4);
@@ -2675,6 +2685,18 @@ none buffer_dealloc(buffer a) {
     vkDestroyBuffer(a->t->device, a->vk_buffer, null);
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
+
+
+void Orbiter_init(Orbiter w) {
+    w->pos_radius      = vec4f(0.0, 0.1, 0.0, 0.3f);
+    w->normal_falloff  = vec4f(0.0,  1.0, 0.0, 1.0f);
+    w->color_intensity = vec4f(0.6,  0.3, 1.0, 4.0f);
+    w->moment          = 0.0;
+    w->moment_amount   = 1.0f;
+    w->moment_angle    = 0.0f;
+}
+
+define_mod(Orbiter, PBR)
 
 define_enum(Pixel)
 define_enum(Filter)
