@@ -400,10 +400,10 @@ declare_class(image)
 #define canvas_schema(X,Y,...) \
     i_method  (X,Y, public, none, save) \
     i_method  (X,Y, public, none, restore) \
-    i_method  (X,Y, public, none, move,   object) \
-    i_method  (X,Y, public, none, line,   object) \
-    i_method  (X,Y, public, none, color,  object) \
-    i_method  (X,Y, public, none, bezier, object, object, object) \
+    i_method  (X,Y, public, none, move_to, object) \
+    i_method  (X,Y, public, none, line_to, object) \
+    i_method  (X,Y, public, none, color,   object) \
+    i_method  (X,Y, public, none, bezier,  object, object, object) \
     i_override(X,Y, method,     init, dealloc)
 declare_mod(canvas, image)
 
@@ -525,17 +525,5 @@ declare_class(model)
     i_prop(X,Y,  public, f32,    density) \
     i_prop(X,Y,  public, f32,    pressure)
 declare_class(particle)
-
-
-#define Orbiter_schema(X,Y,...) \
-    i_prop   (X,Y, public,     vec4f,   pos_radius) \
-    i_prop   (X,Y, public,     vec4f,   normal_falloff) \
-    i_prop   (X,Y, public,     vec4f,   color_intensity) \
-    i_prop   (X,Y, public,     f32,     moment) \
-    i_prop   (X,Y, public,     f32,     moment_amount) \
-    i_prop   (X,Y, public,     f32,     moment_angle) \
-    i_override(X,Y, method, init)
-declare_mod(Orbiter, PBR, shader)
-
 
 #endif

@@ -57,13 +57,15 @@ image image_with_string(image a, string i) {
     return a;
 }
 
+path path_with_symbol(path a, symbol cs);
+
 image image_with_symbol(image a, symbol i) {
-    a->uri = path(i);
+    a->uri = path_with_symbol(new(path), i);
     return a;
 }
 
 image image_with_cstr(image a, cstr i) {
-    a->uri = path((symbol)i);
+    a->uri = path_with_symbol(new(path), i);
     return a;
 }
 
@@ -104,8 +106,8 @@ none image_init(image a) {
         using namespace Imath;
         using namespace Imf;
 
-        RgbaInputFile f(uri);
-        Imath::Box2i dw = f.dataWindow();
+        RgbaInputFile ifile(uri);
+        Imath::Box2i dw = ifile.dataWindow();
 
         int width  = dw.max.x - dw.min.x + 1;
         int height = dw.max.y - dw.min.y + 1;
@@ -122,8 +124,8 @@ none image_init(image a) {
         Imf::Array2D<Rgba> pixels;
         pixels.resizeErase(height, width); // [y][x] format
 
-        f.setFrameBuffer(&pixels[0][0] - dw.min.x - dw.min.y * width, 1, width);
-        f.readPixels(dw.min.y, dw.max.y);
+        ifile.setFrameBuffer(&pixels[0][0] - dw.min.x - dw.min.y * width, 1, width);
+        ifile.readPixels(dw.min.y, dw.max.y);
 
         int index = 0;
         for (int y = 0; y < height; ++y) {
@@ -215,7 +217,7 @@ i32 image_exr(image a, path uri) {
             }
         }
 
-        RgbaOutputFile out(cstring(uri), width, height, WRITE_RGBA);
+        RgbaOutputFile out(uri->chars, width, height, WRITE_RGBA);
         out.setFrameBuffer(&pixels[0][0], 1, width);
         out.writePixels(height);
         return 1;
@@ -228,7 +230,7 @@ i32 image_png(image a, path uri) {
     string e = ext(uri);
     if (eq(e, "png")) {
         /// lets support libpng only, so only "png" ext from path
-        FILE* file = fopen(cstring(uri), "wb");
+        FILE* file = fopen(uri->chars, "wb");
         verify(file, "could not open file for writing: %o", uri);
 
         png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);

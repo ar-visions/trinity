@@ -141,11 +141,11 @@ none canvas_init(canvas a) {
 none canvas_dealloc(canvas a) {
 }
 
-none canvas_move(canvas a, object _to) {
+none canvas_move_to(canvas a, object _to) {
     f32 to[2]; xy(_to, to);
 }
 
-none canvas_line(canvas a, object _to) {
+none canvas_line_to(canvas a, object _to) {
     f32 to[2]; xy(_to, to);
 }
 

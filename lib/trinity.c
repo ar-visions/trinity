@@ -1,7 +1,6 @@
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <import>
-#include <orbiter>
 #include <sys/stat.h>
 #include <math.h>
 #include <opencv.h>
@@ -2685,18 +2684,6 @@ none buffer_dealloc(buffer a) {
     vkDestroyBuffer(a->t->device, a->vk_buffer, null);
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
-
-
-void Orbiter_init(Orbiter w) {
-    w->pos_radius      = vec4f(0.0, 0.1, 0.0, 0.3f);
-    w->normal_falloff  = vec4f(0.0,  1.0, 0.0, 1.0f);
-    w->color_intensity = vec4f(0.6,  0.3, 1.0, 4.0f);
-    w->moment          = 0.0;
-    w->moment_amount   = 1.0f;
-    w->moment_angle    = 0.0f;
-}
-
-define_mod(Orbiter, PBR)
 
 define_enum(Pixel)
 define_enum(Filter)
