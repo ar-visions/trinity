@@ -57,7 +57,9 @@ image image_with_string(image a, string i) {
     return a;
 }
 
+extern "C" {
 path path_with_symbol(path a, symbol cs);
+};
 
 image image_with_symbol(image a, symbol i) {
     a->uri = path_with_symbol(new(path), i);
