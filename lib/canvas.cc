@@ -3,6 +3,7 @@
 
 #define  SK_VULKAN
 #include <gpu/vk/GrVkBackendContext.h>
+#include <gpu/ganesh/vk/GrVkBackendSurface.h>
 #include <gpu/GrBackendSurface.h>
 #include <gpu/GrDirectContext.h>
 #include <gpu/vk/VulkanExtensions.h>
@@ -42,6 +43,12 @@ extern "C" {
 #include <import>
 }
 
+#undef get
+#undef clear
+#undef fill
+#undef move
+#undef submit
+
 int test_func() {
     string s = string(chars, "hi");
     return len(s);
@@ -72,22 +79,28 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     };
 
     Skia* sk = new Skia();
+    
+    sk_sp<GrDirectContext> ctx = GrDirectContexts::MakeVulkan(grc);
+    GrDirectContext* ctx1 = ctx.get();
+
     sk->ctx = GrDirectContexts::MakeVulkan(grc);
+    
     assert(sk->ctx, "could not obtain GrVulkanContext");
     return sk;
 }
 
 
-static none xy(object any, f32* dst) {
+static vec2f xy(object any) {
+    vec2f res;
     if (scalarof(any) == typeid(f32)) {
-        memcpy(dst, any, sizeof(f32) * 2);
+        res.x = ((f32*)any)[0];
+        res.y = ((f32*)any)[1];
     } else {
         verify(scalarof(any) == typeid(f64), "expected double");
-        f64 x = ((f64*)any)[0];
-        f64 y = ((f64*)any)[1];
-        dst[0] = x;
-        dst[1] = y;
+        res.x = ((f64*)any)[0];
+        res.y = ((f64*)any)[1];
     }
+    return res;
 }
 
 static u8 nib(char n) {
@@ -96,7 +109,7 @@ static u8 nib(char n) {
            (n >= 'A' && n <= 'F') ? (10 + (n - 'A')) : 0;
 }
 
-static SkColor get_color(object any) {
+static SkColor sk_color(object any) {
     AType type = isa(any);
     i32 ia = 255, ir, ig, ib;
 
@@ -136,17 +149,46 @@ static SkColor get_color(object any) {
 }
 
 none canvas_init(canvas a) {
+    verify(a->width > 0 && a->height > 0, "canvas requires width and height");
+
+    trinity t  = a->t;
+    texture tx = texture(t, a->t, canvas, a, width, a->width, height, a->height, 
+        format, Pixel_rgba8, mip_levels, 1, layer_count, 1);
+    a->tx = (texture)A_hold((object)tx);
+    
+    GrVkImageInfo info       = {};
+    info.fImage              = tx->vk_image;
+    info.fImageLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    info.fImageTiling        = VK_IMAGE_TILING_OPTIMAL;
+    info.fFormat             = VK_FORMAT_R8G8B8A8_UNORM;
+    info.fLevelCount         = 1;
+    info.fCurrentQueueFamily = VK_QUEUE_FAMILY_IGNORED;
+    
+    GrBackendTexture backend_texture = GrBackendTextures::MakeVk(
+        a->width, a->height, info);
+
+    Skia* skia = (Skia*)t->skia;
+    GrDirectContext* direct_ctx = skia->ctx.get();
+    sk_sp<SkSurface> surface = SkSurfaces::WrapBackendTexture(
+        direct_ctx, backend_texture, kTopLeft_GrSurfaceOrigin, 1,
+        kRGBA_8888_SkColorType, SkColorSpace::MakeSRGB(),
+        (const SkSurfaceProps *)null, (SkSurfaces::TextureReleaseProc)null);
+    
+    SkSafeRef(surface.get());
+    a->sk_surface = (ARef)surface.get();
+    a->sk_canvas  = (ARef)((SkSurface*)a->sk_surface)->getCanvas();
 }
 
 none canvas_dealloc(canvas a) {
+    SkSafeUnref((SkSurface*)a->surface);
 }
 
 none canvas_move_to(canvas a, object _to) {
-    f32 to[2]; xy(_to, to);
+    vec2f to = xy(_to);
 }
 
 none canvas_line_to(canvas a, object _to) {
-    f32 to[2]; xy(_to, to);
+    vec2f to = xy(_to);
 }
 
 none canvas_save(canvas a) {
@@ -159,6 +201,19 @@ none canvas_color(canvas a, object clr) {
 }
 
 none canvas_bezier(canvas a, object cp1, object cp2, object ep) {
+}
+
+none canvas_clear(canvas a, object clr) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    SkColor fill = clr ? sk_color(clr) : SK_ColorWHITE;
+    sk->clear(fill);
+}
+
+none canvas_sync(canvas a) {
+    Skia* skia = (Skia*)a->t->skia;
+    GrDirectContext* direct_ctx = skia->ctx.get();
+    direct_ctx->flush();
+    direct_ctx->submit();
 }
 
 define_mod(canvas, image)

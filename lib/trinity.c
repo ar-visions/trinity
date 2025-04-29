@@ -82,6 +82,16 @@ void transition_image_layout(
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT; // lame how there is an option here -- so one needs tk now about COLOR ATTACHMENT use-case for GENERAL (which is ambiguous in design)
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT; // lame how there is an option here -- so one needs tk now about COLOR ATTACHMENT use-case for GENERAL (which is ambiguous in design)
+        srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -1073,6 +1083,7 @@ none gpu_sync(gpu a, window w) {
 
     if (a->sampler && !a->tx) {
         image img = instanceof(a->sampler, image);
+        canvas cv = instanceof(a->sampler, canvas);
         texture tx = instanceof(a->sampler, texture);
         if (tx)
             a->tx = hold(tx);
@@ -1080,6 +1091,8 @@ none gpu_sync(gpu a, window w) {
             a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
             a->tx = environment(t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
+        else if (cv)
+            a->tx = hold(cv->tx); // texture is created within canvas init
         else
             a->tx = texture(t, t, sampler, a->sampler);
     }
@@ -1097,19 +1110,19 @@ none gpu_dealloc(gpu a) {
 define_class(gpu);
 
 
-VkFormat vk_format(Pixel f) {
+static VkFormat vk_format(Pixel f, bool linear) {
     VkFormat vk_format =
         f == Pixel_f32     ? VK_FORMAT_R32_SFLOAT : 
         f == Pixel_rgbaf32 ? VK_FORMAT_R32G32B32A32_SFLOAT : 
         f == Pixel_rgbf32  ? VK_FORMAT_R32G32B32_SFLOAT : 
-        f == Pixel_rgba8   ? VK_FORMAT_R8G8B8A8_SRGB : 
-        f == Pixel_rgb8    ? VK_FORMAT_R8G8B8_SRGB : 
+        f == Pixel_rgba8   ? linear ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB : 
+        f == Pixel_rgb8    ? linear ? VK_FORMAT_R8G8B8_UNORM   : VK_FORMAT_R8G8B8_SRGB   : 
         f == Pixel_u8      ? VK_FORMAT_R8_UNORM : 0;
     verify(vk_format, "incompatible image format: %o", e_str(Pixel, f));
     return vk_format;
 }
 
-none placeholder_image(object sampler, int size, u8* fill, int* sampler_size, Pixel* format) {
+static none placeholder_image(object sampler, int size, u8* fill, int* sampler_size, Pixel* format) {
     vector_i8    v_i8       = instanceof(sampler, vector_i8);     // grayscale i8
     vector_f32   v_f32      = instanceof(sampler, vector_f32);    // grayscale f32
     vector_rgb8  v_rgb8     = instanceof(sampler, vector_rgb8);   // rgb bytes
@@ -1163,29 +1176,31 @@ none placeholder_image(object sampler, int size, u8* fill, int* sampler_size, Pi
 }
 
 none texture_init(texture a) {
-    trinity t        = a->t;
-    image   img      = instanceof(a->sampler, image);
-    int     ansio    = 4;
+    trinity t         = a->t;
+    image   img       = instanceof(a->sampler, image);
+    int     ansio     = 4;
     i32     sampler_size = 0;
     u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
+    if (a->canvas)
+        img = a->canvas;
     
     a->mip_levels  = a->mip_levels  ? a->mip_levels  : 1;
     a->layer_count = a->layer_count ? a->layer_count : 1;
 
     if (a->vk_image) {
         if (!a->vk_format)
-            a->vk_format = vk_format(a->format);
+            a->vk_format = vk_format(a->format, a->canvas != null);
         verify(a->vk_format, "expected format");
 
     } else {
 
         if (img) {
-            a->format    = img->format;
-            sampler_size = byte_count(img);
-            ansio        = 4;
-            a->mip_levels = 8;
-            a->width     = img->width;
-            a->height    = img->height;
+            a->format      = img->format;
+            sampler_size   = a->canvas ? 0 : byte_count(img);
+            ansio          = a->canvas ? 0 : 4;
+            a->mip_levels  = a->canvas ? 1 : 8;
+            a->width       = img->width;
+            a->height      = img->height;
         } else {
             a->width     = 4;
             a->height    = 4;
@@ -1193,7 +1208,7 @@ none texture_init(texture a) {
             placeholder_image(a->sampler, 4, fill, &sampler_size, &a->format);
         }
         
-        a->vk_format = vk_format(a->format);
+        a->vk_format = vk_format(a->format, a->canvas != null);
 
         float* cubemap = null;
         verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
@@ -1206,7 +1221,8 @@ none texture_init(texture a) {
             .arrayLayers    = a->layer_count,
             .samples        = VK_SAMPLE_COUNT_1_BIT,
             .tiling         = VK_IMAGE_TILING_OPTIMAL,
-            .usage          = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .usage          = (a->canvas ? 0 : VK_IMAGE_USAGE_TRANSFER_DST_BIT) | 
+                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
             .sharingMode    = VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
         }, null, &a->vk_image) == VK_SUCCESS,
@@ -1227,26 +1243,30 @@ none texture_init(texture a) {
         for (int f = 0; f < a->layer_count; f++)
             transition_image_layout(t, a->vk_image,
                 VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, 1, f, 1);
+                a->canvas ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : 
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                0, 1, f, 1);
 
-        command cmd = command(t, t);
-        begin(cmd);
-        buffer stagingBuffer = buffer(
-            t, t, size, sampler_size, u_src, true, u_shader, true,
-            m_host_visible, true, m_host_coherent, true,
-            data, cubemap ? (object)cubemap : img ? data(img) : (object)fill);
-        
-        vkCmdCopyBufferToImage(cmd->vk, stagingBuffer->vk_buffer, a->vk_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy) {
-            .bufferOffset      = 0,
-            .bufferRowLength   = 0,
-            .bufferImageHeight = 0,
-            .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, a->layer_count },
-            .imageOffset = {0, 0, 0},
-            .imageExtent = { a->width, a->height, 1 }
-        });
-        submit(cmd);
-        create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
+        if (!a->canvas) {
+            command cmd = command(t, t);
+            begin(cmd);
+            buffer stagingBuffer = buffer(
+                t, t, size, sampler_size, u_src, true, u_shader, true,
+                m_host_visible, true, m_host_coherent, true,
+                data, cubemap ? (object)cubemap : img ? data(img) : (object)fill);
+            
+            vkCmdCopyBufferToImage(cmd->vk, stagingBuffer->vk_buffer, a->vk_image,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &(VkBufferImageCopy) {
+                .bufferOffset      = 0,
+                .bufferRowLength   = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, a->layer_count },
+                .imageOffset = {0, 0, 0},
+                .imageExtent = { a->width, a->height, 1 }
+            });
+            submit(cmd);
+            create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
+        }
     }
 
     if (!a->vk_image_view) {
@@ -2712,7 +2732,6 @@ define_enum(Surface)
  
 define_mod(PBR,   shader)
 define_mod(Env,   shader)
-define_mod(Rays,  shader)
 define_mod(Convolve,  shader)
 
 define_mod(Basic, shader)

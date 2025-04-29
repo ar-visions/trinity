@@ -1,0 +1,82 @@
+diff --git a/DEPS b/DEPS
+index bd7ed9d681..e74fc2e538 100644
+--- a/DEPS
++++ b/DEPS
+@@ -1,5 +1,4 @@
+ use_relative_paths = True
+-
+ vars = {
+   # Three lines of non-changing comments so that
+   # the commit queue can handle CLs rolling different
+@@ -42,16 +41,16 @@ deps = {
+   "third_party/externals/icu"                    : "https://chromium.googlesource.com/chromium/deps/icu.git@a0718d4f121727e30b8d52c7a189ebf5ab52421f",
+   "third_party/externals/icu4x"                  : "https://chromium.googlesource.com/external/github.com/unicode-org/icu4x.git@4f81635489681ecf7707623177123cb78d6a66a0",
+   "third_party/externals/imgui"                  : "https://skia.googlesource.com/external/github.com/ocornut/imgui.git@55d35d8387c15bf0cfd71861df67af8cfbda7456",
+-  "third_party/externals/libavif"                : "https://skia.googlesource.com/external/github.com/AOMediaCodec/libavif.git@55aab4ac0607ab651055d354d64c4615cf3d8000",
++  #"third_party/externals/libavif"                : "https://skia.googlesource.com/external/github.com/AOMediaCodec/libavif.git@55aab4ac0607ab651055d354d64c4615cf3d8000",
+   "third_party/externals/libgav1"                : "https://chromium.googlesource.com/codecs/libgav1.git@5cf722e659014ebaf2f573a6dd935116d36eadf1",
+   "third_party/externals/libgrapheme"            : "https://skia.googlesource.com/external/github.com/FRIGN/libgrapheme/@c0cab63c5300fa12284194fbef57aa2ed62a94c0",
+   "third_party/externals/libjpeg-turbo"          : "https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git@ed683925e4897a84b3bffc5c1414c85b97a129a3",
+-  "third_party/externals/libjxl"                 : "https://chromium.googlesource.com/external/gitlab.com/wg1/jpeg-xl.git@a205468bc5d3a353fb15dae2398a101dff52f2d3",
++  #"third_party/externals/libjxl"                 : "https://chromium.googlesource.com/external/gitlab.com/wg1/jpeg-xl.git@a205468bc5d3a353fb15dae2398a101dff52f2d3",
+   "third_party/externals/libpng"                 : "https://skia.googlesource.com/third_party/libpng.git@386707c6d19b974ca2e3db7f5c61873813c6fe44",
+   "third_party/externals/libwebp"                : "https://chromium.googlesource.com/webm/libwebp.git@2af26267cdfcb63a88e5c74a85927a12d6ca1d76",
+   "third_party/externals/libyuv"                 : "https://chromium.googlesource.com/libyuv/libyuv.git@d248929c059ff7629a85333699717d7a677d8d96",
+   "third_party/externals/microhttpd"             : "https://android.googlesource.com/platform/external/libmicrohttpd@748945ec6f1c67b7efc934ab0808e1d32f2fb98d",
+-  "third_party/externals/oboe"                   : "https://chromium.googlesource.com/external/github.com/google/oboe.git@b02a12d1dd821118763debec6b83d00a8a0ee419",
++  #"third_party/externals/oboe"                   : "https://chromium.googlesource.com/external/github.com/google/oboe.git@b02a12d1dd821118763debec6b83d00a8a0ee419",
+   "third_party/externals/opengl-registry"        : "https://skia.googlesource.com/external/github.com/KhronosGroup/OpenGL-Registry@14b80ebeab022b2c78f84a573f01028c96075553",
+   "third_party/externals/perfetto"               : "https://android.googlesource.com/platform/external/perfetto@93885509be1c9240bc55fa515ceb34811e54a394",
+   "third_party/externals/piex"                   : "https://android.googlesource.com/platform/external/piex.git@bb217acdca1cc0c16b704669dd6f91a1b509c406",
+@@ -64,11 +63,11 @@ deps = {
+   "third_party/externals/spirv-cross"            : "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross@b82536766d1b81631b126d1ddbe49baf42929bd3",
+   "third_party/externals/spirv-headers"          : "https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers.git@7b0309708da5126b89e4ce6f19835f36dc912f2f",
+   "third_party/externals/spirv-tools"            : "https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools.git@3e6bdd0f99655b1bc6a54aa73e5bfaaa4252198b",
+-  "third_party/externals/vello"                  : "https://skia.googlesource.com/external/github.com/linebender/vello.git@ee3a076b291d206c361431cc841407adf265c692",
++  #"third_party/externals/vello"                  : "https://skia.googlesource.com/external/github.com/linebender/vello.git@ee3a076b291d206c361431cc841407adf265c692",
+   "third_party/externals/vulkan-headers"         : "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers@217e93c664ec6704ec2d8c36fa116c1a4a1e2d40",
+   "third_party/externals/vulkan-tools"           : "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Tools@7c6d640a5ca3ab73c1f42d22312f672b54babfaf",
+   "third_party/externals/vulkan-utility-libraries": "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Utility-Libraries@4cfc176e3242b4dbdfd3f6c5680c5d8f2cb7db45",
+-  "third_party/externals/unicodetools"           : "https://chromium.googlesource.com/external/github.com/unicode-org/unicodetools@66a3fa9dbdca3b67053a483d130564eabc5fe095",
++  #"third_party/externals/unicodetools"           : "https://chromium.googlesource.com/external/github.com/unicode-org/unicodetools@66a3fa9dbdca3b67053a483d130564eabc5fe095",
+   #"third_party/externals/v8"                     : "https://chromium.googlesource.com/v8/v8.git@5f1ae66d5634e43563b2d25ea652dfb94c31a3b4",
+   "third_party/externals/wuffs"                  : "https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c.git@e3f919ccfe3ef542cfc983a82146070258fb57f8",
+   "third_party/externals/zlib"                   : "https://chromium.googlesource.com/chromium/src/third_party/zlib@c876c8f87101c5a75f6014b0f832499afeb65b73",
+diff --git a/src/gpu/ganesh/vk/GrVkRenderPass.cpp b/src/gpu/ganesh/vk/GrVkRenderPass.cpp
+index 468b72f6ba..c35a4e7d31 100644
+--- a/src/gpu/ganesh/vk/GrVkRenderPass.cpp
++++ b/src/gpu/ganesh/vk/GrVkRenderPass.cpp
+@@ -7,14 +7,20 @@
+ 
+ #include "src/gpu/ganesh/vk/GrVkRenderPass.h"
+ 
++#include "include/core/SkTypes.h"
++#include "include/private/base/SkTArray.h"
++#include "include/private/base/SkTo.h"
+ #include "src/gpu/KeyBuilder.h"
+-#include "src/gpu/ganesh/GrProcessor.h"
+-#include "src/gpu/ganesh/vk/GrVkFramebuffer.h"
++#include "src/gpu/ganesh/GrCaps.h"
++#include "src/gpu/ganesh/vk/GrVkCaps.h"
+ #include "src/gpu/ganesh/vk/GrVkGpu.h"
+ #include "src/gpu/ganesh/vk/GrVkRenderTarget.h"
+ #include "src/gpu/ganesh/vk/GrVkUtil.h"
+ #include "src/gpu/vk/VulkanUtilsPriv.h"
+ 
++#include <string.h>
++#include <algorithm>
++
+ using namespace skia_private;
+ 
+ typedef GrVkRenderPass::AttachmentsDescriptor::AttachmentDesc AttachmentDesc;
+@@ -157,8 +163,8 @@ GrVkRenderPass* GrVkRenderPass::Create(GrVkGpu* gpu,
+ 
+     if (attachmentFlags & kColor_AttachmentFlag) {
+         // set up color attachment
+-        bool needsGeneralLayout = SkToBool(selfDepFlags & SelfDependencyFlags::kForInputAttachment);
+-        VkImageLayout layout = needsGeneralLayout ? VK_IMAGE_LAYOUT_GENERAL
++        bool needsGeneralLayout = true; SkToBool(selfDepFlags & SelfDependencyFlags::kForInputAttachment);
++        VkImageLayout layout = needsGeneralLayout ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                                   : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+ 
+         attachmentsDescriptor->fColor.fLoadStoreOps = colorOp;

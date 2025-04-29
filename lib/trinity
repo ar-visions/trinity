@@ -274,14 +274,6 @@ declare_class(IBL)
     i_override(X,Y, method, init)
 declare_mod(PBR, shader)
 
-
-#define Rays_schema(X,Y,...) \
-    i_prop   (X,Y, public,     mat4f, model) \
-    i_prop   (X,Y, public,     mat4f, view) \
-    i_prop   (X,Y, public,     mat4f, proj) \
-    i_prop   (X,Y, public,     f32,   time)
-declare_mod(Rays, shader)
-
 #define Env_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
@@ -397,15 +389,25 @@ declare_class(window)
     i_override(X,Y, method,     copy)
 declare_class(image)
 
+forward(texture)
+
 #define canvas_schema(X,Y,...) \
-    i_method  (X,Y, public, none, save) \
-    i_method  (X,Y, public, none, restore) \
-    i_method  (X,Y, public, none, move_to, object) \
-    i_method  (X,Y, public, none, line_to, object) \
-    i_method  (X,Y, public, none, color,   object) \
-    i_method  (X,Y, public, none, bezier,  object, object, object) \
-    i_override(X,Y, method,     init, dealloc)
+    i_prop    (X,Y, required, trinity, t) \
+    i_prop    (X,Y, intern,   texture, tx) \
+    i_prop    (X,Y, intern,   ARef,    sk_context) \
+    i_prop    (X,Y, intern,   ARef,    sk_surface) \
+    i_prop    (X,Y, intern,   ARef,    sk_canvas) \
+    i_method  (X,Y, public,   none,    save) \
+    i_method  (X,Y, public,   none,    restore) \
+    i_method  (X,Y, public,   none,    move_to, object) \
+    i_method  (X,Y, public,   none,    line_to, object) \
+    i_method  (X,Y, public,   none,    color,   object) \
+    i_method  (X,Y, public,   none,    clear,   object) \
+    i_method  (X,Y, public,   none,    bezier,  object, object, object) \
+    i_method  (X,Y, public,   none,    sync) \
+    i_override(X,Y, method,   init,    dealloc)
 declare_mod(canvas, image)
+
 
 #define command_schema(X,Y,...) \
     i_prop(X,Y, required, trinity, t) \
@@ -415,8 +417,10 @@ declare_mod(canvas, image)
     i_override(X,Y, method, init, dealloc)
 declare_class(command)
 
+
 #define texture_schema(X,Y,...) \
     i_prop(X,Y, required, trinity,          t) \
+    i_prop(X,Y, public,   canvas,           canvas) \
     i_prop(X,Y, public,   Pixel,            format) \
     i_prop(X,Y, public,   object,           sampler) \
     i_prop(X,Y, public,   i32,              width) \
