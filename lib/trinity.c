@@ -228,8 +228,12 @@ static void handle_glfw_key(
     GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
     }
+    if (action == GLFW_PRESS && (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN)) {
+        window w = glfwGetWindowUserPointer(glfw_window);
+        w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
+    }
 }
-
+ 
 void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
     trinity t = w->t;
     /// create color image (for msaa)
@@ -1705,11 +1709,16 @@ void pipeline_init(pipeline p) {
         };
 
         VkPipelineColorBlendAttachmentState color_blend_attachment = {
-            .blendEnable           = VK_FALSE,
+            .blendEnable           = VK_TRUE,
             .colorWriteMask        = VK_COLOR_COMPONENT_R_BIT |
                                         VK_COLOR_COMPONENT_G_BIT |
                                         VK_COLOR_COMPONENT_B_BIT |
                                         VK_COLOR_COMPONENT_A_BIT,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .colorBlendOp        = VK_BLEND_OP_ADD
         };
 
         VkPipelineColorBlendStateCreateInfo color_blend_state = {
@@ -1762,7 +1771,8 @@ void pipeline_init(pipeline p) {
     
         free(attributes);
     } else if (p->s && p->s->vk_comp) {
-        VkComputePipelineCreateInfo compute_pipeline_info = {
+        result = vkCreateComputePipelines(
+            t->device, VK_NULL_HANDLE, 1, & (VkComputePipelineCreateInfo) {
             .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             .layout = p->layout,
             .stage  = {
@@ -1771,10 +1781,8 @@ void pipeline_init(pipeline p) {
                 .module = p->s->vk_comp,
                 .pName  = "main",
             },
-        };
-        result = vkCreateComputePipelines(
-            t->device, VK_NULL_HANDLE, 1, &compute_pipeline_info, null, &p->vk_compute);
-        verify(result == VK_SUCCESS, "Failed to create compute pipeline");
+        }, null, &p->vk_compute);
+        verify(result == VK_SUCCESS, "failed to create compute pipeline");
     }
 }
 

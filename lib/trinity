@@ -354,6 +354,7 @@ declare_class(buffer)
     i_prop    (X,Y, required,   u32,                    height) \
     i_prop    (X,Y, public,     Pixel,                  format) \
     i_prop    (X,Y, public,     string,                 title) \
+    i_prop    (X,Y, public,     f32,                    debug_value) \
     i_prop    (X,Y, public,     bool,                   backbuffer) \
     i_method  (X,Y, public,     none,                   process, array, object, object) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
@@ -391,19 +392,69 @@ declare_class(image)
 
 forward(texture)
 
+#define join_schema(X,Y,...) \
+    enum_value_v(X, Y, none,       0) \
+    enum_value_v(X, Y, miter,      1) \
+    enum_value_v(X, Y, round,      2) \
+    enum_value_v(X, Y, bevel,      3)
+declare_enum(join)
+
+
+#define cap_schema(X,Y,...) \
+    enum_value_v(X, Y, none,       0) \
+    enum_value_v(X, Y, round,      1) \
+    enum_value_v(X, Y, square,     2)
+declare_enum(cap)
+
+
+#define stroke_schema(X,Y,...) \
+    i_prop    (X,Y, public,   f32,     width) \
+    i_prop    (X,Y, public,   cap,     cap) \
+    i_prop    (X,Y, public,   join,    join) \
+    i_prop    (X,Y, public,   f32,     miter_limit) \
+    i_prop    (X,Y, public,   f32,     dash_offset)
+declare_class(stroke)
+
+
+#define font_schema(X,Y,...) \
+    i_prop    (X,Y, public,   path,    path) \
+    i_prop    (X,Y, public,   f32,     size)
+declare_class(font)
+
+
+#define draw_state_schema(X,Y,...) \
+    i_prop    (X,Y, intern,   stroke,  stroke) \
+    i_prop    (X,Y, intern,   font,    font) \
+    i_prop    (X,Y, intern,   u32,     fill_color) \
+    i_prop    (X,Y, intern,   u32,     stroke_color) \
+    i_method  (X,Y, public,   none,    set_default)
+declare_class(draw_state)
+
+struct SkPath;
 #define canvas_schema(X,Y,...) \
     i_prop    (X,Y, required, trinity, t) \
     i_prop    (X,Y, intern,   texture, tx) \
     i_prop    (X,Y, intern,   ARef,    sk_context) \
     i_prop    (X,Y, intern,   ARef,    sk_surface) \
     i_prop    (X,Y, intern,   ARef,    sk_canvas) \
+    i_prop    (X,Y, intern,   ARef,    sk_path) \
+    i_prop    (X,Y, intern,   array,   state, of, draw_state) \
     i_method  (X,Y, public,   none,    save) \
     i_method  (X,Y, public,   none,    restore) \
-    i_method  (X,Y, public,   none,    move_to, object) \
-    i_method  (X,Y, public,   none,    line_to, object) \
-    i_method  (X,Y, public,   none,    color,   object) \
-    i_method  (X,Y, public,   none,    clear,   object) \
-    i_method  (X,Y, public,   none,    bezier,  object, object, object) \
+    i_method  (X,Y, public,   none,    move_to,     f32, f32) \
+    i_method  (X,Y, public,   none,    line_to,     f32, f32) \
+    i_method  (X,Y, public,   none,    arc_to,      f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    arc,         f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    rect,        f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    fill_color,  object) \
+    i_method  (X,Y, public,   none,    stroke_color, object) \
+    i_method  (X,Y, public,   none,    clear,       object) \
+    i_method  (X,Y, public,   none,    set_stroke,  stroke) \
+    i_method  (X,Y, public,   none,    set_font,    font) \
+    i_method  (X,Y, public,   none,    cubic,       f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    quadratic,   f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    draw_fill,   bool) \
+    i_method  (X,Y, public,   none,    draw_stroke, bool) \
     i_method  (X,Y, public,   none,    sync) \
     i_override(X,Y, method,   init,    dealloc)
 declare_mod(canvas, image)

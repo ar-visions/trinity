@@ -25,6 +25,7 @@ import:
 	depot_tools	https://chromium.googlesource.com/chromium/tools/depot_tools.git	02e70b4
 		! export PATH=$TAPESTRY/checkout/depot_tools:$PATH
 		! export DEPOT_TOOLS_UPDATE=0
+		-lm
 	
 	skia 	https://skia.googlesource.com/skia.git c6835e2d5ff641dad9347ce4c2ff79dbc29cf9aa
 		cxx="$TAPESTRY/bin/clang++"

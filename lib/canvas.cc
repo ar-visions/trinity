@@ -89,20 +89,6 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     return sk;
 }
 
-
-static vec2f xy(object any) {
-    vec2f res;
-    if (scalarof(any) == typeid(f32)) {
-        res.x = ((f32*)any)[0];
-        res.y = ((f32*)any)[1];
-    } else {
-        verify(scalarof(any) == typeid(f64), "expected double");
-        res.x = ((f64*)any)[0];
-        res.y = ((f64*)any)[1];
-    }
-    return res;
-}
-
 static u8 nib(char n) {
     return (n >= '0' && n <= '9') ?       (n - '0')  :
            (n >= 'a' && n <= 'f') ? (10 + (n - 'a')) :
@@ -148,6 +134,16 @@ static SkColor sk_color(object any) {
     return sk;
 }
 
+extern "C" { path path_with_cstr(path a, cstr cs); }
+
+none draw_state_set_default(draw_state ds) {
+    ds->font         = font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf"));
+    ds->stroke       = stroke(width, 0, cap, cap_round, join, join_round);
+    ds->fill_color   = sk_color((object)string("#000"));
+    ds->stroke_color = sk_color((object)string("#000"));
+}
+
+
 none canvas_init(canvas a) {
     verify(a->width > 0 && a->height > 0, "canvas requires width and height");
 
@@ -177,30 +173,134 @@ none canvas_init(canvas a) {
     SkSafeRef(surface.get());
     a->sk_surface = (ARef)surface.get();
     a->sk_canvas  = (ARef)((SkSurface*)a->sk_surface)->getCanvas();
+    a->sk_path    = (ARef)new SkPath();
+    a->state      = array(alloc, 16);
+    save(a);
 }
 
 none canvas_dealloc(canvas a) {
     SkSafeUnref((SkSurface*)a->surface);
 }
 
-none canvas_move_to(canvas a, object _to) {
-    vec2f to = xy(_to);
+none canvas_move_to(canvas a, f32 x, f32 y) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->moveTo(x, y);
 }
 
-none canvas_line_to(canvas a, object _to) {
-    vec2f to = xy(_to);
+none canvas_line_to(canvas a, f32 x, f32 y) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->lineTo(x, y);
+}
+
+none canvas_rect(canvas a, f32 x, f32 y, f32 w, f32 h) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->addRect(SkRect::MakeXYWH(x, y, w, h));
+}
+
+none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
+    SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
+    draw_state ds     = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->arcTo(x1, y1, x2, y2, radius);
+}
+
+none canvas_arc(canvas a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 end_angle) {
+    SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
+    draw_state ds     = (draw_state)last(a->state);
+    SkRect     rect   = SkRect::MakeLTRB(
+        center_x - radius, center_y - radius,
+        center_x + radius, center_y + radius);
+    f32 start_deg = start_angle * 180.0 / M_PI;
+    f32 sweep_deg = (end_angle - start_angle) * 180.0 / M_PI;
+    ((SkPath*)a->sk_path)->addArc(rect, start_deg, sweep_deg);
+}
+
+none canvas_draw_fill(canvas a, bool preserve) {
+    SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
+    draw_state ds     = (draw_state)last(a->state);
+    SkPaint    paint;
+    paint.setStyle(SkPaint::kFill_Style);
+    paint.setColor(ds->fill_color); // assuming this exists in your draw_state
+    sk->drawPath(*(SkPath*)a->sk_path, paint);
+    if (!preserve)
+        ((SkPath*)a->sk_path)->reset();
+}
+
+none canvas_draw_stroke(canvas a, bool preserve) {
+    SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
+    draw_state ds     = (draw_state)last(a->state);
+    SkPaint    paint;
+    paint.setStyle(SkPaint::kStroke_Style);
+    paint.setColor(ds->stroke_color); // assuming this exists in your draw_state
+    sk->drawPath(*(SkPath*)a->sk_path, paint);
+    if (!preserve)
+        ((SkPath*)a->sk_path)->reset();
+}
+
+none canvas_cubic(canvas a, f32 cp1_x, f32 cp1_y, f32 cp2_x, f32 cp2_y, f32 ep_x, f32 ep_y) {
+    SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->cubicTo(cp1_x, cp1_y, cp2_x, cp2_y, ep_x, ep_y);
+}
+
+none canvas_quadratic(canvas a, f32 cp_x, f32 cp_y, f32 ep_x, f32 ep_y) {
+    SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ((SkPath*)a->sk_path)->quadTo(cp_x, cp_y, ep_x, ep_y);
 }
 
 none canvas_save(canvas a) {
+    draw_state ds;
+    if (len(a->state)) {
+        draw_state prev = (draw_state)last(a->state);
+        ds = (draw_state)copy(prev);
+    } else {
+        ds = draw_state();
+        set_default(ds);
+    }
+    push(a->state, (object)ds);
+}
+
+none canvas_set_font(canvas a, font f) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    if (ds->font != f) {
+        drop((object)ds->font);
+        ds->font = (font)hold((object)f);
+    }
+}
+
+none canvas_set_stroke(canvas a, stroke s) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    if (ds->stroke != s) {
+        drop((object)ds->stroke);
+        ds->stroke = (stroke)hold((object)s);
+    }
 }
 
 none canvas_restore(canvas a) {
+    if (!len(a->state))
+        return;
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    drop((object)ds->stroke);
+    drop((object)ds->font);
+    pop(a->state);
 }
 
-none canvas_color(canvas a, object clr) {
+none canvas_fill_color(canvas a, object clr) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->fill_color = sk_color(clr);
 }
 
-none canvas_bezier(canvas a, object cp1, object cp2, object ep) {
+none canvas_stroke_color(canvas a, object clr) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->stroke_color = sk_color(clr);
 }
 
 none canvas_clear(canvas a, object clr) {
@@ -215,6 +315,12 @@ none canvas_sync(canvas a) {
     direct_ctx->flush();
     direct_ctx->submit();
 }
+
+define_enum(join)
+define_enum(cap)
+define_class(stroke)
+define_class(font)
+define_class(draw_state)
 
 define_mod(canvas, image)
 
