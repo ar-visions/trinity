@@ -9,19 +9,6 @@ const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 u32 vk_version = VK_API_VERSION_1_2;
 
-
-VkSampleCountFlagBits max_sample_count(VkPhysicalDevice physical_device) {
-    VkPhysicalDeviceProperties props;
-    vkGetPhysicalDeviceProperties(physical_device, &props);
-    VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts &
-                                props.limits.framebufferDepthSampleCounts;
-    if (counts & VK_SAMPLE_COUNT_16_BIT) return VK_SAMPLE_COUNT_16_BIT;
-    if (counts & VK_SAMPLE_COUNT_8_BIT) return VK_SAMPLE_COUNT_8_BIT;
-    if (counts & VK_SAMPLE_COUNT_4_BIT) return VK_SAMPLE_COUNT_4_BIT;
-    if (counts & VK_SAMPLE_COUNT_2_BIT) return VK_SAMPLE_COUNT_2_BIT;
-    return VK_SAMPLE_COUNT_1_BIT;
-}
-
 u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(t->physical_device, &props);
@@ -233,18 +220,154 @@ static void handle_glfw_key(
         w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
     }
 }
- 
-void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
-    trinity t = w->t;
+
+void renderer_init(renderer r) {
+    trinity t = r->t;
+    window  w = r->w;
+    VkResult result;
+
+    // Basic image view creation info (will be modified for each specific view)
+    VkImageViewCreateInfo image_view_info = {
+        .sType              = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .viewType           = VK_IMAGE_VIEW_TYPE_2D,
+        .format             = w->surface_format.format,
+        .components         = {
+            .r              = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .g              = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .b              = VK_COMPONENT_SWIZZLE_IDENTITY,
+            .a              = VK_COMPONENT_SWIZZLE_IDENTITY,
+        },
+        .subresourceRange   = {
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        },
+    };
+
+    // create render pass
+    VkAttachmentDescription attachments[2] = {
+        {
+            // [0] - Multisampled color attachment
+            .format         = w->surface_format.format,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE, // We don't need to store this, just resolve it
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        }, 
+        {
+            // [1] - Depth attachment
+            .format         = VK_FORMAT_D32_SFLOAT,
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        }
+    };
+
+    VkAttachmentReference color_attachment_ref = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference depth_attachment_ref = {
+        .attachment = 1,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription subpass = {
+        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount    = 1,
+        .pColorAttachments       = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref,
+        .pResolveAttachments     = null,
+    };
+
+    // Add subpass dependencies to ensure proper image layout transitions
+    VkSubpassDependency dependencies[2] = {
+        {
+            .srcSubpass      = VK_SUBPASS_EXTERNAL,
+            .dstSubpass      = 0,
+            .srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+            .dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        },
+        {
+            .srcSubpass      = 0,
+            .dstSubpass      = VK_SUBPASS_EXTERNAL,
+            .srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        }
+    };
+
+    VkRenderPassCreateInfo render_pass_info = {
+        .sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount        = 2,
+        .pAttachments           = attachments,
+        .subpassCount           = 1,
+        .pSubpasses             = &subpass,
+        .dependencyCount        = 2,
+        .pDependencies          = dependencies
+    };
+
+    result = vkCreateRenderPass(t->device, &render_pass_info, null, &r->vk_render_pass);
+    verify(result == VK_SUCCESS, "failed to create render pass");
+
+
+    // w->command_buffers = calloc(w->image_count, sizeof(VkCommandBuffer));
+    // w->command_fences  = calloc(w->image_count, sizeof(VkFence));
+    result = vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = t->command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    }, r->vk_command_buffer);
+    verify(result == VK_SUCCESS, "failed to allocate command buffers");
+
+    if (!r->backbuffer) {
+        VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        result = vkCreateSemaphore(t->device, &semaphore_info, null, &r->vk_image_available_semaphore);
+        verify(result == VK_SUCCESS, "failed to create image available semaphore");
+        result = vkCreateSemaphore(t->device, &semaphore_info, null, &r->vk_render_finished_semaphore);
+        verify(result == VK_SUCCESS, "failed to create render finished semaphore");
+    }
+
+    result = vkCreateFence(
+        t->device, &(VkFenceCreateInfo) {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+        }, null, &r->vk_fence);
+    verify(result == VK_SUCCESS, "failed to create fence");
+    VkImageView swapchain_view = VK_NULL_HANDLE;
+
+    if (!w->backbuffer) {
+        // Create swapchain image view (this will be attachment [3])
+        image_view_info.image = r->vk_swap_image;
+        result = vkCreateImageView(t->device, &image_view_info, null, &r->vk_swap_view);
+        verify(result == VK_SUCCESS, "Failed to create swapchain image view");
+    }
+
     /// create color image (for msaa)
     VkImageCreateInfo color_image_info = {
         .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType      = VK_IMAGE_TYPE_2D,
         .format         = w->surface_format.format,
-        .extent         = { w->width, w->height, 1 },
+        .extent         = { r->width, r->height, 1 },
         .mipLevels      = 1,
         .arrayLayers    = 1,
-        .samples        = t->msaa_samples,
+        .samples        = 1,
         .tiling         = VK_IMAGE_TILING_OPTIMAL,
         .usage          = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | 
             (w->backbuffer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT),
@@ -252,107 +375,125 @@ void create_color_image(window w, VkImageViewCreateInfo* image_view_info) {
         .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    VkImage color_image;
-    VkDeviceMemory color_memory;
-    vkCreateImage(t->device, &color_image_info, null, &color_image);
+    vkCreateImage(t->device, &color_image_info, null, &r->vk_color_image);
     VkMemoryRequirements color_reqs;
-    vkGetImageMemoryRequirements(t->device, color_image, &color_reqs);
+    vkGetImageMemoryRequirements(t->device, r->vk_color_image, &color_reqs);
     VkMemoryAllocateInfo color_alloc = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = color_reqs.size,
-        .memoryTypeIndex = find_memory_type(t, color_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        .sType              = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize     = color_reqs.size,
+        .memoryTypeIndex    = find_memory_type(t, color_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
     };
-    vkAllocateMemory(t->device, &color_alloc, null, &color_memory);
-    vkBindImageMemory(t->device, color_image, color_memory, 0);
-
-    // Create color image view
-    image_view_info->image = color_image;
+    vkAllocateMemory (t->device, &color_alloc, null, &r->vk_color_memory);
+    vkBindImageMemory(t->device, r->vk_color_image, r->vk_color_memory, 0);
+    image_view_info.image = r->vk_color_image;
     VkImageView color_view;
-    vkCreateImageView(t->device, image_view_info, null, &color_view);
-
-    w->color_image = color_image;
-    w->color_view = color_view;
-    w->color_memory = color_memory;
-
-    transition_image_layout(t, w->color_image,
+    vkCreateImageView(t->device, &image_view_info, null, &color_view);
+    transition_image_layout(t, r->vk_color_image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+
+    // Create depth image (this will be attachment [1])
+    VkImageCreateInfo depth_image_info = {
+        .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType      = VK_IMAGE_TYPE_2D,
+        .format         = VK_FORMAT_D32_SFLOAT,
+        .extent         = {
+            .width      = r->width,
+            .height     = r->height,
+            .depth      = 1 },
+        .mipLevels      = 1,
+        .arrayLayers    = 1,
+        .samples        = VK_SAMPLE_COUNT_1_BIT,
+        .tiling         = VK_IMAGE_TILING_OPTIMAL,
+        .usage          = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        .sharingMode    = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+
+    result = vkCreateImage(t->device, &depth_image_info, null, &r->vk_depth_image);
+    verify(result == VK_SUCCESS, "Failed to create depth image");
+
+    // Get memory requirements for the image
+    VkMemoryRequirements mem_requirements;
+    vkGetImageMemoryRequirements(t->device, r->vk_depth_image, &mem_requirements);
+
+    // Allocate memory for the image
+    VkMemoryAllocateInfo alloc_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = mem_requirements.size,
+        .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+    };
+
+    VkDeviceMemory depth_image_memory;
+    result = vkAllocateMemory(t->device, &alloc_info, null, &r->vk_depth_memory);
+    verify(result == VK_SUCCESS, "Failed to allocate depth image memory");
+
+    // Bind the memory to the image
+    result = vkBindImageMemory(t->device, r->vk_depth_image, r->vk_depth_memory, 0);
+    verify(result == VK_SUCCESS, "Failed to bind depth image memory");
+    result = vkCreateImageView(t->device, &(VkImageViewCreateInfo) {
+        .sType      = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image      = r->vk_depth_image,
+        .viewType   = VK_IMAGE_VIEW_TYPE_2D,
+        .format     = VK_FORMAT_D32_SFLOAT,
+        .subresourceRange   = {
+            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        },
+    }, null, &r->vk_depth_view);
+    verify(result == VK_SUCCESS, "depth_view");
+
+    VkImageView vk_view_attachments[2] = {
+        r->vk_color_view,
+        r->vk_depth_view
+    };
+    result = vkCreateFramebuffer(t->device, &(VkFramebufferCreateInfo) {
+        .sType              = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass         = r->vk_render_pass,
+        .attachmentCount    = 2,
+        .pAttachments       = vk_view_attachments,
+        .width              = r->width,
+        .height             = r->height,
+        .layers             = 1
+    }, null, &r->vk_framebuffer);
+    verify(result == VK_SUCCESS, "Failed to create framebuffer");
 }
 
-
-void create_resolve_image(window w, VkImageViewCreateInfo* image_view_info) {
-    trinity t = w->t;
-    /// create resolve (for msaa)
-    VkImageCreateInfo resolve_info = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .imageType = VK_IMAGE_TYPE_2D,
-        .format = w->surface_format.format,
-        .extent = { w->width, w->height, 1 },
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = VK_SAMPLE_COUNT_1_BIT,
-        .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-    };
-
-    vkCreateImage(t->device, &resolve_info, null, &w->resolve_image);
-    VkMemoryRequirements resolve_reqs;
-    vkGetImageMemoryRequirements(t->device, w->resolve_image, &resolve_reqs);
-    VkMemoryAllocateInfo resolve_alloc = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize = resolve_reqs.size,
-        .memoryTypeIndex = find_memory_type(t, resolve_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-    };
-    vkAllocateMemory(t->device, &resolve_alloc, null, &w->resolve_memory);
-    vkBindImageMemory(t->device, w->resolve_image, w->resolve_memory, 0);
-
-    // Create resolve image view
-    image_view_info->image = w->resolve_image;
-    vkCreateImageView(t->device, image_view_info, null, &w->resolve_view);
-
-    transition_image_layout(t, w->resolve_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
+void renderer_dealloc(renderer r) {
+    trinity t = r->t;
+    window  w = r->w;
+    vkDestroyFramebuffer(t->device, r->vk_framebuffer,  null);
+    vkDestroyImageView  (t->device, r->vk_color_view,   null);
+    vkDestroyImage      (t->device, r->vk_color_image,  null);
+    vkFreeMemory        (t->device, r->vk_color_memory, null);
+    vkDestroyFence      (t->device, r->vk_fence,        null);
+    vkDestroyImageView  (t->device, r->vk_color_view,   null);
+    vkDestroyImage      (t->device, r->vk_color_image,  null);
+    vkFreeMemory        (t->device, r->vk_color_memory, null);
+    vkDestroyImage      (t->device, r->vk_depth_image,  null);
+    vkDestroyRenderPass (t->device, r->vk_render_pass,  null);
+    vkDestroySemaphore  (t->device, r->vk_image_available_semaphore, null);
+    vkDestroySemaphore  (t->device, r->vk_render_finished_semaphore, null);
 }
 
 void window_resize(window w, i32 width, i32 height) {
-    trinity t = w->t;
+    trinity t        = w->t;
 
-    w->width  = width;
-    w->height = height;
+    vkDeviceWaitIdle(t->device);
+    w->width         = width;
+    w->height        = height;
     w->extent.width  = width;
     w->extent.height = height;
-
-    // Wait for the device to idle before resizing
-    vkDeviceWaitIdle(t->device);
-
-    // Destroy old framebuffers and cleanup old resources
-    if (w->framebuffers) {
-        for (uint32_t i = 0; i < w->image_count; ++i) {
-            vkDestroyFramebuffer(t->device, w->framebuffers[i], null);
-        }
-        free(w->framebuffers);
-    }
-
-    // Clean up old color image if it exists
-    if (w->color_image) {
-        vkDestroyImageView(t->device, w->color_view, null);
-        vkDestroyImage(t->device, w->color_image, null);
-        vkFreeMemory(t->device, w->color_memory, null);
-    }
-
     if (!w->backbuffer) {
         VkSurfaceCapabilitiesKHR capabilities;
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(t->physical_device, w->surface, &capabilities);
-
-        // Update window dimensions to match Vulkan requirements
         if (capabilities.currentExtent.width != UINT32_MAX) {
-            // Vulkan specifies an exact extent
-            w->width = capabilities.currentExtent.width;
+            w->width  = capabilities.currentExtent.width;
             w->height = capabilities.currentExtent.height;
         } else {
-            // Vulkan allows flexible extent; clamp to allowed range
-            w->width = clamp(w->width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+            w->width  = clamp(w->width,  capabilities.minImageExtent.width,  capabilities.maxImageExtent.width);
             w->height = clamp(w->height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
         }
     }
@@ -386,189 +527,26 @@ void window_resize(window w, i32 width, i32 height) {
             vkDestroySwapchainKHR(t->device, old_swapchain, null);
     }
 
-    if (w->command_buffers) {
-        for (int i = 0; i < w->image_count; i++) {
-            if (w->image_available_semaphore) {
-                vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
-                vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
-            }
-            vkDestroyFence(t->device, w->command_fences[i], null);
-        }
-
-        vkFreeCommandBuffers(t->device, t->command_pool, w->image_count, w->command_buffers);
-        free(w->command_buffers);
-        free(w->command_fences);
-        if (w->image_available_semaphore) {
-            free(w->image_available_semaphore);
-            free(w->render_finished_semaphore);
-        }
-    }
-    
     // Query new swapchain image count
-    if (!w->backbuffer)
-        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, null);
-    else
-        w->image_count = 1;
-
-    /// create synchronization semaphores (decoupled from swap-chain)
     if (!w->backbuffer) {
-        w->image_available_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
-        w->render_finished_semaphore = calloc(w->image_count, sizeof(VkSemaphore));
-    }
-    w->command_buffers = calloc(w->image_count, sizeof(VkCommandBuffer));
-    w->command_fences  = calloc(w->image_count, sizeof(VkFence));
-
-    VkCommandBufferAllocateInfo alloc_info = {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool        = t->command_pool,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = w->image_count,
-    };
-
-    result = vkAllocateCommandBuffers(t->device, &alloc_info, w->command_buffers);
-    verify(result == VK_SUCCESS, "failed to allocate command buffers");
-
-    // Get new swapchain images
-    VkImage* swapchain_images = malloc(w->image_count * sizeof(VkImage));
-    w->depth_images = malloc(w->image_count * sizeof(VkImage));
-
-    // Basic image view creation info (will be modified for each specific view)
-    VkImageViewCreateInfo image_view_info = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format = w->surface_format.format,
-        .components = {
-            .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-            .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-            .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-            .a = VK_COMPONENT_SWIZZLE_IDENTITY,
-        },
-        .subresourceRange = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = 1,
-        },
-    };
-    
-    // Create the multisampled color image (this will be attachment [0])
-    create_color_image  (w, &image_view_info);
-    create_resolve_image(w, &image_view_info);
-
-    // Get the swapchain images
-    if (!w->backbuffer)
-        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->image_count, swapchain_images);
-
-    // Allocate new framebuffers
-    w->framebuffers = malloc(w->image_count * sizeof(VkFramebuffer));
-    for (uint32_t i = 0; i < w->image_count; ++i) {
-        VkResult result;
-
-        if (!w->backbuffer) {
-            VkSemaphoreCreateInfo semaphore_info = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-            result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->image_available_semaphore[i]);
-            verify(result == VK_SUCCESS, "failed to create image available semaphore");
-            result = vkCreateSemaphore(t->device, &semaphore_info, null, &w->render_finished_semaphore[i]);
-            verify(result == VK_SUCCESS, "failed to create render finished semaphore");
+        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->swap_image_count, null);
+        if (!w->vk_swap_images) w->vk_swap_images = malloc(w->swap_image_count * sizeof(VkImage));
+        if (!w->swap_renderers) w->swap_renderers = array(alloc, w->swap_image_count);
+        w->semaphore_frame = first(w->swap_renderers);
+        vkGetSwapchainImagesKHR(t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
+        w->swap_image_current = 0;
+        for (int i = 0; i < 2; i++) {
+            drop(w->swap_renderers->elements[i]);
+            w->swap_renderers->elements[i] = renderer(
+                t, t, w, w,
+                width,          w->width,
+                height,         w->height,
+                backbuffer,     w->backbuffer,
+                vk_swap_image,  w->vk_swap_images[i],
+                models,         array(alloc, 32));
         }
-
-        result = vkCreateFence(t->device, &(VkFenceCreateInfo) {
-                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                .flags = VK_FENCE_CREATE_SIGNALED_BIT, // Initially signaled to allow the first use
-            }, null, &w->command_fences[i]);
-        verify(result == VK_SUCCESS, "failed to create fence");
-        VkImageView swapchain_view = VK_NULL_HANDLE;
-
-        if (!w->backbuffer) {
-            // Create swapchain image view (this will be attachment [3])
-            image_view_info.image = swapchain_images[i];
-            result = vkCreateImageView(t->device, &image_view_info, null, &swapchain_view);
-            verify(result == VK_SUCCESS, "Failed to create swapchain image view");
-        }
-
-        // Create depth image (this will be attachment [1])
-        VkImageCreateInfo depth_image_info = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = VK_FORMAT_D32_SFLOAT,
-            .extent = {
-                .width = w->width,
-                .height = w->height,
-                .depth = 1,
-            },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = t->msaa_samples,
-            .tiling = VK_IMAGE_TILING_OPTIMAL,
-            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        };
-
-        result = vkCreateImage(t->device, &depth_image_info, null, &w->depth_images[i]);
-        verify(result == VK_SUCCESS, "Failed to create depth image");
-
-        // Get memory requirements for the image
-        VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(t->device, w->depth_images[i], &mem_requirements);
-
-        // Allocate memory for the image
-        VkMemoryAllocateInfo alloc_info = {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = mem_requirements.size,
-            .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        };
-
-        VkDeviceMemory depth_image_memory;
-        result = vkAllocateMemory(t->device, &alloc_info, null, &depth_image_memory);
-        verify(result == VK_SUCCESS, "Failed to allocate depth image memory");
-
-        // Bind the memory to the image
-        result = vkBindImageMemory(t->device, w->depth_images[i], depth_image_memory, 0);
-        verify(result == VK_SUCCESS, "Failed to bind depth image memory");
-
-        VkImageViewCreateInfo depth_view_info = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-            .image = w->depth_images[i],
-            .viewType = VK_IMAGE_VIEW_TYPE_2D,
-            .format = VK_FORMAT_D32_SFLOAT,
-            .subresourceRange = {
-                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-
-        VkImageView depth_view;
-        result = vkCreateImageView(t->device, &depth_view_info, null, &depth_view);
-        verify(result == VK_SUCCESS, "Failed to create depth view");
-
-        // Set up the attachments array with the correct order
-        VkImageView attachments[3] = {
-            w->color_view,  // [0] - Multisampled color attachment
-            depth_view,     // [1] - Depth attachment
-            !w->backbuffer ? swapchain_view : w->resolve_view  // [2] - Resolve target (swapchain image; if its set)
-        };
-
-        // Create framebuffer
-        VkFramebufferCreateInfo framebuffer_info = {
-            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = w->render_pass,
-            .attachmentCount = 3,
-            .pAttachments = attachments,
-            .width = w->width,
-            .height = w->height,
-            .layers = 1,
-        };
-
-        result = vkCreateFramebuffer(t->device, &framebuffer_info, null, &w->framebuffers[i]);
-        verify(result == VK_SUCCESS, "Failed to create framebuffer");
+        w->swap_renderer_current = w->swap_renderers->elements[0];
     }
-
-    free(swapchain_images);
 }
 
 static void handle_glfw_framebuffer_size(GLFWwindow *glfw_window, int width, int height) {
@@ -900,10 +878,13 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
     }
 
     command cmd = command(t, t);
+    renderer final = null;
+
     for (int f = 0; f < 6; f++) { 
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
+        final = w->last_render; // will need to do this after if it changes per process
         process(w, models, null, null);
-        transition_image_layout(t, w->resolve_image,
+        transition_image_layout(t, final->vk_color_image,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
         transition_image_layout(t, vk_image[0],
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -917,7 +898,7 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
 
         begin(cmd);
         vkCmdCopyImage(cmd->vk,
-            w->resolve_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            final->vk_color_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             vk_image[0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             1, &region);
         submit(cmd);
@@ -926,7 +907,8 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
     create_mipmaps(t, vk_image[0], size, size, mip_levels, 6);
 
     texture cube = texture(
-        t, t, vk_image, vk_image[0], surface, Surface_environment, vk_format, w->surface_format.format, mip_levels, mip_levels, layer_count, 6);
+        t, t, vk_image, vk_image[0], surface, Surface_environment,
+        vk_format, w->surface_format.format, mip_levels, mip_levels, layer_count, 6);
 
     /// convolve environment to create a multi-sampled cube
     Convolve conv_shader = Convolve (t, t, name, string("conv"), proj, e->proj);
@@ -938,6 +920,7 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
     quatf q = quatf(&v);
     conv_shader->env = mat4f_ident();
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
+
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -945,12 +928,12 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
         for (int f = 0; f < 6; f++) {
             int face_id = a * 6 + f;
             conv_shader->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
-
+            final = w->last_render;
             process(w, conv_models, null, null);
             //image screen = cast(image, w);
             //exr(screen, form(path, "screenshot.exr"));
 
-            transition_image_layout(t, w->resolve_image,
+            transition_image_layout(t, final->vk_color_image,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1);
             transition_image_layout(t, vk_image[1],
                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -964,7 +947,7 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
 
             begin(cmd);
             vkCmdCopyImage(cmd->vk,
-                w->resolve_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                final->vk_color_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 vk_image[1], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 1, &region);
             submit(cmd);
@@ -1007,7 +990,7 @@ texture trinity_environment(trinity t, image img, vec3f rotation_axis, f32 rotat
         }
     }
 
-    transition_image_layout(t, w->resolve_image,
+    transition_image_layout(t, final->vk_color_image,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0, 1, 0, 1);
         
     texture convolve = texture(
@@ -1583,9 +1566,10 @@ void pipeline_bind_resources(pipeline p) {
 }
 
 void pipeline_init(pipeline p) {
-    gpu vbo = p->vbo, compute = p->memory;
-    p->vbo    = vbo;
-    p->memory = compute;
+    gpu vbo    = p->vbo, compute = p->memory;
+    renderer r = p->r;
+    p->vbo     = vbo;
+    p->memory  = compute;
 
     //if (p->memory) sync(p->memory);
     verify(vbo, "no vbo or memory provided to form a compute or graphical pipeline");
@@ -1704,7 +1688,7 @@ void pipeline_init(pipeline p) {
 
         VkPipelineMultisampleStateCreateInfo multisample_state = {
             .sType                 = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples  = t->msaa_samples,
+            .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
             .sampleShadingEnable   = VK_TRUE,
         };
 
@@ -1761,7 +1745,7 @@ void pipeline_init(pipeline p) {
             .pColorBlendState    = &color_blend_state,
             .pDynamicState       = &dynamic_state,
             .layout              = p->layout,
-            .renderPass          = w->render_pass,
+            .renderPass          = r->vk_render_pass,
             .subpass             = 0,
             .basePipelineHandle  = VK_NULL_HANDLE,
         };
@@ -1821,9 +1805,14 @@ void pipeline_render(pipeline p, handle f) {
     }
 }
 
-void window_push(window w, model m) {
-    array a = w->models;
-    push(a, (object)m);
+renderer window_final_renderer(window w) {
+    if (!w->swap_renderers)
+        return last(w->background_targets);
+    return (renderer)w->swap_renderers->elements[w->swap_image_current];
+}
+
+void window_push_background(window w, renderer r) {
+    push(w->background_targets, (object)r);
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -1861,28 +1850,8 @@ static void set_queue_index(trinity t, window w) {
     verify(found, "failed to find a suitable graphics and presentation queue family");
 }
 
-void window_init(window w) {
-    trinity t = w->t;
-
-    w->models = array();
-
+void trinity_finish(trinity t, window w) {
     VkResult result;
-
-    // Initialize GLFW window with Vulkan compatibility
-    if (!w->backbuffer) {
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        w->window = glfwCreateWindow(w->width, w->height,
-            w->title ? cstring(w->title) : "trinity", null, null);
-        verify(w->window, "Failed to create GLFW window");
-        glfwSetWindowUserPointer(w->window, (void *)w);
-        glfwSetKeyCallback(w->window, handle_glfw_key);
-        glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
-
-        // Create Vulkan surface
-        result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
-        verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
-    }
-
     /// this is done once for device, not once per window; however we must have a surface for it
     if (t->queue_family_index == -1) {
         set_queue_index(t, w);
@@ -1906,16 +1875,39 @@ void window_init(window w) {
         t->device_memory = map(unmanaged, true);
       //t->buffers       = map(unmanaged, true); -- decentralized buffer management
         t->skia          = skia_init_vk(t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
-    }
     
-    VkCommandPoolCreateInfo pool_info = {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        .queueFamilyIndex = t->queue_family_index,
-        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-    };
-    result = vkCreateCommandPool(t->device, &pool_info, null, &t->command_pool);
-    verify(result == VK_SUCCESS, "failed to create command pool");
+        VkCommandPoolCreateInfo pool_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .queueFamilyIndex = t->queue_family_index,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        };
+        result = vkCreateCommandPool(t->device, &pool_info, null, &t->command_pool);
+        verify(result == VK_SUCCESS, "failed to create command pool");
+    }
+}
 
+void window_init(window w) {
+    trinity t = w->t;
+
+    w->background_targets = array();
+    VkResult result;
+
+    // Initialize GLFW window with Vulkan compatibility
+    if (!w->backbuffer) {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        w->window = glfwCreateWindow(w->width, w->height,
+            w->title ? cstring(w->title) : "trinity", null, null);
+        verify(w->window, "Failed to create GLFW window");
+        glfwSetWindowUserPointer(w->window, (void *)w);
+        glfwSetKeyCallback(w->window, handle_glfw_key);
+        glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
+
+        // Create Vulkan surface
+        result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
+        verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
+    }
+
+    trinity_finish(t, w);
 
     if (!w->backbuffer) {
         // Query surface capabilities
@@ -1971,128 +1963,21 @@ void window_init(window w) {
         w->extent.width              = w->width;
         w->extent.height             = w->height;
     }
-    
-    // create render pass
-    VkAttachmentDescription attachments[3] = {
-        {
-            // [0] - Multisampled color attachment
-            .format         = w->surface_format.format,
-            .samples        = t->msaa_samples,
-            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE, // We don't need to store this, just resolve it
-            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        }, 
-        {
-            // [1] - Depth attachment
-            .format         = VK_FORMAT_D32_SFLOAT,
-            .samples        = t->msaa_samples,
-            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        }, 
-        {
-            // [2] - Resolve attachment (swapchain image)
-            .format         = w->surface_format.format,
-            .samples        = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout    = !w->backbuffer ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        }
-    };
 
-    VkAttachmentReference color_attachment_ref = {
-        .attachment = 0,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-
-    VkAttachmentReference depth_attachment_ref = {
-        .attachment = 1,
-        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    };
-
-    VkAttachmentReference resolve_attachment_ref = {
-        .attachment = 2,
-        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    };
-
-    VkSubpassDescription subpass = {
-        .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount    = 1,
-        .pColorAttachments       = &color_attachment_ref,
-        .pDepthStencilAttachment = &depth_attachment_ref,
-        .pResolveAttachments     = &resolve_attachment_ref
-    };
-
-    // Add subpass dependencies to ensure proper image layout transitions
-    VkSubpassDependency dependencies[2] = {
-        {
-            .srcSubpass      = VK_SUBPASS_EXTERNAL,
-            .dstSubpass      = 0,
-            .srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            .dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
-            .dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
-        },
-        {
-            .srcSubpass      = 0,
-            .dstSubpass      = VK_SUBPASS_EXTERNAL,
-            .srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            .srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            .dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT,
-            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
-        }
-    };
-
-    VkRenderPassCreateInfo render_pass_info = {
-        .sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount        = 3,
-        .pAttachments           = attachments,
-        .subpassCount           = 1,
-        .pSubpasses             = &subpass,
-        .dependencyCount        = 2,
-        .pDependencies          = dependencies
-    };
-
-    result = vkCreateRenderPass(t->device, &render_pass_info, null, &w->render_pass);
-    verify(result == VK_SUCCESS, "failed to create render pass");
-    w->semaphore_frame = 0;
-    w->last_fence = -1;
     resize(w, w->extent.width, w->extent.height);  // Call the framebuffer update directly
 }
 
-void window_process(window w, array models, object callback, object arg) {
-    trinity  t = w->t;
-    void(*user_fn)(pipeline, ARef) = callback;
+/// this should all go in renderer; if the target is window it may do different things
+/// this WAS window_process (specific to window; asking about how much we should have in here for renderer specifically; that is, for backbuffer rendering)
+void renderer_draw(renderer r) {
+    trinity  t = r->w->t;
+    window   w = r->w;
     uint32_t index = 0;
     VkResult result;
 
-    if (!w->backbuffer) {
-        result = vkAcquireNextImageKHR(
-            t->device, w->swapchain, UINT64_MAX,
-            w->image_available_semaphore[w->semaphore_frame], VK_NULL_HANDLE, &index);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            handle_glfw_framebuffer_size(w->window, w->width, w->height);
-            return
-            ;
-        }
-        verify(result == VK_SUCCESS, "failed to acquire swapchain image");
-    }
-
-    vkResetFences  (t->device, 1, &w->command_fences[index]);
-    w->last_fence = index;
+    vkResetFences  (t->device, 1, &r->vk_fence);
     // Begin command buffer recording
-    VkCommandBuffer frame = w->command_buffers[index];
+    VkCommandBuffer frame = r->vk_command_buffer;
     vkResetCommandBuffer(frame, 0);
     vkBeginCommandBuffer(frame, &(VkCommandBufferBeginInfo) {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -2101,43 +1986,41 @@ void window_process(window w, array models, object callback, object arg) {
     vkCmdSetViewport(frame, 0, 1, &(VkViewport) {
         .x                  = 0.0f,
         .y                  = 0.0f,
-        .width              = (float)w->extent.width,
-        .height             = (float)w->extent.height,
+        .width              = (float)r->width,
+        .height             = (float)r->height,
         .minDepth           = 0.0f,
         .maxDepth           = 1.0f
     });
     vkCmdSetScissor(frame, 0, 1, &(VkRect2D) {
         .offset             = {0, 0},
-        .extent             = {w->extent.width, w->extent.height}
+        .extent             = { r->width, r->height }
     });
-    vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) {
+    vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) { 
         .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass         = w->render_pass,  // Pre-configured render pass
-        .framebuffer        = w->framebuffers[index],  // Framebuffer for this image
+        .renderPass         = r->vk_render_pass,  // Pre-configured render pass
+        .framebuffer        = r->vk_framebuffer,  // Framebuffer for this image
         .renderArea         = {
             .offset         = { 0, 0 },
-            .extent         = w->extent,  // Swapchain image extent
+            .extent         = { r->width, r->height },  // Swapchain image extent
         },
-        .clearValueCount    = 3,
-        .pClearValues       = &(VkClearValue[3]) {
-            { .color        = { .float32 = { 0.044f, 0.044f, 0.044f, 1.0f }} },
-            { .depthStencil = { .depth   =   1.0f,
-                                .stencil =   0 } },
-            { .color        = { .float32 = {0.0f, 0.0f, 0.0f, 1.0f} } }
+        .clearValueCount    = 2,
+        .pClearValues       = &(VkClearValue[2]) { // r->clear_color is the vec4f (xyzw)
+            { .color        = { .float32 = {
+                r->clear_color.x, r->clear_color.y, r->clear_color.w, r->clear_color.z }} },
+            { .depthStencil = { .depth   =   1.0f, .stencil = 0 } }
         }
     }, VK_SUBPASS_CONTENTS_INLINE);
 
-    each(models, model, m) {
-        each(m->pipelines, pipeline, p) {
+    each (r->models, model, m) {
+        each (m->pipelines, pipeline, p) {
             if (instanceof(p->s, PBR))
                 ((PBR)p->s)->model = p->model;
         
-            if (callback) // user will always store their own references to their own shader
-                ((u_callback)callback)(p, arg);
-                
             // important that this happen instantly after user sets
             update(p->shader_uniforms);
-            // user may indeed set uniforms different depending on the pipeline; this is quite natural and not always redundant
+
+            // user may indeed set uniforms different depending on the pipeline
+            // this is quite natural and not always redundant
             render(p, frame);
         }
     }
@@ -2151,93 +2034,80 @@ void window_process(window w, array models, object callback, object arg) {
         .commandBufferCount     = 1,
         .pCommandBuffers        = &frame,
         .waitSemaphoreCount     = !w->backbuffer ? 1                                                 : 0,
-        .pWaitSemaphores        = !w->backbuffer ? &w->image_available_semaphore[w->semaphore_frame] : null,
+        .pWaitSemaphores        = !w->backbuffer ? &w->semaphore_frame->vk_image_available_semaphore : null,
         .pWaitDstStageMask      = !w->backbuffer ? &s_flags                                          : null,
         .signalSemaphoreCount   = !w->backbuffer ? 1                                                 : 0,
-        .pSignalSemaphores      = !w->backbuffer ? &w->render_finished_semaphore[w->semaphore_frame] : null
+        .pSignalSemaphores      = !w->backbuffer ? &w->semaphore_frame->vk_render_finished_semaphore : null
     };
 
-    vkQueueSubmit(t->queue, 1, &submitInfo, w->command_fences[index]);
-
-    if (!w->backbuffer) {
-        // Present the swapchain image
-        VkPresentInfoKHR presentInfo = {
-            .sType                  = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .swapchainCount         = 1,
-            .pSwapchains            = &w->swapchain,
-            .pImageIndices          = &index,
-            .waitSemaphoreCount     = 1,
-            .pWaitSemaphores        = &w->render_finished_semaphore[w->semaphore_frame]
-        };
-
-        result = vkQueuePresentKHR(t->queue, &presentInfo);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-            w->semaphore_frame = (w->semaphore_frame + 1) % w->image_count;
-            return;
-        }
-        verify(result == VK_SUCCESS, "present");
-    }
-    
-    result = vkWaitForFences(t->device, 1, &w->command_fences[index], VK_TRUE, UINT64_MAX);
-    verify(result == VK_SUCCESS, "fence wait failed: last_fence=%d", w->last_fence);
-
-    if (!w->backbuffer)
-        w->semaphore_frame = (w->semaphore_frame + 1) % w->image_count;
+    vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
 }
+
+void renderer_sync_fence(renderer r) {
+    VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
+    verify(result == VK_SUCCESS, "fence wait failed");
+}
+
 
 int window_loop(window w, ARef callback, ARef arg) {
     trinity t = w->t;
-    void(*user_fn)(pipeline, ARef) = callback;
+    void(*cb)(ARef) = callback;
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
-        process(w, w->models, user_fn, arg);
+        
+        /// needs a solution here for user function; the uniforms we want to bind when creating it; so the user should have a handle to them already
+        cb(arg);
+
+        /// render background targets first
+        each (w->background_targets, renderer, r) {
+            draw(r);
+            sync_fence(r);
+            w->last_render = r;
+        }
+
+        /// acquire swap image
+        if (w->swap_renderers) {
+            VkResult result = vkAcquireNextImageKHR(
+                t->device, w->swapchain, UINT64_MAX,
+                w->swap_renderer_current->vk_image_available_semaphore,
+                VK_NULL_HANDLE, &w->swap_image_current);
+            if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+                handle_glfw_framebuffer_size(w->window, w->width, w->height);
+            else {
+                verify(result == VK_SUCCESS, "failed to acquire swapchain image");
+                w->swap_renderer_current = w->swap_renderers->elements[w->swap_image_current];
+                draw(w->swap_renderer_current);
+
+                // present the swapchain image
+                VkPresentInfoKHR presentInfo = {
+                    .sType                  = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                    .swapchainCount         = 1,
+                    .pSwapchains            = &w->swapchain,
+                    .pImageIndices          = &w->swap_image_current,
+                    .waitSemaphoreCount     = 1,
+                    .pWaitSemaphores        = &w->semaphore_frame->vk_render_finished_semaphore
+                };
+
+                result = vkQueuePresentKHR(t->queue, &presentInfo);
+                
+                /// swap next semaphore frame (trinity will never use triple buffering for a UI)
+                w->semaphore_frame = 
+                    w->swap_renderers->elements[w->semaphore_frame == first(w->swap_renderers)];
+                
+                if (result != VK_ERROR_OUT_OF_DATE_KHR && result != VK_SUBOPTIMAL_KHR) {
+                    verify(result == VK_SUCCESS, "present");
+                    sync_fence(w->swap_renderer_current);
+                }
+                w->last_render = w->swap_renderer_current;
+            }
+        }
     }
     return 0;
 }
 
 void window_dealloc(window w) {
     trinity t = w->t;
-    
-    // Clean up synchronization objects
-    for (int i = 0; i < w->image_count; i++) {
-        if (w->image_available_semaphore) {
-            vkDestroySemaphore(t->device, w->image_available_semaphore[i], null);
-            vkDestroySemaphore(t->device, w->render_finished_semaphore[i], null);
-        }
-        vkDestroyFence    (t->device, w->command_fences[i], null);
-    }
-    
-    // Clean up framebuffers
-    if (w->framebuffers) {
-        for (uint32_t i = 0; i < w->image_count; ++i) {
-            vkDestroyFramebuffer(t->device, w->framebuffers[i], null);
-        }
-        free(w->framebuffers);
-    }
-    
-    // Clean up MSAA color image
-    if (w->color_image) {
-        vkDestroyImageView(t->device, w->color_view, null);
-        vkDestroyImage(t->device, w->color_image, null);
-        vkFreeMemory(t->device, w->color_memory, null);
-    }
-    
-    // Clean up depth images
-    if (w->depth_images) {
-        for (uint32_t i = 0; i < w->image_count; ++i) {
-            if (w->depth_images[i])
-                vkDestroyImage(t->device, w->depth_images[i], null);
-        }
-        free(w->depth_images);
-    }
-    
-    free(w->command_buffers);
-    free(w->command_fences);
-    vkDestroyRenderPass(t->device, w->render_pass, null);
-
     if (!w->backbuffer) {
-        free(w->image_available_semaphore);
-        free(w->render_finished_semaphore);
         vkDestroySwapchainKHR(t->device, w->swapchain, null);
         vkDestroySurfaceKHR(t->instance, w->surface, null);
         glfwDestroyWindow(w->window);
@@ -2526,7 +2396,7 @@ void trinity_init(trinity t) {
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = &bufferDeviceAddressFeatures;
 
-    t->msaa_samples = max_sample_count(t->physical_device);
+    //t->msaa_samples = max_sample_count(t->physical_device);
     vkGetPhysicalDeviceFeatures2(t->physical_device, &features2); // Fetch the features from the physical device
 
     // Prepare device extensions
@@ -2617,48 +2487,45 @@ none buffer_init(buffer b) {
 }
 
 void buffer_transfer(buffer b, window w) {
-    VkImage image = w->resolve_image;
-    trinity t = b->t;
-    VkBuffer buffer = b->vk_buffer;
+    verify(w->last_render, "expected render pass to be run prior to a buffer transfer from that window");
 
-    VkCommandBufferAllocateInfo alloc_info = {
+    VkImage  image  = w->last_render->vk_color_image;
+    trinity  t      = b->t;
+    VkBuffer buffer = b->vk_buffer;
+    VkCommandBuffer cmd;
+
+    vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
         .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool        = t->command_pool,
         .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1,
-    };
-
-    VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(t->device, &alloc_info, &cmd);
+    }, &cmd);
 
     vkBeginCommandBuffer(cmd, &(VkCommandBufferBeginInfo){
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
     });
 
-    VkImageSubresourceRange subres_range = {
-        .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-        .baseMipLevel   = 0,
-        .levelCount     = 1,
-        .baseArrayLayer = 0,
-        .layerCount     = 1
-    };
-
     // Transition image to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-    VkImageMemoryBarrier barrier = {
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, 0, 0, 0, 1, &(VkImageMemoryBarrier) {
         .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
         .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
         .oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         .image               = image,
-        .subresourceRange    = subres_range
-    };
-    vkCmdPipelineBarrier(cmd,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 0, 0, 0, 0, 1, &barrier);
+        .subresourceRange    = {
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1
+        }});
 
-    VkBufferImageCopy region = {
+    vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &(VkBufferImageCopy) {
         .bufferOffset      = 0,
         .bufferRowLength   = 0, // tightly packed
         .bufferImageHeight = 0,
@@ -2669,19 +2536,14 @@ void buffer_transfer(buffer b, window w) {
             .layerCount     = 1
         },
         .imageOffset = {0, 0, 0},
-        .imageExtent = {w->width, w->height, 1}
-    };
-
-    vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
-
+        .imageExtent = {w->width, w->height, 1}});
+    
     vkEndCommandBuffer(cmd);
 
-    VkSubmitInfo submit = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
+        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount = 1,
-        .pCommandBuffers = &cmd
-    };
-    vkQueueSubmit(t->queue, 1, &submit, VK_NULL_HANDLE);
+        .pCommandBuffers    = &cmd}, VK_NULL_HANDLE);
     vkQueueWaitIdle(t->queue);
 
     vkFreeCommandBuffers(t->device, t->command_pool, 1, &cmd);

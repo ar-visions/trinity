@@ -318,48 +318,71 @@ typedef struct _window*   window;
     i_override(X,Y, method,     init, dealloc)
 declare_class(buffer)
 
+#define renderer_schema(X,Y,...) \
+    i_prop    (X,Y, public,     trinity,                t) \
+    i_prop    (X,Y, public,     window,                 w) \
+    i_prop    (X,Y, public,     i32,                    width) \
+    i_prop    (X,Y, public,     i32,                    height) \
+    i_prop    (X,Y, public,     texture,                target) \
+    i_prop    (X,Y, public,     array,                  models) \
+    i_prop    (X,Y, public,     ARef,                   callback) \
+    i_prop    (X,Y, public,     bool,                   backbuffer) \
+    i_prop    (X,Y, public,     vec4f,                  clear_color) \
+    i_prop    (X,Y, intern,     VkCommandBuffer,        vk_command_buffer,          as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                vk_swap_image,              as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            vk_swap_view,               as, ARef) \
+    i_prop    (X,Y, intern,     VkFence,                vk_fence,                   as, ARef) \
+    i_prop    (X,Y, intern,     VkSemaphore,            vk_semaphore,               as, ARef) \
+    i_prop    (X,Y, intern,     VkSemaphore,            vk_image_available_semaphore,  as, ARef) \
+    i_prop    (X,Y, intern,     VkSemaphore,            vk_render_finished_semaphore,  as, ARef) \
+    i_prop    (X,Y, intern,     VkFramebuffer,          vk_framebuffer,             as, ARef) \
+    i_prop    (X,Y, intern,     VkRenderPass,           vk_render_pass,             as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                vk_depth_image,             as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            vk_depth_view,              as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         vk_depth_memory,            as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                vk_resolve_image,           as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            vk_resolve_view,            as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         vk_resolve_memory,          as, ARef) \
+    i_prop    (X,Y, intern,     VkImage,                vk_color_image,             as, ARef) \
+    i_prop    (X,Y, intern,     VkImageView,            vk_color_view,              as, ARef) \
+    i_prop    (X,Y, intern,     VkDeviceMemory,         vk_color_memory,            as, ARef) \
+    i_method  (X,Y, public,     none,                   draw) \
+    i_method  (X,Y, public,     none,                   sync_fence) \
+    i_override(X,Y, method,     init, dealloc)
+declare_class(renderer)
+
 
 #define window_schema(X,Y,...) \
     i_prop    (X,Y, intern,     handle,                 window) \
-    i_prop    (X,Y, intern,     VkSurfaceKHR,           surface,        as, ARef) \
-    i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain,        as, ARef) \
-    i_prop    (X,Y, intern,     array,                  models) \
+    i_prop    (X,Y, required,   trinity,                t) \
+    i_prop    (X,Y, opaque,     ARef,                   wndproc) \
+    i_prop    (X,Y, opaque,     ARef,                   wndproc_arg) \
+    i_prop    (X,Y, intern,     array,                  swap_renderers) \
+    i_prop    (X,Y, intern,     VkImage*,               vk_swap_images,        as, ARef) \
+    i_prop    (X,Y, intern,     VkSurfaceKHR,           surface,               as, ARef) \
+    i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain,             as, ARef) \
+    i_prop    (X,Y, intern,     array,                  background_targets) \
     i_prop    (X,Y, intern,     VkSurfaceCapabilitiesKHR*, surface_caps,        as, ARef) \
     i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format,        as, i64) \
     i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode,          as, i32) \
     i_prop    (X,Y, intern,     VkExtent2D,             extent,                as, i64) \
-    i_prop    (X,Y, intern,     VkRenderPass,           render_pass,           as, ARef) \
-    i_prop    (X,Y, intern,     VkFramebuffer*,         framebuffers,          as, ARef) \
-    i_prop    (X,Y, intern,     VkImage*,               depth_images,          as, ARef) \
-    i_prop    (X,Y, intern,     VkImageView*,           depth_image_views,     as, ARef) \
-    i_prop    (X,Y, intern,     VkDeviceMemory*,        depth_image_memory,    as, ARef) \
-    i_prop    (X,Y, intern,     VkImage,                resolve_image,         as, ARef) \
-    i_prop    (X,Y, intern,     VkImageView,            resolve_view,          as, ARef) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,         resolve_memory,        as, ARef) \
-    i_prop    (X,Y, intern,     VkImage,                color_image,           as, ARef) \
-    i_prop    (X,Y, intern,     VkImageView,            color_view,            as, ARef) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,         color_memory,          as, ARef) \
-    i_prop    (X,Y, intern,     u32,                    image_count) \
-    i_prop    (X,Y, intern,     VkFence*,               command_fences,        as, ARef) \
-    i_prop    (X,Y, intern,     VkCommandBuffer*,       command_buffers,       as, ARef) \
-    i_prop    (X,Y, intern,     VkSemaphore*,           image_available_semaphore, as, ARef) \
-    i_prop    (X,Y, intern,     VkSemaphore*,           render_finished_semaphore, as, ARef) \
-    i_prop    (X,Y, intern,     VkFence,                in_flight_fence,      as, ARef) \
-    i_prop    (X,Y, intern,     ARef,                   loop_callback) \
-    i_prop    (X,Y, intern,     ARef,                   loop_arg) \
-    i_prop    (X,Y, intern,     i32,                    semaphore_frame) \
-    i_prop    (X,Y, intern,     i32,                    last_fence) \
-    i_prop    (X,Y, required,   trinity,                t) \
+    i_prop    (X,Y, intern,     renderer,               swap_renderer_current) \
+    i_prop    (X,Y, intern,     renderer,               semaphore_frame) \
+    i_prop    (X,Y, intern,     u32,                    swap_image_count) \
+    i_prop    (X,Y, intern,     u32,                    swap_image_current) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
     i_prop    (X,Y, public,     Pixel,                  format) \
     i_prop    (X,Y, public,     string,                 title) \
     i_prop    (X,Y, public,     f32,                    debug_value) \
     i_prop    (X,Y, public,     bool,                   backbuffer) \
+    i_prop    (X,Y, public,     i32,                    current_swap_index) \
     i_method  (X,Y, public,     none,                   process, array, object, object) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
     i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
-    i_method  (X,Y, public,     none,                   push, model) \
+    i_method  (X,Y, public,     none,                   push_background, renderer) \
+    i_method  (X,Y, public,     renderer,               final_renderer) \
+    i_prop    (X,Y, public,     renderer,               last_render) \
     i_cast    (X,Y, public,     image) \
     i_override(X,Y, method,     init, dealloc)
 declare_class(window)
@@ -521,10 +544,13 @@ declare_class(gpu)
 
 /// shader is an array
 ///
+
 typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   window,                 w) \
+    i_prop    (X,Y, public,     i32,                    test2) \
+    i_prop    (X,Y, public,     renderer,               r) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
     i_prop    (X,Y, public,     array,                  samplers) \
