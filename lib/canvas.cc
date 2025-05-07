@@ -309,10 +309,19 @@ none canvas_clear(canvas a, object clr) {
     sk->clear(fill);
 }
 
+void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
+
 none canvas_sync(canvas a) {
     Skia* skia = (Skia*)a->t->skia;
     GrDirectContext* direct_ctx = skia->ctx.get();
     direct_ctx->flush();
+
+    transition_image_layout(
+        a->t, a->tx->vk_image,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        0, 1, 0, 1, false);
+    
     direct_ctx->submit();
 }
 
