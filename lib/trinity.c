@@ -2016,7 +2016,7 @@ none window_draw(window w) {
     if (w->swap_renders) {
         VkResult result = vkAcquireNextImageKHR(
             t->device, w->swapchain, UINT64_MAX,
-            w->swap_render_current->vk_image_available_semaphore,
+            w->semaphore_frame->vk_image_available_semaphore,
             VK_NULL_HANDLE, &w->swap_image_current);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
             handle_glfw_framebuffer_size(w->window, w->width, w->height);
