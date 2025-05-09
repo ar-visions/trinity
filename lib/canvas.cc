@@ -316,14 +316,18 @@ none canvas_sync(canvas a) {
     GrDirectContext* direct_ctx = skia->ctx.get();
     direct_ctx->flush();
 
+    output_mode(a, true);
+    direct_ctx->submit(); // this transitions it back to color attachment, but expects it to be read-only after a flush (weird)
+}
+
+none canvas_output_mode(canvas a, bool output) {
     transition_image_layout(
         a->t, a->tx->vk_image,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        output ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        output ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         0, 1, 0, 1, false);
-    
-    direct_ctx->submit();
 }
+
 
 define_enum(join)
 define_enum(cap)

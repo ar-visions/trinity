@@ -30,8 +30,11 @@ VkDeviceMemory device_memory(trinity t, VkBuffer b) {
     return null;
 }
 
-void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
-void buffer_get_image_bits(buffer b, VkImage image, uint32_t width, uint32_t height);
+void transition_image_layout(
+    trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
+
+void buffer_get_image_bits(
+    buffer b, VkImage image, uint32_t width, uint32_t height);
 
 typedef struct Layout {
     VkImageLayout        layout;
@@ -59,7 +62,8 @@ Layout* layout_find(VkImageLayout l) {
 
 void transition_image_layout(
     trinity t, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
-    int baseMipLevel, int level_count, int base_array_layer, int layer_count, bool is_depth) {
+    int baseMipLevel, int level_count, int base_array_layer, int layer_count,
+    bool is_depth) {
     command cmd = command(t, t);
     begin(cmd);
 
@@ -162,9 +166,12 @@ static void handle_glfw_key(
 }
 
 void render_init(render r) {
+    if (!r->t) r->t = r->w->t;
     trinity  t          = r->t;
     window   w          = r->w;
-    bool     backbuffer = instanceof(r->target, texture) != null;
+    bool     backbuffer = !r->vk_swap_image;
+    if (backbuffer)
+         r->target = texture(t, t, width, r->w->width, height, r->w->height, format, Pixel_rgba8);
     VkResult result;
 
     if (r->width  == 0) r->width  = w->width;
@@ -284,7 +291,7 @@ void render_init(render r) {
     /// providing w always supplements t, width and height, layers/mips default to 1
     r->color = texture(w, w,
         vk_format, w->surface_format.format, swap, !backbuffer,
-        vk_image, backbuffer ? null : r->vk_swap_image);
+        vk_image, r->vk_swap_image);
 
     r->depth = texture(w, w,
         vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer);
@@ -308,6 +315,11 @@ void render_init(render r) {
         .layers             = 1
     }, null, &r->vk_framebuffer);
     verify(result == VK_SUCCESS, "Failed to create framebuffer");
+    
+    /// finish models once we
+    each (r->models, model, m) {
+        finish(m, r);
+    }
 }
 
 void render_dealloc(render r) {
@@ -383,6 +395,13 @@ void window_resize(window w, i32 width, i32 height) {
 
     /// query new swapchain image count
     if (!w->backbuffer) {
+        if (!w->swap_model) {
+            /// todo: swap_shader must have its uniforms set here
+            render top     = last(w->list);
+            w->swap_shader = UVQuad(t, t, name, string("uv-quad"));
+            w->swap_model  = model(w, w, s, w->swap_shader, samplers, a(top));
+        }
+
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, null);
         if (!w->vk_swap_images)
@@ -394,12 +413,11 @@ void window_resize(window w, i32 width, i32 height) {
         w->swap_image_current = 0;
         for (int i = 0; i < 2; i++) {
             drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = render(
-                t, t, w, w,
+            w->swap_renders->elements[i] = render(w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
-                models,         array(alloc, 32));
+                models,         a(w->swap_model));
         }
         w->swap_renders->len = 2;
         w->semaphore_frame = first(w->swap_renders);
@@ -452,8 +470,6 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         members[member_count].size   = members[member_count].type->size;
         members[member_count].offset = vertex_size;
 
-        print("attribute[%i] = %s",
-            member_count, members[member_count].type->name);
         vertex_size += members[member_count].type->size;
         verify(ac->count, "count not set on accessor");
         verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
@@ -508,42 +524,8 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         vbo,        vbo,
         model,      model,
         material,   material,
-        tx,         m->tx);
+        samplers,   m->samplers);
     push(m->pipelines, pipe);
-}
-
-void model_init(model m) {
-    Model mdl    = m->id;
-    trinity t    = m->t;
-    m->pipelines = array();
-
-    if (!m->tx) m->tx = array(alloc, 32);
-
-    /// lazy-init/auto-push into render list; override this if isolate:true
-    if (!m->r->models) m->r->models = array(alloc, 32);
-    push(m->r->models, m);
-
-    if (m->nodes) {
-        each (m->nodes, node, n)
-            each (n->parts, part, p)
-                model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
-    } else {
-        each(mdl->nodes, Node, n) {
-            bool has_mesh = n->mesh > 0;
-            if (!has_mesh)
-                each (n->fields, string, s) {
-                    if (cmp(s, "mesh") == 0) {
-                        has_mesh = true;
-                        break;
-                    }
-                }
-            if (has_mesh) {
-                Mesh mesh = get(mdl->meshes, n->mesh);
-                each(mesh->primitives, Primitive, prim)
-                    model_init_pipeline(m, n, prim, m->s);
-            }
-        }
-    }
 }
 
 void PBR_init(PBR w) {
@@ -555,10 +537,6 @@ void PBR_init(PBR w) {
 void Env_init(Env e) {
     mat4f_set_identity(&e->proj);
     mat4f_set_identity(&e->view);
-}
-
-void model_dealloc(model m) {
-    /// pipelines should free automatically
 }
 
 image window_cast_image(window w) {
@@ -592,6 +570,7 @@ none command_init(command a) {
 
 none command_begin(command a) {
     trinity t = a->t;
+    vkResetCommandBuffer(a->vk, 0);
     vkBeginCommandBuffer(a->vk, &(VkCommandBufferBeginInfo){
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
@@ -672,10 +651,6 @@ none create_mipmaps(
     }
 }
 
-none window_clear_targets(window w) {
-    clear(w->background_targets);
-}
-
 texture trinity_environment(
     trinity t, image img, vec3f r_axis, f32 rotation) {
     if (img->user) return (texture)img->user;
@@ -686,6 +661,8 @@ texture trinity_environment(
     window w       = window(
         t, t, format, Pixel_rgbaf32, backbuffer, true,
         width, size, height, size);
+    resize(w, w->extent.width, w->extent.height);
+
     image  clone   = image(
         source, data(img), width, img->width, height, img->height,
         format, Pixel_rgbaf32, surface, Surface_color);
@@ -694,16 +671,9 @@ texture trinity_environment(
     Model  data     = read   (gltf, typeid(Model) );
     Env    e        = Env    (t, t, name, string("env"));
     array  samplers = a      (clone);
-
-    texture tx_env  = texture(t, t,
-        width, size, height, size, format, Pixel_rgba8);
+    model  m_env    = model  (w, w, id, data, s, e, samplers, samplers);
+    render r_env    = render (w, w, models, a(m_env));
     
-    render r_env    = render (t, t, w, w,
-        models, array(alloc, 16), target, tx_env);
-    
-    model  env      = model  (t, t, w, w, r, r_env, id, data, s, e, tx, samplers);
-    array  models   = a      (env);
-
     e->proj         = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
 
     vec3f dirs[6] = {
@@ -755,8 +725,7 @@ texture trinity_environment(
     command cmd = command(t, t);
     render final = null;
     
-    clear_targets(w);
-    push_background(w, r_env);
+    w->list = a(r_env);
 
     for (int f = 0; f < 6; f++) { 
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
@@ -795,20 +764,18 @@ texture trinity_environment(
     /// convolve environment to create a multi-sampled cube
     Convolve conv_shader = Convolve(
         t, t, name, string("conv"), proj, e->proj);
-    array  conv_samplers = a(cube, null); // must allow textures to register with gpu
-    texture tx_conv = texture(t, t, width, size, height, size, format, Pixel_rgba8);
+    array  conv_samplers = a(cube); // must allow textures to register with gpu
+    model  m_conv  = model(
+        t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  r_conv = render(
-        t, t, w, w, models, array(alloc, 16), target, tx_conv);
-    model  conv   = model(
-        t, t, w, w, r, r_conv, id, data, s, conv_shader, tx, conv_samplers);
+        t, t, w, w, models, a(m_conv)); // model_finish is called on this list
 
     vec4f v = vec4f(r_axis.x, r_axis.y, r_axis.z, radians(90.0f));
     quatf q = quatf(&v);
     conv_shader->env = mat4f_ident();
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
 
-    clear_targets(w);
-    push_background(w, r_conv);
+    w->list = a(r_conv);
 
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
@@ -829,12 +796,9 @@ texture trinity_environment(
                 0, 1, face_id, 1, false);
 
             VkImageCopy region = {
-                .srcSubresource = {
-                    VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-                .dstSubresource = {
-                    VK_IMAGE_ASPECT_COLOR_BIT, 0, face_id, 1 },
-                .extent         = {
-                    size, size, 1 }
+                .srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+                .dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, face_id, 1 },
+                .extent         = { size, size, 1 }
             };
 
             begin(cmd);
@@ -973,10 +937,15 @@ none gpu_sync(gpu a, window w) {
     }
 
     if (a->sampler && !a->tx) {
-        image img = instanceof(a->sampler, image);
-        canvas cv = instanceof(a->sampler, canvas);
-        texture tx = instanceof(a->sampler, texture);
-        if (tx)
+        image   img = instanceof(a->sampler, image);
+        canvas  cv  = instanceof(a->sampler, canvas);
+        texture tx  = instanceof(a->sampler, texture);
+        render  re  = instanceof(a->sampler, render);
+
+        if (re) {
+            verify(re->target, "expected render target texture");
+            a->tx = hold(re->target);
+        } else if (tx)
             a->tx = hold(tx);
         else if (img && img->user)
             a->tx = hold((texture)img->user);
@@ -1288,11 +1257,57 @@ static pbrMetallicRoughness pbr_defaults() {
     return pbr;
 }
 
+path path_with_cstr(path, cstr);
+
+void model_finish(model m, render r) {
+    trinity t    = m->t;
+    m->r         = r;
+    m->pipelines = array();
+
+    if (!m->samplers) m->samplers = array(alloc, 32);
+
+    /// use standard quad if no model; its a nice assumption because its hip to be square
+    if (!m->id) {
+        static path  gltf_quad;
+        static Model quad;
+        if (!gltf_quad) gltf_quad = form(path, "models/uv-quad.gltf");
+        if (!quad)      quad      = read(gltf_quad, typeid(Model));
+        m->id = hold(quad);
+    }
+
+    if (m->nodes) {
+        each (m->nodes, node, n)
+            each (n->parts, part, p)
+                model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
+    } else {
+        each (m->id->nodes, Node, n) {
+            bool has_mesh = n->mesh > 0;
+            if (!has_mesh)
+                each (n->fields, string, s) {
+                    if (cmp(s, "mesh") == 0) {
+                        has_mesh = true;
+                        break;
+                    }
+                }
+            if (has_mesh) {
+                Mesh mesh = get(m->id->meshes, n->mesh);
+                each (mesh->primitives, Primitive, prim)
+                    model_init_pipeline(m, n, prim, m->s);
+            }
+        }
+    }
+}
+
+void model_init(model m) {
+    if (!m->t) m->t = m->w->t;
+}
+
+
 gpu Surface_resource(Surface surface_value, pipeline p) {
     gpu res = null;
     trinity t = p->t;
     /// check if user provides an image
-    each (p->tx, image, img) {
+    each (p->samplers, image, img) {
         texture tx = instanceof((object)img, texture);
         if ((tx && tx->surface == surface_value) ||
             (int)img->surface  == surface_value) {
@@ -1442,7 +1457,6 @@ void pipeline_bind_resources(pipeline p) {
         shader_schema = shader_schema->parent_type;
     }
 
-    print("sampler count = %i", sampler_count);
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .bindingCount = uniform_count,
@@ -1688,7 +1702,7 @@ void pipeline_init(pipeline p) {
             .pColorBlendState    = &color_blend_state,
             .pDynamicState       = &dynamic_state,
             .layout              = p->layout,
-            .renderPass          = r->vk_render_pass,
+            .renderPass          = r->vk_render_pass, /// render() must be made first, then the model
             .subpass             = 0,
             .basePipelineHandle  = VK_NULL_HANDLE,
         };
@@ -1752,14 +1766,9 @@ void pipeline_draw(pipeline p, handle f) {
 }
 
 render window_final_render(window w) {
-    if (!w->swap_renders)
-        return last(w->background_targets);
-    return (render)w->swap_renders->elements[w->swap_image_current];
+    return last(w->list);
 }
 
-void window_push_background(window w, render r) {
-    push(w->background_targets, (object)r);
-}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 trinity_log(
@@ -1839,7 +1848,7 @@ void trinity_finish(trinity t, window w) {
 void window_init(window w) {
     trinity t = w->t;
 
-    w->background_targets = array();
+    if (!w->list) w->list = array(alloc, 32);
     VkResult result;
 
     // Initialize GLFW window with Vulkan compatibility
@@ -1918,8 +1927,6 @@ void window_init(window w) {
         w->extent.width              = w->width;
         w->extent.height             = w->height;
     }
-
-    resize(w, w->extent.width, w->extent.height);  // Call the framebuffer update directly
 }
 
 void render_draw(render r) {
@@ -1986,27 +1993,46 @@ void render_draw(render r) {
         .sType                  = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount     = 1,
         .pCommandBuffers        = &frame,
-        .waitSemaphoreCount     = !r->target ? 1 : 0,
-        .pWaitSemaphores        = !r->target ? 
+        .waitSemaphoreCount     = r->vk_swap_image ? 1 : 0,
+        .pWaitSemaphores        = r->vk_swap_image ? 
             &w->semaphore_frame->vk_image_available_semaphore : null,
-        .pWaitDstStageMask      = !r->target ? &s_flags : null,
-        .signalSemaphoreCount   = !r->target ?  1 : 0,
-        .pSignalSemaphores      = !r->target ?
+        .pWaitDstStageMask      = r->vk_swap_image ? &s_flags : null,
+        .signalSemaphoreCount   = r->vk_swap_image ?  1 : 0,
+        .pSignalSemaphores      = r->vk_swap_image ?
             &w->semaphore_frame->vk_render_finished_semaphore : null
     };
+
+    /// transition all canvas
+    if (!r->canvases) r->canvases = array();
+    verify(len(r->canvases) == 0, "out of sync");
+    canvas cv = null;
+    //a->canvases = canvases;
+    each (r->models, model, m)
+        each (m->pipelines, pipeline, p)
+            each (p->samplers, object, sampler) {
+                if ((cv = instanceof(sampler, canvas))) {
+                    push(r->canvases, cv);
+                    output_mode(cv, true);
+                }
+            }
+    
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
 }
 
 void render_sync_fence(render r) {
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
     verify(result == VK_SUCCESS, "fence wait failed");
+
+    /// set output-mode to false on canvai
+    each (r->canvases, canvas, cv) output_mode(cv, false);
+    clear(r->canvases);
 }
 
 none window_draw(window w) {
     trinity t = w->t;
 
     /// render background targets first
-    each (w->background_targets, render, r) {
+    each (w->list, render, r) {
         draw(r);
         sync_fence(r);
         w->last_render = r;
@@ -2053,6 +2079,8 @@ none window_draw(window w) {
 }
 
 int window_loop(window w, ARef callback, ARef arg) {
+    resize(w, w->extent.width, w->extent.height);
+    
     trinity t = w->t;
     void(*cb)(ARef) = callback;
     while (!glfwWindowShouldClose(w->window)) {
@@ -2136,7 +2164,6 @@ void uniforms_init(uniforms a) {
     trinity t = a->t;
     list types = list();
     Basic basic = a->s;
-    print("from uniforms_init: basic = %p, &basic->proj = %p", basic, &basic->proj); 
 
     AType ty = isa(a->s);
     while (ty != typeid(shader)) {
@@ -2146,7 +2173,6 @@ void uniforms_init(uniforms a) {
     int    u_index  = 0;
     i32    total_uniform = 0;
 
-    print("types for %s", isa(a->s)->name);
     for (item i = types->first; i; i = i->next) {
         AType ty       = i->value;
         i32   u_size   = uniform_size(ty);
@@ -2544,7 +2570,9 @@ define_class(render)
 define_class(buffer)
 define_class(command)
 define_class(uniforms) 
-define_class(IBL) 
+define_class(IBL)
+
+define_mod(UVQuad, shader)
 
 // abstract identifier to indicate functionality 
 // of non-texture case of attribute, still under the enumerable Surface

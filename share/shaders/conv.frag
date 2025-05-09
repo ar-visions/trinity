@@ -109,11 +109,13 @@ vec3 prefilterEnvMap(vec3 R, float roughness, int numSamples) {
 }
 
 void main() {
+    outColor = vec4(1.0);
+    /*
     vec3 R = normalize(dir);
     float roughness = conv.roughness_samples.x * conv.roughness_samples.x; // 0...1
     int numSamples = int(conv.roughness_samples.y); // we use 1024
 
     outColor = (roughness < 0.01)
         ? texture(tx_environment, R)
-        : vec4(prefilterEnvMap(R, roughness, numSamples), 1.0);
+        : vec4(prefilterEnvMap(R, roughness, numSamples), 1.0);*/
 }

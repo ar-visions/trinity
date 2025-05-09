@@ -318,6 +318,17 @@ typedef struct _window*   window;
     i_override(X,Y, method,     init, dealloc)
 declare_class(buffer)
 
+
+#define UVQuad_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_attr   (X,Y, Surface,    color, rgba8)
+declare_mod(UVQuad, shader)
+
+/// when created with a mere window reference, it will create a texture the size of the window
+/// the last render in list will draw to swap-image; trinity works simply
+/// everything renders to texture (target == texture) or the swap (target == window)
 #define render_schema(X,Y,...) \
     i_prop    (X,Y, public,     trinity,                t) \
     i_prop    (X,Y, public,     window,                 w) \
@@ -329,6 +340,7 @@ declare_class(buffer)
     i_prop    (X,Y, public,     vec4f,                  clear_color) \
     i_prop    (X,Y, intern,     texture,                color) \
     i_prop    (X,Y, intern,     texture,                depth) \
+    i_prop    (X,Y, intern,     array,                  canvases) \
     i_prop    (X,Y, intern,     VkCommandBuffer,        vk_command_buffer,          as, ARef) \
     i_prop    (X,Y, intern,     VkImage,                vk_swap_image,              as, ARef) \
     i_prop    (X,Y, intern,     VkFence,                vk_fence,                   as, ARef) \
@@ -348,11 +360,14 @@ declare_class(render)
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, opaque,     ARef,                   wndproc) \
     i_prop    (X,Y, opaque,     ARef,                   wndproc_arg) \
+    i_prop    (X,Y, public,     array,                  list) \
     i_prop    (X,Y, intern,     array,                  swap_renders) \
+    i_prop    (X,Y, intern,     UVQuad,                 swap_shader) \
+    i_prop    (X,Y, intern,     model,                  swap_model) \
     i_prop    (X,Y, intern,     VkImage*,               vk_swap_images,        as, ARef) \
     i_prop    (X,Y, intern,     VkSurfaceKHR,           surface,               as, ARef) \
     i_prop    (X,Y, intern,     VkSwapchainKHR,         swapchain,             as, ARef) \
-    i_prop    (X,Y, intern,     array,                  background_targets) \
+    i_prop    (X,Y, intern,     array,                  swap_targets) \
     i_prop    (X,Y, intern,     VkSurfaceCapabilitiesKHR*, surface_caps,        as, ARef) \
     i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format,        as, i64) \
     i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode,          as, i32) \
@@ -370,8 +385,6 @@ declare_class(render)
     i_prop    (X,Y, public,     i32,                    current_swap_index) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
     i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
-    i_method  (X,Y, public,     none,                   push_background, render) \
-    i_method  (X,Y, public,     none,                   clear_targets) \
     i_method  (X,Y, public,     render,                 final_render) \
     i_method  (X,Y, public,     none,                   draw) \
     i_prop    (X,Y, public,     render,                 last_render) \
@@ -471,6 +484,7 @@ struct SkPath;
     i_method  (X,Y, public,   none,    draw_fill,   bool) \
     i_method  (X,Y, public,   none,    draw_stroke, bool) \
     i_method  (X,Y, public,   none,    sync) \
+    i_method  (X,Y, public,   none,    output_mode, bool) \
     i_override(X,Y, method,   init,    dealloc)
 declare_mod(canvas, image)
 
@@ -549,7 +563,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, public,     i32,                    test2) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
-    i_prop    (X,Y, public,     array,                  tx) \
+    i_prop    (X,Y, public,     array,                  samplers) \
     i_prop    (X,Y, required,   shader,                 s) \
     i_prop    (X,Y, intern,     array,                  resources) \
     i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
@@ -586,22 +600,23 @@ declare_class(node)
 
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
-    i_prop    (X,Y, required, trinity, t) \
+    i_prop    (X,Y, public,   trinity, t) \
     i_prop    (X,Y, required, window,  w) \
     i_prop    (X,Y, public,   render,  r) \
-    i_prop    (X,Y, required, Model,   id) \
+    i_prop    (X,Y, public,   Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
     i_prop    (X,Y, public,   shader,  s) \
-    i_prop    (X,Y, public,   array,   tx) \
+    i_prop    (X,Y, public,   array,   samplers) \
     i_prop    (X,Y, intern,   array,   pipelines) \
+    i_method  (X,Y, public,   none,    finish, render) \
     i_override(X,Y, method, init, dealloc)
 declare_class(model)
 
 #define particle_schema(X,Y,...) \
-    i_inlay(X,Y, public, vec2f,  pos) \
-    i_inlay(X,Y, public, vec2f,  velocity) \
-    i_prop(X,Y,  public, f32,    density) \
-    i_prop(X,Y,  public, f32,    pressure)
+    i_inlay   (X,Y, public, vec2f,  pos) \
+    i_inlay   (X,Y, public, vec2f,  velocity) \
+    i_prop    (X,Y, public, f32,    density) \
+    i_prop    (X,Y, public, f32,    pressure)
 declare_class(particle)
 
 #endif
