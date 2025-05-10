@@ -4,6 +4,8 @@
 #include <A>
 #include <vec>
 #include <gltf-public>
+#include <img-intern>
+#include <img>
 
 typedef void* skia_t;
 typedef void* handle_t;
@@ -163,42 +165,6 @@ declare_sentry(Four);
 
 typedef struct _pipeline* pipeline;
 typedef struct _gpu* gpu;
-#define Surface_schema(X,Y,...) \
-    enum_value_v_2(X,Y, none,           0, Zero) \
-    enum_value_v_2(X,Y, color,          1, Four) \
-    enum_value_v_2(X,Y, normal,         2, Four) \
-    enum_value_v_2(X,Y, emission,       3, Four) \
-    enum_value_v_2(X,Y, rough,          4, One) \
-    enum_value_v_2(X,Y, metal,          5, One) \
-    enum_value_v_2(X,Y, height,         6, One) \
-    enum_value_v_2(X,Y, ao,             7, One) \
-    enum_value_v_2(X,Y, ior,            8, One) \
-    enum_value_v_2(X,Y, environment,    9, Four) \
-    enum_method(X,Y, gpu, resource, pipeline)
-declare_enum(Surface)
-
-#define Pixel_schema(X,Y,...) \
-    enum_value_v(X,Y, none,            0) \
-    enum_value_v(X,Y, rgba8,           1) \
-    enum_value_v(X,Y, rgb8,            2) \
-    enum_value_v(X,Y, rgbf32,          3) \
-    enum_value_v(X,Y, u8,              4) \
-    enum_value_v(X,Y, rgbaf32,         5) \
-    enum_value_v(X,Y, f32,             6)
-declare_enum(Pixel)
-
-// a good idea is to make this more of 'ANY' ability of filter
-// if filter set to an object, that object could dictate more filter arguments for a general purpose filter
-// this is something used by the system
-#define Filter_schema(X,Y,...) \
-    enum_value_v(X,Y, none,            0) \
-    enum_value_v(X,Y, nearest,         1) \
-    enum_value_v(X,Y, bilinear,        3) \
-    enum_value_v(X,Y, trilinear,       4) \
-    enum_value_v(X,Y, low,             5) \
-    enum_value_v(X,Y, med,             6) \
-    enum_value_v(X,Y, high,            7)
-declare_enum(Filter)
 
 typedef struct _pipeline* pipeline;
 typedef struct _shader*   shader;
@@ -214,7 +180,6 @@ typedef struct _image*    image;
     i_prop    (X,Y, intern,     VkCommandPool,       command_pool,    as, ARef) \
     i_prop    (X,Y, public,     i32,                 queue_family_index) \
     i_prop    (X,Y, intern,     map,                 device_memory) \
-    i_prop    (X,Y, intern,     handle,              skia) \
     i_prop    (X,Y, public,     bool,                rt_support) \
     i_method  (X,Y, public,     texture,             environment, image, vec3f, f32) \
     i_override(X,Y, method,     init, dealloc)
@@ -392,32 +357,6 @@ declare_class(render)
     i_override(X,Y, method,     init, dealloc)
 declare_class(window)
 
-
-#define image_schema(X,Y,...) \
-    i_ctr     (X,Y,    public,     string) \
-    i_ctr     (X,Y,    public,     symbol) \
-    i_ctr     (X,Y,    public,     cstr) \
-    i_prop    (X,Y,    public,     path,                   uri) \
-    i_prop    (X,Y,    public,     Surface,                surface) \
-    i_prop    (X,Y,    public,     Pixel,                  format) \
-    i_prop    (X,Y,    public,     i32,                    pixel_size) \
-    i_prop    (X,Y,    public,     i32,                    width) \
-    i_prop    (X,Y,    public,     i32,                    height) \
-    i_prop    (X,Y,    public,     i32,                    channels) \
-    i_prop    (X,Y,    public,     object,                 source) \
-    i_prop    (X,Y,    public,     Filter,                 filter) \
-    i_prop    (X,Y,    public,     object,                 user) \
-    i_method  (X,Y,    public,     image,                  gaussian, f32) \
-    i_method  (X,Y,    public,     image,                  resize, i32, i32) \
-    i_method  (X,Y,    public,     i32,                    png, path) \
-    i_method  (X,Y,    public,     i32,                    exr, path) \
-    i_method  (X,Y,    public,     i64,                    byte_count) \
-    i_method  (X,Y,    public,     i64,                    len) \
-    i_method  (X,Y,    public,     object,                 get, num) \
-    i_override(X,Y,    method,     init, dealloc) \
-    i_override(X,Y,    method,     copy)
-declare_class(image)
-
 forward(texture)
 
 #define join_schema(X,Y,...) \
@@ -451,42 +390,39 @@ declare_class(font)
 
 
 #define draw_state_schema(X,Y,...) \
-    i_prop    (X,Y, intern,   stroke,  stroke) \
-    i_prop    (X,Y, intern,   font,    font) \
-    i_prop    (X,Y, intern,   u32,     fill_color) \
-    i_prop    (X,Y, intern,   u32,     stroke_color) \
+    i_prop    (X,Y, public,   stroke,  stroke) \
+    i_prop    (X,Y, public,   font,    font) \
+    i_prop    (X,Y, public,   u32,     fill_color) \
+    i_prop    (X,Y, public,   u32,     stroke_color) \
     i_method  (X,Y, public,   none,    set_default)
 declare_class(draw_state)
 
-struct SkPath;
 #define canvas_schema(X,Y,...) \
-    i_prop    (X,Y, required, trinity, t) \
-    i_prop    (X,Y, intern,   texture, tx) \
-    i_prop    (X,Y, intern,   ARef,    sk_context) \
-    i_prop    (X,Y, intern,   ARef,    sk_surface) \
-    i_prop    (X,Y, intern,   ARef,    sk_canvas) \
-    i_prop    (X,Y, intern,   ARef,    sk_path) \
-    i_prop    (X,Y, intern,   array,   state, of, draw_state) \
-    i_method  (X,Y, public,   none,    save) \
-    i_method  (X,Y, public,   none,    restore) \
-    i_method  (X,Y, public,   none,    move_to,     f32, f32) \
-    i_method  (X,Y, public,   none,    line_to,     f32, f32) \
-    i_method  (X,Y, public,   none,    arc_to,      f32, f32, f32, f32, f32) \
-    i_method  (X,Y, public,   none,    arc,         f32, f32, f32, f32, f32) \
-    i_method  (X,Y, public,   none,    rect,        f32, f32, f32, f32) \
-    i_method  (X,Y, public,   none,    fill_color,  object) \
-    i_method  (X,Y, public,   none,    stroke_color, object) \
-    i_method  (X,Y, public,   none,    clear,       object) \
-    i_method  (X,Y, public,   none,    set_stroke,  stroke) \
-    i_method  (X,Y, public,   none,    set_font,    font) \
-    i_method  (X,Y, public,   none,    cubic,       f32, f32, f32, f32, f32, f32) \
-    i_method  (X,Y, public,   none,    quadratic,   f32, f32, f32, f32) \
-    i_method  (X,Y, public,   none,    draw_fill,   bool) \
-    i_method  (X,Y, public,   none,    draw_stroke, bool) \
-    i_method  (X,Y, public,   none,    sync) \
-    i_method  (X,Y, public,   none,    output_mode, bool) \
-    i_override(X,Y, method,   init,    dealloc)
+    i_prop    (X,Y, required,  trinity, t) \
+    i_prop    (X,Y, public,    texture, tx) \
+    i_prop    (X,Y, public,    array,   state, of, draw_state) \
+    i_method  (X,Y, interface, none,    save) \
+    i_method  (X,Y, interface, none,    restore) \
+    i_method  (X,Y, interface, none,    move_to,     f32, f32) \
+    i_method  (X,Y, interface, none,    line_to,     f32, f32) \
+    i_method  (X,Y, interface, none,    arc_to,      f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    arc,         f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    rect,        f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    fill_color,  object) \
+    i_method  (X,Y, interface, none,    stroke_color, object) \
+    i_method  (X,Y, interface, none,    clear,       object) \
+    i_method  (X,Y, interface, none,    set_stroke,  stroke) \
+    i_method  (X,Y, interface, none,    set_font,    font) \
+    i_method  (X,Y, interface, none,    cubic,       f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    quadratic,   f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    draw_fill,   bool) \
+    i_method  (X,Y, interface, none,    draw_stroke, bool) \
+    i_method  (X,Y, interface, none,    sync) \
+    i_method  (X,Y, interface, none,    prepare) \
+    i_method  (X,Y, interface, none,    output_mode, bool) \
+    i_method  (X,Y, interface, none,    resize_texture, i32, i32)
 declare_mod(canvas, image)
+
 
 
 #define command_schema(X,Y,...) \
@@ -501,7 +437,6 @@ declare_class(command)
 #define texture_schema(X,Y,...) \
     i_prop(X,Y, public,   trinity,          t) \
     i_prop(X,Y, public,   window,           w) \
-    i_prop(X,Y, public,   canvas,           canvas) \
     i_prop(X,Y, public,   Pixel,            format) \
     i_prop(X,Y, public,   object,           sampler) \
     i_prop(X,Y, public,   i32,              width) \
@@ -510,12 +445,15 @@ declare_class(command)
     i_prop(X,Y, public,   i32,              mip_levels) \
     i_prop(X,Y, public,   i32,              layer_count) \
     i_prop(X,Y, public,   Surface,          surface) \
+    i_prop(X,Y, public,   bool,             window_size) \
+    i_prop(X,Y, public,   bool,             linear) \
     i_prop(X,Y, intern,   VkImageLayout,    vk_layout,      as, i32) \
     i_prop(X,Y, intern,   VkFormat,         vk_format,      as, i32) \
     i_prop(X,Y, intern,   VkImage,          vk_image,       as, ARef) \
     i_prop(X,Y, intern,   VkImageView,      vk_image_view,  as, ARef) \
     i_prop(X,Y, intern,   VkSampler,        vk_sampler,     as, ARef) \
     i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory,      as, ARef) \
+    i_method(X,Y, public, none, resize, i32, i32) \
     i_method(X,Y, public, none, transition, i32) \
     i_override(X,Y, method, init, dealloc)
 declare_class(texture)

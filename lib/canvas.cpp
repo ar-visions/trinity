@@ -143,18 +143,30 @@ none draw_state_set_default(draw_state ds) {
     ds->stroke_color = sk_color((object)string("#000"));
 }
 
+none canvas_init(canvas a);
+none canvas_dealloc(canvas a);
+
+none canvas_resize_texture(canvas a, i32 w, i32 h) {
+    resize(a->tx, w, h);
+    canvas_dealloc(a);
+    canvas_init(a);
+}
 
 none canvas_init(canvas a) {
     verify(a->width > 0 && a->height > 0, "canvas requires width and height");
 
     trinity t  = a->t;
-    texture tx = texture(t, a->t, canvas, a, width, a->width, height, a->height, 
-        format, Pixel_rgba8, mip_levels, 1, layer_count, 1);
-    a->tx = (texture)A_hold((object)tx);
+    if (!a->tx) {
+        texture tx = texture(t, a->t, width, a->width, height, a->height, 
+            surface, Surface_color,
+            format, Pixel_rgba8,
+            linear, true, mip_levels, 1, layer_count, 1);
+        a->tx = (texture)A_hold((object)tx);
+    }
     
     GrVkImageInfo info       = {};
-    info.fImage              = tx->vk_image;
-    info.fImageLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    info.fImage              = a->tx->vk_image;
+    //info.fImageLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     info.fImageTiling        = VK_IMAGE_TILING_OPTIMAL;
     info.fFormat             = VK_FORMAT_R8G8B8A8_UNORM;
     info.fLevelCount         = 1;
@@ -173,13 +185,14 @@ none canvas_init(canvas a) {
     SkSafeRef(surface.get());
     a->sk_surface = (ARef)surface.get();
     a->sk_canvas  = (ARef)((SkSurface*)a->sk_surface)->getCanvas();
+    ((SkCanvas*)a->sk_canvas)->clear(SK_ColorBLACK); // <--- clear to black here
     a->sk_path    = (ARef)new SkPath();
     a->state      = array(alloc, 16);
     save(a);
 }
 
 none canvas_dealloc(canvas a) {
-    SkSafeUnref((SkSurface*)a->surface);
+    SkSafeUnref((SkSurface*)a->sk_surface);
 }
 
 none canvas_move_to(canvas a, f32 x, f32 y) {
@@ -305,27 +318,38 @@ none canvas_stroke_color(canvas a, object clr) {
 
 none canvas_clear(canvas a, object clr) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
-    SkColor fill = clr ? sk_color(clr) : SK_ColorWHITE;
+    SkColor fill = clr ? sk_color(clr) : SK_ColorBLACK;
     sk->clear(fill);
 }
 
 void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
 
+none canvas_prepare(canvas a) {
+    
+}
+
 none canvas_sync(canvas a) {
     Skia* skia = (Skia*)a->t->skia;
     GrDirectContext* direct_ctx = skia->ctx.get();
     direct_ctx->flush();
-
-    output_mode(a, true);
-    direct_ctx->submit(); // this transitions it back to color attachment, but expects it to be read-only after a flush (weird)
+    if (!a->once) {
+        a->once = true;
+        transition(a->tx, (i32)VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    } else {
+        transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    direct_ctx->submit();
 }
 
 none canvas_output_mode(canvas a, bool output) {
-    transition_image_layout(
-        a->t, a->tx->vk_image,
-        output ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        output ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    VkImageLayout to = output ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : 
+                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkImageLayout fr = output ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : 
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    //transition(a->tx, to);
+    transition_image_layout(a->t, a->tx->vk_image, fr, to,
         0, 1, 0, 1, false);
+    a->tx->vk_layout = to;
 }
 
 

@@ -3,7 +3,9 @@
 #include <import>
 #include <sys/stat.h>
 #include <math.h>
-#include <opencv.h>
+#include <img-init>
+#include <img-public>
+
 
 const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
@@ -95,9 +97,11 @@ void transition_image_layout(
 }
 
 void texture_transition(texture tx, i32 new_layout) {
-    transition_image_layout(tx->t, tx->vk_image, tx->vk_layout, new_layout,
-        0, tx->mip_levels, 0, tx->layer_count, tx->vk_format == VK_FORMAT_D32_SFLOAT);
-    tx->vk_layout = new_layout;
+    if (tx->vk_layout != new_layout) {
+        transition_image_layout(tx->t, tx->vk_image, tx->vk_layout, new_layout,
+            0, tx->mip_levels, 0, tx->layer_count, tx->vk_format == VK_FORMAT_D32_SFLOAT);
+        tx->vk_layout = new_layout;
+    }
 } 
 
 void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
@@ -171,7 +175,8 @@ void render_init(render r) {
     window   w          = r->w;
     bool     backbuffer = !r->vk_swap_image;
     if (backbuffer)
-         r->target = texture(t, t, width, r->w->width, height, r->w->height, format, Pixel_rgba8);
+         r->target = texture(t, t, width, r->w->width, height, r->w->height,
+            window_size, true, format, Pixel_rgba8);
     VkResult result;
 
     if (r->width  == 0) r->width  = w->width;
@@ -290,7 +295,7 @@ void render_init(render r) {
 
     /// providing w always supplements t, width and height, layers/mips default to 1
     r->color = texture(w, w,
-        vk_format, w->surface_format.format, swap, !backbuffer,
+        vk_format, w->surface_format.format, swap, !backbuffer, surface, Surface_color,
         vk_image, r->vk_swap_image);
 
     r->depth = texture(w, w,
@@ -343,6 +348,11 @@ void window_resize(window w, i32 width, i32 height) {
     w->height        = height;
     w->extent.width  = width;
     w->extent.height = height;
+
+    each (w->list, render, r) {
+        if (r->target && r->target->window_size)
+            resize(r->target, width, height);
+    }
 
     if (!w->backbuffer) {
         VkSurfaceCapabilitiesKHR capabilities;
@@ -491,6 +501,14 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     i8 *vdata = vbo->vertex_data;
     i8 *idata = vbo->index_data;
 
+    typedef struct _vertex_model {
+        vec3f pos;
+        vec2f uv;
+    } vertex_model;
+
+    int size = sizeof(vertex_model);
+
+
     /// Write VBO data properly with per-attribute striding
     for (int k = 0; k < member_count; k++) {
         vertex_member_t* mem = &members[k];
@@ -505,6 +523,12 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
             memcpy(dst, src0, mem->size); 
         }
     }
+
+    vertex_model vert0 = ((vertex_model*)vdata)[0];
+    vertex_model vert1 = ((vertex_model*)vdata)[1];
+    vertex_model vert2 = ((vertex_model*)vdata)[2];
+    vertex_model vert3 = ((vertex_model*)vdata)[3];
+
 
     /// write IBO data (todo: use reference)
     i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
@@ -938,7 +962,6 @@ none gpu_sync(gpu a, window w) {
 
     if (a->sampler && !a->tx) {
         image   img = instanceof(a->sampler, image);
-        canvas  cv  = instanceof(a->sampler, canvas);
         texture tx  = instanceof(a->sampler, texture);
         render  re  = instanceof(a->sampler, render);
 
@@ -952,8 +975,6 @@ none gpu_sync(gpu a, window w) {
         else if (img && img->surface == Surface_environment)
             a->tx = environment(
                 t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
-        else if (cv)
-            a->tx = hold(cv->tx); // texture is created within canvas init
         else
             a->tx = texture(t, t, sampler, a->sampler);
     }
@@ -1041,6 +1062,22 @@ static none placeholder_image(
     }
 }
 
+none texture_dealloc(texture a);
+none texture_init(texture a);
+
+none texture_resize(texture a, i32 w, i32 h) {
+    trinity t = a->t;
+    if (w == a->width && h == a->height)
+        return;
+    
+    /// no where else can we do this with objects
+    a->width  = w;
+    a->height = h;
+    vkDeviceWaitIdle(a->t->device);
+    texture_dealloc(a);
+    texture_init(a);
+}
+
 none texture_init(texture a) {
     trinity t         = a->w ? a->w->t : a->t;
     a->t              = t;
@@ -1049,14 +1086,14 @@ none texture_init(texture a) {
     i32     sampler_size = 0;
     u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
 
-    if (a->canvas) img = a->canvas;
+
     if (a->width  == 0 && a->w) a->width  = a->w->width;
     if (a->height == 0 && a->w) a->height = a->w->height;
     
-    a->mip_levels  = a->canvas ? 1 : (a->mip_levels ? a->mip_levels  : 1);
+    a->mip_levels  = a->mip_levels  ? a->mip_levels  : 1;
     a->layer_count = a->layer_count ? a->layer_count : 1;
 
-    if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->canvas != null);
+    if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->linear);
     bool is_depth = a->vk_format == VK_FORMAT_D32_SFLOAT;
 
     if (a->vk_image) {
@@ -1064,8 +1101,8 @@ none texture_init(texture a) {
     } else {
         if (a->width > 0 || img) {
             a->format      = img ? img->format : a->format;
-            sampler_size   = a->canvas ? 0 : img ? byte_count(img) : 0;
-            ansio          = a->canvas ? 0 : img ? 4 : 0;
+            sampler_size   = img ? byte_count(img) : 0;
+            ansio          = img ? 4 : 0;
             if (img) {
                 a->width   = img->width;
                 a->height  = img->height;
@@ -1085,18 +1122,13 @@ none texture_init(texture a) {
         } else if (a->swap) {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        } else if (a->canvas) {
-            usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | 
-                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT     |
-                    VK_IMAGE_USAGE_SAMPLED_BIT;
         } else {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT     |
-                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT     |
+                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT     | // canvas has no DST BIT; but that may not matter for skia
                     VK_IMAGE_USAGE_SAMPLED_BIT;
         }
-        if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->canvas != null);
-
+        if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->linear);
         verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
             .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType      = VK_IMAGE_TYPE_2D,
@@ -1150,8 +1182,6 @@ none texture_init(texture a) {
             });
             submit(cmd);
             create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
-        } else if (a->canvas) {
-            transition(a, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         }
     }
 
@@ -1214,6 +1244,10 @@ none texture_dealloc(texture a) {
     vkDestroyImageView(a->t->device, a->vk_image_view, null);
     vkDestroyImage    (a->t->device, a->vk_image,      null);
     vkFreeMemory      (a->t->device, a->vk_memory,     null);
+    a->vk_memory     = null;
+    a->vk_image      = null;
+    a->vk_image_view = null;
+    a->vk_sampler    = null;
 }
 
 define_class(texture)
@@ -1266,6 +1300,16 @@ void model_finish(model m, render r) {
 
     if (!m->samplers) m->samplers = array(alloc, 32);
 
+    if (!m->s) {
+        UVQuad q = m->s  = UVQuad  (t, m->t, name, string("uv-quad")); // as of right now, this is simplifying the inputs, and should be called UVScreen if anything
+        q->model = mat4f_ident();
+        vec3f eye = vec3f(0.0f, 0.0f, 2.0f);
+        vec3f center = vec3f(0.0f, 0.0f, 0.0f);
+        vec3f up = vec3f(0.0f, 1.0f, 0.0f);
+        q->view = mat4f_look_at(&eye, &center, &up);
+        q->proj = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
+    }
+
     /// use standard quad if no model; its a nice assumption because its hip to be square
     if (!m->id) {
         static path  gltf_quad;
@@ -1308,10 +1352,13 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
     trinity t = p->t;
     /// check if user provides an image
     each (p->samplers, image, img) {
+        AType ty = isa(img);
         texture tx = instanceof((object)img, texture);
+        render  re = instanceof((object)img, render);
+        if (re) tx = re->color;
         if ((tx && tx->surface == surface_value) ||
             (int)img->surface  == surface_value) {
-            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, img);
+            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, tx);
             break;
         }
     }
@@ -1325,7 +1372,7 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
         rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
         rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
-        rgbaf f_color  = rgbaf(&pbr->baseColorFactor);
+        rgbaf f_color  = rgbaf(0.0f, 1.0f, 1.0f, 1.0f);
         shape single = shape_new(1, 0);
         switch (surface_value) {
             case Surface_normal:
@@ -1430,11 +1477,9 @@ void pipeline_bind_resources(pipeline p) {
             AType  meta_type  = mem->args.meta_0;
             verify(meta_type, "meta data not set on Surface/extension");
 
-            type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
-            typedef object(*Resource)(i64, pipeline);
-            Resource resf = fn ? fn->ptr : null;
-            verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
-            gpu res = resf(enum_value, p);
+            //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
+            //verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
+            gpu res = Surface_resource(enum_value, p); // based on enum types, we may switch here
             verify(instanceof(res, gpu), "expected gpu resource");
 
             /// add gpu resource; this is what will be updated when required
@@ -1832,8 +1877,8 @@ void trinity_finish(trinity t, window w) {
         /// buffer management for pipeline, without management (it does not drop/hold this external data; not A-type)
         t->device_memory = map(unmanaged, true);
       //t->buffers       = map(unmanaged, true); -- decentralized buffer management
-        t->skia          = skia_init_vk(
-            t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
+        //t->skia          = skia_init_vk(
+        //    t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
     
         VkCommandPoolCreateInfo pool_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -2002,30 +2047,12 @@ void render_draw(render r) {
             &w->semaphore_frame->vk_render_finished_semaphore : null
     };
 
-    /// transition all canvas
-    if (!r->canvases) r->canvases = array();
-    verify(len(r->canvases) == 0, "out of sync");
-    canvas cv = null;
-    //a->canvases = canvases;
-    each (r->models, model, m)
-        each (m->pipelines, pipeline, p)
-            each (p->samplers, object, sampler) {
-                if ((cv = instanceof(sampler, canvas))) {
-                    push(r->canvases, cv);
-                    output_mode(cv, true);
-                }
-            }
-    
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
 }
 
 void render_sync_fence(render r) {
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
     verify(result == VK_SUCCESS, "fence wait failed");
-
-    /// set output-mode to false on canvai
-    each (r->canvases, canvas, cv) output_mode(cv, false);
-    clear(r->canvases);
 }
 
 none window_draw(window w) {
@@ -2049,8 +2076,14 @@ none window_draw(window w) {
         else {
             verify(result == VK_SUCCESS, "failed to acquire swapchain image");
             w->swap_render_current = w->swap_renders->elements[w->swap_image_current];
+            
+            transition(w->last_render->color,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
             draw(w->swap_render_current);
 
+            transition(w->last_render->color,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             // present the swapchain image
             VkPresentInfoKHR presentInfo = {
                 .sType                  = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -2553,11 +2586,120 @@ none buffer_dealloc(buffer a) {
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
+
+
+none canvas_resize_texture(canvas a, i32 w, i32 h) {
+}
+
+none canvas_move_to(canvas a, f32 x, f32 y) {
+}
+
+none canvas_line_to(canvas a, f32 x, f32 y) {
+}
+
+none canvas_rect(canvas a, f32 x, f32 y, f32 w, f32 h) {
+}
+
+none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
+}
+
+none canvas_arc(canvas a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 end_angle) {
+}
+
+none canvas_draw_fill(canvas a, bool preserve) {
+}
+
+none canvas_draw_stroke(canvas a, bool preserve) {
+}
+
+none canvas_cubic(canvas a, f32 cp1_x, f32 cp1_y, f32 cp2_x, f32 cp2_y, f32 ep_x, f32 ep_y) {
+}
+
+none canvas_quadratic(canvas a, f32 cp_x, f32 cp_y, f32 ep_x, f32 ep_y) { }
+
+none canvas_save(canvas a) { }
+
+none canvas_set_font(canvas a, font f) { }
+
+none canvas_set_stroke(canvas a, stroke s) { }
+
+none canvas_restore(canvas a) { }
+
+none canvas_fill_color(canvas a, object clr) { }
+
+none canvas_stroke_color(canvas a, object clr) { }
+
+none canvas_clear(canvas a, object clr) { }
+
+void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
+
+none canvas_prepare(canvas a) { }
+
+none canvas_sync(canvas a) { }
+
+none canvas_output_mode(canvas a, bool output) { }
+
+typedef u32 SkColor;
+
+static u8 nib(char n) {
+    return (n >= '0' && n <= '9') ?       (n - '0')  :
+           (n >= 'a' && n <= 'f') ? (10 + (n - 'a')) :
+           (n >= 'A' && n <= 'F') ? (10 + (n - 'A')) : 0;
+}
+
+SkColor sk_color(object any) {
+    AType type = isa(any);
+    i32 ia = 255, ir, ig, ib;
+
+    if (type == typeid(string)) {
+        /// string: read from #, color-name
+        string s = (string)any;
+        symbol h = s->chars;
+        if (h[0] == '#') {
+            i32 sz = len(s);
+            switch (sz) {
+                case 5:
+                    ia  = nib(h[4]) << 4 | nib(h[4]);
+                    [[fallthrough]];
+                case 4:
+                    ir  = nib(h[1]) << 4 | nib(h[1]);
+                    ig  = nib(h[2]) << 4 | nib(h[2]);
+                    ib  = nib(h[3]) << 4 | nib(h[3]);
+                    break;
+                case 9:
+                    ia  = nib(h[7]) << 4 | nib(h[8]);
+                    [[fallthrough]];
+                case 7:
+                    ir  = nib(h[1]) << 4 | nib(h[2]);
+                    ig  = nib(h[3]) << 4 | nib(h[4]);
+                    ib  = nib(h[5]) << 4 | nib(h[6]);
+                    break;
+            }
+        } else {
+            /// convert from color name
+        }
+    } else {
+        /// double: convert to SkColor
+        /// float:  convert to SkColor
+    }
+    SkColor sk = (SkColor)((ib | (ig << 8) | (ir << 16) | (ia << 24)));
+    return sk;
+}
+
+none draw_state_set_default(draw_state ds) {
+    ds->font         = font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf"));
+    ds->stroke       = stroke(width, 0, cap, cap_round, join, join_round);
+    ds->fill_color   = sk_color((object)string("#000"));
+    ds->stroke_color = sk_color((object)string("#000"));
+}
+
 define_enum(Pixel)
 define_enum(Filter)
 define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
+define_enum (join)
+define_enum (cap)
 
 define_class(trinity)
 define_class(shader)
@@ -2571,6 +2713,10 @@ define_class(buffer)
 define_class(command)
 define_class(uniforms) 
 define_class(IBL)
+define_class(stroke)
+define_class(font)
+define_class(draw_state)
+define_class(canvas)
 
 define_mod(UVQuad, shader)
 
@@ -2586,3 +2732,9 @@ define_mod(Env,   shader)
 define_mod(Convolve,  shader)
 
 define_mod(Basic, shader)
+
+define_sentry(Zero,  0);
+define_sentry(One,   1);
+define_sentry(Two,   2);
+define_sentry(Three, 3);
+define_sentry(Four,  4);
