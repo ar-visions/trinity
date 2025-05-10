@@ -3,9 +3,6 @@
 #include <import>
 #include <sys/stat.h>
 #include <math.h>
-#include <img-init>
-#include <img-public>
-
 
 const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
@@ -339,6 +336,8 @@ void render_dealloc(render r) {
     vkDestroySemaphore  (t->device, r->vk_image_available_semaphore, null);
     vkDestroySemaphore  (t->device, r->vk_render_finished_semaphore, null);
 }
+
+
 
 void window_resize(window w, i32 width, i32 height) {
     trinity t        = w->t;
@@ -1320,8 +1319,8 @@ void model_finish(model m, render r) {
     }
 
     if (m->nodes) {
-        each (m->nodes, node, n)
-            each (n->parts, part, p)
+        each (m->nodes, gltf_node, n)
+            each (n->parts, gltf_part, p)
                 model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
     } else {
         each (m->id->nodes, Node, n) {
@@ -2597,7 +2596,7 @@ none canvas_move_to(canvas a, f32 x, f32 y) {
 none canvas_line_to(canvas a, f32 x, f32 y) {
 }
 
-none canvas_rect(canvas a, f32 x, f32 y, f32 w, f32 h) {
+none canvas_rect_to(canvas a, f32 x, f32 y, f32 w, f32 h) {
 }
 
 none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
@@ -2704,8 +2703,8 @@ define_enum (cap)
 define_class(trinity)
 define_class(shader)
 define_class(pipeline)
-define_class(part)
-define_class(node)
+define_class(gltf_part)
+define_class(gltf_node)
 define_class(model)
 define_class(window)
 define_class(render)
