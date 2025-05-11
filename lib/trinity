@@ -2,6 +2,7 @@
 #define _TRINITY_
 
 #include <A>
+#include <vec-public>
 #include <vec>
 #include <gltf-public>
 #include <img-intern>
@@ -163,7 +164,8 @@ declare_class(buffer)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, rgba8)
+    i_attr   (X,Y, Surface,    color, rgba8) \
+    i_override(X,Y, method, init)
 declare_mod(UVQuad, shader)
 
 /// when created with a mere window reference, it will create a texture the size of the window
@@ -202,7 +204,6 @@ declare_class(render)
     i_prop    (X,Y, opaque,     ARef,                   wndproc_arg) \
     i_prop    (X,Y, public,     array,                  list) \
     i_prop    (X,Y, intern,     array,                  swap_renders) \
-    i_prop    (X,Y, intern,     UVQuad,                 swap_shader) \
     i_prop    (X,Y, intern,     model,                  swap_model) \
     i_prop    (X,Y, intern,     VkImage*,               vk_swap_images,        as, ARef) \
     i_prop    (X,Y, intern,     VkSurfaceKHR,           surface,               as, ARef) \

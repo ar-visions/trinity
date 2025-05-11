@@ -338,6 +338,15 @@ void render_dealloc(render r) {
 }
 
 
+void UVQuad_init(UVQuad q) {
+    q->model     = mat4f_ident();
+    vec3f eye    = vec3f(0.0f, 0.0f, 2.0f);
+    vec3f center = vec3f(0.0f, 0.0f, 0.0f);
+    vec3f up     = vec3f(0.0f, 1.0f, 0.0f);
+    q->view      = mat4f_look_at(&eye, &center, &up);
+    q->proj      = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
+}
+
 
 void window_resize(window w, i32 width, i32 height) {
     trinity t        = w->t;
@@ -407,8 +416,7 @@ void window_resize(window w, i32 width, i32 height) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
             render top     = last(w->list);
-            w->swap_shader = UVQuad(t, t, name, string("uv-quad"));
-            w->swap_model  = model(w, w, s, w->swap_shader, samplers, a(top));
+            w->swap_model  = model(w, w, samplers, a(top));
         }
 
         vkGetSwapchainImagesKHR(
@@ -2010,10 +2018,10 @@ void render_draw(render r) {
         .clearValueCount    = 2,
         .pClearValues       = &(VkClearValue[2]) { // r->clear_color is the vec4f (xyzw)
             { .color        = { .float32 = {
-                r->clear_color.x,
-                r->clear_color.y,
-                r->clear_color.w,
-                r->clear_color.z }} },
+                0.5,
+                0.5,
+                0.5,
+                1.0 }} },
             { .depthStencil = { .depth   =   1.0f, .stencil = 0 } }
         }
     }, VK_SUBPASS_CONTENTS_INLINE);
@@ -2022,7 +2030,7 @@ void render_draw(render r) {
         each (m->pipelines, pipeline, p) {
             if (instanceof(p->s, PBR))
                 ((PBR)p->s)->model = p->model;
-        
+
             // user may indeed set uniforms different depending on the pipeline
             // this is quite natural and not always redundant
             draw(p, frame);
