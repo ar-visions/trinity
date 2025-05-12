@@ -160,6 +160,20 @@ typedef struct _window*   window;
 declare_class(buffer)
 
 
+#define BlurV_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_attr   (X,Y, Surface,    color, rgba8)
+declare_mod(BlurV, shader)
+
+#define Blur_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_attr   (X,Y, Surface,    color, rgba8)
+declare_mod(Blur, shader)
+
 #define UVQuad_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
@@ -167,6 +181,15 @@ declare_class(buffer)
     i_attr   (X,Y, Surface,    color, rgba8) \
     i_override(X,Y, method, init)
 declare_mod(UVQuad, shader)
+
+#define UXQuad_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f, model) \
+    i_prop   (X,Y, public,     mat4f, view) \
+    i_prop   (X,Y, public,     mat4f, proj) \
+    i_attr   (X,Y, Surface,    color, rgba8) \
+    i_attr   (X,Y, Surface,    color, rgba8) \
+    i_override(X,Y, method, init)
+declare_mod(UXQuad, shader)
 
 /// when created with a mere window reference, it will create a texture the size of the window
 /// the last render in list will draw to swap-image; trinity works simply
@@ -180,8 +203,8 @@ declare_mod(UVQuad, shader)
     i_prop    (X,Y, public,     array,                  models) \
     i_prop    (X,Y, public,     ARef,                   callback) \
     i_prop    (X,Y, public,     vec4f,                  clear_color) \
-    i_prop    (X,Y, intern,     texture,                color) \
-    i_prop    (X,Y, intern,     texture,                depth) \
+    i_prop    (X,Y, public,     texture,                color) \
+    i_prop    (X,Y, public,     texture,                depth) \
     i_prop    (X,Y, intern,     array,                  canvases) \
     i_prop    (X,Y, intern,     VkCommandBuffer,        vk_command_buffer,          as, ARef) \
     i_prop    (X,Y, intern,     VkImage,                vk_swap_image,              as, ARef) \

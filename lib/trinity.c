@@ -346,6 +346,15 @@ void UVQuad_init(UVQuad q) {
 }
 
 
+void UXQuad_init(UVQuad q) {
+    q->model     = mat4f_ident();
+    vec3f eye    = vec3f(0.0f, 0.0f, 2.0f);
+    vec3f center = vec3f(0.0f, 0.0f, 0.0f);
+    vec3f up     = vec3f(0.0f, 1.0f, 0.0f);
+    q->view      = mat4f_look_at(&eye, &center, &up);
+    q->proj      = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
+}
+
 void window_resize(window w, i32 width, i32 height) {
     trinity t        = w->t;
 
@@ -816,7 +825,7 @@ texture trinity_environment(
             final = w->last_render;
             draw(w);
             //image screen = cast(image, w);
-            //exr(screen, form(path, "screenshot.exr"));
+            //exr(screen, f(path, "screenshot.exr"));
 
             transition(final->color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
             transition_image_layout(t, vk_image[1],
@@ -1319,7 +1328,7 @@ void model_finish(model m, render r) {
     if (!m->id) {
         static path  gltf_quad;
         static Model quad;
-        if (!gltf_quad) gltf_quad = form(path, "models/uv-quad.gltf");
+        if (!gltf_quad) gltf_quad = f(path, "models/uv-quad.gltf");
         if (!quad)      quad      = read(gltf_quad, typeid(Model));
         m->id = hold(quad);
     }
@@ -1363,7 +1372,7 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
         if (re) tx = re->color;
         if ((tx && tx->surface == surface_value) ||
             (int)img->surface  == surface_value) {
-            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, tx);
+            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, (object)(tx ? tx : img));
             break;
         }
     }
@@ -2015,12 +2024,12 @@ void render_draw(render r) {
             .extent         = { r->width, r->height },  // Swapchain image extent
         },
         .clearValueCount    = 2,
-        .pClearValues       = &(VkClearValue[2]) { // r->clear_color is the vec4f (xyzw)
+        .pClearValues       = &(VkClearValue[2]) {
             { .color        = { .float32 = {
-                0.2,
-                0.5,
-                1.0,
-                1.0 }} },
+                r->clear_color.x,
+                r->clear_color.y,
+                r->clear_color.z,
+                r->clear_color.w }} },
             { .depthStencil = { .depth   =   1.0f, .stencil = 0 } }
         }
     }, VK_SUBPASS_CONTENTS_INLINE);
@@ -2169,7 +2178,7 @@ void replace_includes(const char *src, const char *dst) {
                 }
                 strncpy(import_name, include_start + strlen(INCLUDE_PREFIX), name_length);
                 import_name[name_length] = '\0';
-                string import = form(string, "shaders/%s", import_name);
+                string import = f(string, "shaders/%s", import_name);
 
                 // Open the import file
                 FILE *import_file = fopen(import->chars, "r");
@@ -2243,9 +2252,9 @@ void shader_init(shader s) {
     string spv_file;
     bool found = false;
     
-    s->frag = form(string, "shaders/%o.frag", s->name);
-    s->vert = form(string, "shaders/%o.vert", s->name);
-    s->comp = form(string, "shaders/%o.comp", s->name);
+    s->frag = f(string, "shaders/%o.frag", s->name);
+    s->vert = f(string, "shaders/%o.vert", s->name);
+    s->comp = f(string, "shaders/%o.comp", s->name);
 
     if (!s->name) {
         AType type = isa(s);
@@ -2265,9 +2274,9 @@ void shader_init(shader s) {
         string name = names[i];
         if (!name) continue;
 
-        path input = form(path, "%o", name);
+        path input = f(path, "%o", name);
         if (!name || !file_exists("%o", input)) continue;
-        spv_file = form(string, "%o.spv", name);
+        spv_file = f(string, "%o.spv", name);
         found = true;
 
         // Check if the .spv file already exists and is up to date
@@ -2286,7 +2295,7 @@ void shader_init(shader s) {
             // write(tmp, string)
 
             // Compile GLSL to SPIR-V using glslangValidator
-            string command = form(string,
+            string command = f(string,
                 "glslangValidator -V100 --target-env vulkan1.2 %o -o %o", tmp, spv_file);
             print("compiling shader: %o", command);
             int result = system(command->chars);
@@ -2702,6 +2711,18 @@ none draw_state_set_default(draw_state ds) {
     ds->stroke_color = sk_color((object)string("#000"));
 }
 
+define_class(trinity)
+define_class(shader)
+
+define_mod(BlurV,   shader)
+define_mod(Blur,    shader)
+define_mod(UVQuad,  shader)
+define_mod(UXQuad,  shader)
+define_mod(PBR,     shader)
+define_mod(Env,     shader)
+define_mod(Convolve,  shader)
+define_mod(Basic, shader)
+
 define_enum(Pixel)
 define_enum(Filter)
 define_enum(Polygon)
@@ -2710,8 +2731,7 @@ define_enum(Sampling)
 define_enum (join)
 define_enum (cap)
 
-define_class(trinity)
-define_class(shader)
+
 define_class(pipeline)
 define_class(gltf_part)
 define_class(gltf_node)
@@ -2727,8 +2747,6 @@ define_class(font)
 define_class(draw_state)
 define_class(canvas)
 
-define_mod(UVQuad, shader)
-
 // abstract identifier to indicate functionality 
 // of non-texture case of attribute, still under the enumerable Surface
 
@@ -2736,11 +2754,7 @@ define_class(particle)
 
 define_enum(Surface)
  
-define_mod(PBR,   shader)
-define_mod(Env,   shader)
-define_mod(Convolve,  shader)
 
-define_mod(Basic, shader)
 
 define_sentry(Zero,  0);
 define_sentry(One,   1);
