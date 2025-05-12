@@ -186,8 +186,8 @@ void render_init(render r) {
             .format         = w->surface_format.format,
             .samples        = VK_SAMPLE_COUNT_1_BIT,
             .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
             .finalLayout    = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -197,9 +197,9 @@ void render_init(render r) {
             .format         = VK_FORMAT_D32_SFLOAT,
             .samples        = VK_SAMPLE_COUNT_1_BIT,
             .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE,
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED,
             .finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         }
@@ -260,8 +260,6 @@ void render_init(render r) {
     result = vkCreateRenderPass(t->device, &render_pass_info, null, &r->vk_render_pass);
     verify(result == VK_SUCCESS, "failed to create render pass");
 
-    // w->command_buffers = calloc(w->image_count, sizeof(VkCommandBuffer));
-    // w->command_fences  = calloc(w->image_count, sizeof(VkFence));
     result = vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
         .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool        = t->command_pool,
@@ -428,7 +426,7 @@ void window_resize(window w, i32 width, i32 height) {
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < w->swap_image_count; i++) {
             drop(w->swap_renders->elements[i]);
             w->swap_renders->elements[i] = render(w, w,
                 width,          w->width,
@@ -436,7 +434,7 @@ void window_resize(window w, i32 width, i32 height) {
                 vk_swap_image,  w->vk_swap_images[i],
                 models,         a(w->swap_model));
         }
-        w->swap_renders->len = 2;
+        w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
         w->swap_render_current = w->swap_renders->elements[0];
     }
@@ -1961,6 +1959,7 @@ void window_init(window w) {
         // Choose a present mode
         w->present_mode = VK_PRESENT_MODE_FIFO_KHR;  // Default to FIFO (V-Sync)
         for (uint32_t i = 0; i < present_mode_count; ++i) {
+            int m = present_modes[i];
             if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
                 w->present_mode = VK_PRESENT_MODE_MAILBOX_KHR;  // Prefer Mailbox (low latency)
                 break;
@@ -2018,9 +2017,9 @@ void render_draw(render r) {
         .clearValueCount    = 2,
         .pClearValues       = &(VkClearValue[2]) { // r->clear_color is the vec4f (xyzw)
             { .color        = { .float32 = {
+                0.2,
                 0.5,
-                0.5,
-                0.5,
+                1.0,
                 1.0 }} },
             { .depthStencil = { .depth   =   1.0f, .stencil = 0 } }
         }
@@ -2086,6 +2085,9 @@ none window_draw(window w) {
             
             transition(w->last_render->color,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            
+            transition(w->swap_render_current->color,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
             draw(w->swap_render_current);
 
