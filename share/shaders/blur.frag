@@ -12,6 +12,8 @@ float gaussian(float x, float sigma) {
 }
 
 void main() {
+    fragColor = texture(tx_color, v_uv); // vec4(1.0, 1.0, 0.0, 1.0);
+    /*
     vec2  uv         = v_uv;
     int   w          = textureSize(tx_color, 0).x;
     vec2  offset     = vec2(1.0 / float(w), 0.0); // horizontal
@@ -26,4 +28,5 @@ void main() {
         weight_sum  += 2.0 * w;
     }
     fragColor = result / weight_sum;
+    */
 }

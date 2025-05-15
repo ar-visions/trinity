@@ -171,9 +171,15 @@ void render_init(render r) {
     trinity  t          = r->t;
     window   w          = r->w;
     bool     backbuffer = !r->vk_swap_image;
+    int width  = r->width  ? r->width  : r->w->width;
+    int height = r->height ? r->height : r->w->height;
+
     if (backbuffer)
-         r->target = texture(t, t, width, r->w->width, height, r->w->height,
-            window_size, true, format, Pixel_rgba8);
+         r->target = texture(t, t,
+            width,        width,
+            height,       height,
+            window_size, (r->width && r->height),
+            format,       Pixel_rgba8);
     VkResult result;
 
     if (r->width  == 0) r->width  = w->width;
@@ -185,7 +191,7 @@ void render_init(render r) {
             // [0] - Multisampled color attachment
             .format         = w->surface_format.format,
             .samples        = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR, // VK_ATTACHMENT_LOAD_OP_CLEAR,
             .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -289,11 +295,11 @@ void render_init(render r) {
     verify(result == VK_SUCCESS, "failed to create fence");
 
     /// providing w always supplements t, width and height, layers/mips default to 1
-    r->color = texture(w, w,
+    r->color = texture(w, w, width, width, height, height,
         vk_format, w->surface_format.format, swap, !backbuffer, surface, Surface_color,
         vk_image, r->vk_swap_image);
 
-    r->depth = texture(w, w,
+    r->depth = texture(w, w, width, width, height, height,
         vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer);
 
     if (!backbuffer) {
@@ -365,8 +371,11 @@ void window_resize(window w, i32 width, i32 height) {
     w->extent.height = height;
 
     each (w->list, render, r) {
-        if (r->target && r->target->window_size)
+        if (r->target && r->target->window_size) {
             resize(r->target, width, height);
+        } else if (r->target) {
+            resize(r->target, r->width, r->height);
+        }
     }
 
     if (!w->backbuffer) {
@@ -517,6 +526,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
 
     typedef struct _vertex_model {
         vec3f pos;
+        vec3f normal;
         vec2f uv;
     } vertex_model;
 
@@ -532,9 +542,9 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         int        stride = mem->ac->stride;
 
         for (int j = 0; j < vertex_count; j++) {
-            i8* dst  = &vdata[mem->offset + j * vertex_size];
-            i8* src0 = &src[j * stride];
-            memcpy(dst, src0, mem->size); 
+            i8* dst  = &vdata[j * vertex_size + mem->offset]; // vertex at j plus our member offset
+            i8* src0 = &src[j * stride]; /// source is the same field over and over
+            memcpy(dst, src0, mem->size); /// copy this vertex field only
         }
     }
 
@@ -542,6 +552,14 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     vertex_model vert1 = ((vertex_model*)vdata)[1];
     vertex_model vert2 = ((vertex_model*)vdata)[2];
     vertex_model vert3 = ((vertex_model*)vdata)[3];
+
+    if (vertex_count == 8383) {
+        for (int j = 0; j < vertex_count; j++) {
+            vertex_model* dst  = &vdata[j * vertex_size];
+            //dst->uv.x = 1.0;
+            //dst->uv.y = 0.2;
+        }
+    }
 
 
     /// write IBO data (todo: use reference)
@@ -920,11 +938,15 @@ i64 A_virtual_size(AType t) {
 
 num uniform_size(AType type) {
     num   total = 0;
-    for (int m = 0; m < type->member_count; m++) {
-        struct type_member_t* mem = &type->members[m];
-        bool inlay = mem->member_type == A_MEMBER_INLAY;
-        if (mem->member_type == A_MEMBER_PROP || inlay)
-            total += A_virtual_size(mem->type);
+    while (type) {
+        for (int m = 0; m < type->member_count; m++) {
+            struct type_member_t* mem = &type->members[m];
+            bool inlay = mem->member_type == A_MEMBER_INLAY;
+            if (mem->member_type == A_MEMBER_PROP || inlay)
+                total += A_virtual_size(mem->type);
+        }
+        type = type->parent_type;
+        if (type == typeid(shader)) break;
     }
     return total;
 }
@@ -990,7 +1012,7 @@ none gpu_sync(gpu a, window w) {
             a->tx = environment(
                 t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
         else
-            a->tx = texture(t, t, sampler, a->sampler);
+            a->tx = texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color);
     }
 }
 
@@ -1174,6 +1196,8 @@ none texture_init(texture a) {
         vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
 
         if (sampler_size > 0) {
+            //png(img, f(path, "/src/image-%o.png", e_str(Surface, img->surface)));
+
             transition(a, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             verify(!is_depth, "unexpected");
             command cmd = command(t, t);
@@ -1361,10 +1385,11 @@ void model_init(model m) {
 }
 
 
-gpu Surface_resource(Surface surface_value, pipeline p) {
+array Surface_resources(Surface surface_value, pipeline p) {
     gpu res = null;
     trinity t = p->t;
     /// check if user provides an image
+    array result = array(alloc, 32);
     each (p->samplers, image, img) {
         AType ty = isa(img);
         texture tx = instanceof((object)img, texture);
@@ -1372,8 +1397,9 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
         if (re) tx = re->color;
         if ((tx && tx->surface == surface_value) ||
             (int)img->surface  == surface_value) {
-            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler, (object)(tx ? tx : img));
-            break;
+            res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler,
+                (object)(tx ? (object)tx : (object)img));
+            push(result, res);
         }
     }
 
@@ -1382,7 +1408,7 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
     pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
     shader s = p->s;
  
-    if (!res) {
+    if (!len(result)) {
         rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
         rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1433,18 +1459,21 @@ gpu Surface_resource(Surface surface_value, pipeline p) {
                 verify(0, "Unhandled Surface enum value");
                 break;
         }
+        push(result, res);
     }
-    return res;
+    return result;
 }
 
 void pipeline_bind_resources(pipeline p) {
     trinity t     = p->t;
-    int sampler_count = 0;
-    int uniform_count = 0;
+    int total_samplers = 0;
+    int sampler_binds  = 0;
+    int uniform_count  = 0;
     VkDescriptorSetLayoutBinding sampler_bindings [32];
     VkDescriptorSetLayoutBinding uniform_bindings [32];
     VkDescriptorBufferInfo       buffer_infos     [32];
-    VkDescriptorImageInfo        image_infos      [32];
+    VkDescriptorImageInfo        image_infos      [64];
+    int                          sampler_counts   [32];
     VkWriteDescriptorSet         descriptor_writes[32];
 
     p->resources = array(alloc, 32);
@@ -1473,8 +1502,6 @@ void pipeline_bind_resources(pipeline p) {
         uniform_count++;
     }
 
-    //uniform_count = 1; // test !
-    
     // use enum type with value and meta type (context)
     AType shader_schema = isa(p->s);
     while (shader_schema != typeid(shader)) {
@@ -1493,25 +1520,28 @@ void pipeline_bind_resources(pipeline p) {
 
             //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
             //verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
-            gpu res = Surface_resource(enum_value, p); // based on enum types, we may switch here
-            verify(instanceof(res, gpu), "expected gpu resource");
+            array all = Surface_resources(enum_value, p); // based on enum types, we may switch here
+            verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
+                "unexpected len(samplers) for value on attrib");
+            each(all, gpu, res) {
+                verify(instanceof(res, gpu), "expected gpu resource");
 
-            /// add gpu resource; this is what will be updated when required
-            sync(res, p->w);
-            push(p->resources, res);
-
-            sampler_bindings[sampler_count] = (VkDescriptorSetLayoutBinding) {
-                .binding = sampler_count,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 1,
-                .stageFlags = stage_flags
+                /// add gpu resource; this is what will be updated when required
+                sync(res, p->w);
+                push(p->resources, res);
+                image_infos[total_samplers++] = (VkDescriptorImageInfo) {
+                    .sampler     = res->tx->vk_sampler,
+                    .imageView   = res->tx->vk_image_view, 
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                };
+            }
+            sampler_bindings[sampler_binds] = (VkDescriptorSetLayoutBinding) {
+                .binding            = sampler_binds,
+                .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount    = len(all),
+                .stageFlags         = stage_flags
             };
-            image_infos[sampler_count] = (VkDescriptorImageInfo) {
-                .sampler     = res->tx->vk_sampler,
-                .imageView   = res->tx->vk_image_view, 
-                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-            };
-            sampler_count++;
+            sampler_binds++;
         }
         shader_schema = shader_schema->parent_type;
     }
@@ -1524,7 +1554,7 @@ void pipeline_bind_resources(pipeline p) {
 
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = sampler_count,
+        .bindingCount = sampler_binds,
         .pBindings = sampler_bindings
     }, null, &p->descriptor_layouts[1]);
 
@@ -1539,9 +1569,9 @@ void pipeline_bind_resources(pipeline p) {
         sizes[desc.poolSizeCount].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         sizes[desc.poolSizeCount++].descriptorCount = uniform_count;
     }
-    if (sampler_count) {
+    if (sampler_binds) {
         sizes[desc.poolSizeCount].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sizes[desc.poolSizeCount++].descriptorCount = sampler_count;
+        sizes[desc.poolSizeCount++].descriptorCount = total_samplers;//sampler_binds;
     }
     vkCreateDescriptorPool(p->t->device, &desc, null, &p->descriptor_pool);
 
@@ -1564,19 +1594,21 @@ void pipeline_bind_resources(pipeline p) {
         };
     }
 
-    for (int i = 0; i < sampler_count; i++) {
+    int i_image = 0;
+    for (int i = 0; i < sampler_binds; i++) {
         descriptor_writes[uniform_count + i] = (VkWriteDescriptorSet) {
             .sType              = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstSet             = p->descriptor_sets[1],
             .dstBinding         = i,
             .descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount    = 1,
-            .pImageInfo         = &image_infos[i]
+            .descriptorCount    = sampler_bindings[i].descriptorCount,
+            .pImageInfo         = &image_infos[i_image]
         };
+        i_image += sampler_bindings[i].descriptorCount;
     }
 
     vkUpdateDescriptorSets(p->t->device,
-        uniform_count + sampler_count, descriptor_writes, 0, null);
+        uniform_count + sampler_binds, descriptor_writes, 0, null);
 }
 
 void pipeline_init(pipeline p) {
@@ -1639,7 +1671,8 @@ void pipeline_init(pipeline p) {
               //(mem->type == typeid( i32 )) ? VK_FORMAT_R32_SINT            : -- glTF does not support
                 (mem->type == typeid( u32 )) ? VK_FORMAT_R32_UINT            :
                                                VK_FORMAT_UNDEFINED;
-            verify(attributes[attr_count].format != VK_FORMAT_UNDEFINED,
+            VkFormat f = attributes[attr_count].format;
+            verify(f != VK_FORMAT_UNDEFINED,
                 "undefined vertex attribute for type %s", mem->type->name);
             attributes[attr_count].offset = mem->offset;
             attr_count++;
@@ -1696,7 +1729,7 @@ void pipeline_init(pipeline p) {
             .rasterizerDiscardEnable = VK_FALSE,
             .polygonMode             = VK_POLYGON_MODE_FILL,
             .lineWidth               = 1.0f,
-            .cullMode                = VK_CULL_MODE_NONE,
+            .cullMode                = VK_CULL_MODE_BACK_BIT,
             .frontFace               = VK_FRONT_FACE_CLOCKWISE,
             .depthBiasEnable         = VK_FALSE,
         };
@@ -1708,16 +1741,17 @@ void pipeline_init(pipeline p) {
         };
 
         VkPipelineColorBlendAttachmentState color_blend_attachment = {
-            .blendEnable           = VK_TRUE,
-            .colorWriteMask        = VK_COLOR_COMPONENT_R_BIT |
-                                        VK_COLOR_COMPONENT_G_BIT |
-                                        VK_COLOR_COMPONENT_B_BIT |
-                                        VK_COLOR_COMPONENT_A_BIT,
+            .blendEnable         = VK_TRUE,
             .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
             .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-            .colorBlendOp        = VK_BLEND_OP_ADD
+            .colorBlendOp        = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            .alphaBlendOp        = VK_BLEND_OP_ADD,
+            .colorWriteMask      = VK_COLOR_COMPONENT_R_BIT |
+                                VK_COLOR_COMPONENT_G_BIT |
+                                VK_COLOR_COMPONENT_B_BIT |
+                                VK_COLOR_COMPONENT_A_BIT
         };
 
         VkPipelineColorBlendStateCreateInfo color_blend_state = {

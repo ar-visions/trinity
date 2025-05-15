@@ -89,7 +89,7 @@ declare_class(shader)
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
-    i_attr   (X,Y, Surface,    color,  rgbaf)
+    i_attr   (X,Y, Surface,    color, 1, rgbaf)
 declare_mod(Basic, shader)
 
 
@@ -103,15 +103,15 @@ declare_class(IBL)
     i_prop   (X,Y, public,     mat4f,   model) \
     i_prop   (X,Y, public,     mat4f,   view) \
     i_prop   (X,Y, public,     mat4f,   proj) \
-    i_attr   (X,Y, Surface,    color,         rgba8) \
-    i_attr   (X,Y, Surface,    normal,        rgba8) \
-    i_attr   (X,Y, Surface,    emission,      rgbaf) \
-    i_attr   (X,Y, Surface,    rough,         u8) \
-    i_attr   (X,Y, Surface,    metal,         u8) \
-    i_attr   (X,Y, Surface,    height,        f32) \
-    i_attr   (X,Y, Surface,    ao,            u8) \
-    i_attr   (X,Y, Surface,    ior,           f32) \
-    i_attr   (X,Y, Surface,    environment,   rgbaf, IBL) \
+    i_attr   (X,Y, Surface,    color,         1, rgba8) \
+    i_attr   (X,Y, Surface,    normal,        1, rgba8) \
+    i_attr   (X,Y, Surface,    emission,      1, rgbaf) \
+    i_attr   (X,Y, Surface,    rough,         1, u8) \
+    i_attr   (X,Y, Surface,    metal,         1, u8) \
+    i_attr   (X,Y, Surface,    height,        1, f32) \
+    i_attr   (X,Y, Surface,    ao,            1, u8) \
+    i_attr   (X,Y, Surface,    ior,           1, f32) \
+    i_attr   (X,Y, Surface,    environment,   1, rgbaf, IBL) \
     i_override(X,Y, method, init)
 declare_mod(PBR, shader)
 
@@ -119,7 +119,7 @@ declare_mod(PBR, shader)
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
-    i_attr   (X,Y, Surface,    color,  rgbaf) \
+    i_attr   (X,Y, Surface,    color, 1, rgbaf) \
     i_override(X,Y, method, init)
 declare_mod(Env, shader)
 
@@ -128,7 +128,7 @@ declare_mod(Env, shader)
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
-    i_attr   (X,Y, Surface,    environment,  rgbaf)
+    i_attr   (X,Y, Surface,    environment,  1, rgbaf)
 declare_mod(Convolve, shader)
 
 typedef struct _pipeline* pipeline;
@@ -164,21 +164,21 @@ declare_class(buffer)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, rgba8)
+    i_attr   (X,Y, Surface,    color, 1, rgba8)
 declare_mod(BlurV, shader)
 
 #define Blur_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, rgba8)
+    i_attr   (X,Y, Surface,    color, 1, rgba8)
 declare_mod(Blur, shader)
 
 #define UVQuad_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, rgba8) \
+    i_attr   (X,Y, Surface,    color, 1, rgba8) \
     i_override(X,Y, method, init)
 declare_mod(UVQuad, shader)
 
@@ -186,8 +186,7 @@ declare_mod(UVQuad, shader)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, rgba8) \
-    i_attr   (X,Y, Surface,    color, rgba8) \
+    i_attr   (X,Y, Surface,    color, 2, rgba8) \
     i_override(X,Y, method, init)
 declare_mod(UXQuad, shader)
 

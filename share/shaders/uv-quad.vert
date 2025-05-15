@@ -7,5 +7,5 @@ layout(location = 0) out vec2 v_uv;
 
 void main() {
     v_uv           = uv;
-    gl_Position    = vec4(pos.x, pos.z, 0.0, 1.0);
+    gl_Position    = vec4(-pos.x, pos.z, 0.0, 1.0);
 }
