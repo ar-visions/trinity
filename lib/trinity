@@ -164,6 +164,7 @@ declare_class(buffer)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     f32,   reduction_scale) \
     i_attr   (X,Y, Surface,    color, 1, rgba8)
 declare_mod(BlurV, shader)
 
@@ -171,6 +172,7 @@ declare_mod(BlurV, shader)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_prop   (X,Y, public,     mat4f, proj) \
+    i_prop   (X,Y, public,     f32,   reduction_scale) \
     i_attr   (X,Y, Surface,    color, 1, rgba8)
 declare_mod(Blur, shader)
 
@@ -182,11 +184,27 @@ declare_mod(Blur, shader)
     i_override(X,Y, method, init)
 declare_mod(UVQuad, shader)
 
+#define UXSurface_schema(X,Y,...) \
+    enum_value(X,Y, background) \
+    enum_value(X,Y, frost) \
+    enum_value(X,Y, blur) \
+    enum_value(X,Y, compose) \
+    enum_value(X,Y, colorize) \
+    enum_value(X,Y, overlay)
+declare_enum(UXSurface)
+
 #define UXQuad_schema(X,Y,...) \
-    i_prop   (X,Y, public,     mat4f, model) \
-    i_prop   (X,Y, public,     mat4f, view) \
-    i_prop   (X,Y, public,     mat4f, proj) \
-    i_attr   (X,Y, Surface,    color, 2, rgba8) \
+    i_prop   (X,Y, public,     mat4f,         model) \
+    i_prop   (X,Y, public,     mat4f,         view) \
+    i_prop   (X,Y, public,     mat4f,         proj) \
+    i_prop   (X,Y, public,     vec4f,         low_color) \
+    i_prop   (X,Y, public,     vec4f,         high_color) \
+    i_attr   (X,Y, UXSurface,    background, 1, rgba8) \
+    i_attr   (X,Y, UXSurface,    frost,      1, rgba8) \
+    i_attr   (X,Y, UXSurface,    blur,       1, rgba8) \
+    i_attr   (X,Y, UXSurface,    compose,    1, rgba8) \
+    i_attr   (X,Y, UXSurface,    colorize,   1, rgba8) \
+    i_attr   (X,Y, UXSurface,    overlay,    1, rgba8) \
     i_override(X,Y, method, init)
 declare_mod(UXQuad, shader)
 
@@ -313,8 +331,10 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    set_font,    font) \
     i_method  (X,Y, interface, none,    cubic,       f32, f32, f32, f32, f32, f32) \
     i_method  (X,Y, interface, none,    quadratic,   f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    draw_fill,   bool) \
-    i_method  (X,Y, interface, none,    draw_stroke, bool) \
+    i_method  (X,Y, interface, none,    draw_fill) \
+    i_method  (X,Y, interface, none,    draw_stroke) \
+    i_method  (X,Y, interface, none,    draw_fill_preserve) \
+    i_method  (X,Y, interface, none,    draw_stroke_preserve) \
     i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
     i_method  (X,Y, interface, none,    output_mode, bool) \
@@ -399,7 +419,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, public,     i32,                    test2) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
-    i_prop    (X,Y, public,     array,                  samplers) \
+    i_prop    (X,Y, public,     map,                    samplers) \
     i_prop    (X,Y, required,   shader,                 s) \
     i_prop    (X,Y, intern,     array,                  resources) \
     i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
@@ -442,7 +462,7 @@ typedef struct _Model* Model;
     i_prop    (X,Y, public,   Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
     i_prop    (X,Y, public,   shader,  s) \
-    i_prop    (X,Y, public,   array,   samplers) \
+    i_prop    (X,Y, public,   map,     samplers) \
     i_prop    (X,Y, intern,   array,   pipelines) \
     i_method  (X,Y, public,   none,    finish, render) \
     i_override(X,Y, method, init, dealloc)

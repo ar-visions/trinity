@@ -431,8 +431,8 @@ void window_resize(window w, i32 width, i32 height) {
     if (!w->backbuffer) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
-            render top     = last(w->list);
-            w->swap_model  = model(w, w, samplers, a(top));
+            render top     = w->last_render; //last(w->list);
+            w->swap_model  = model(w, w, samplers, map_of("color", top, null));
         }
 
         vkGetSwapchainImagesKHR(
@@ -524,15 +524,6 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     i8 *vdata = vbo->vertex_data;
     i8 *idata = vbo->index_data;
 
-    typedef struct _vertex_model {
-        vec3f pos;
-        vec3f normal;
-        vec2f uv;
-    } vertex_model;
-
-    int size = sizeof(vertex_model);
-
-
     /// Write VBO data properly with per-attribute striding
     for (int k = 0; k < member_count; k++) {
         vertex_member_t* mem = &members[k];
@@ -548,19 +539,13 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         }
     }
 
-    vertex_model vert0 = ((vertex_model*)vdata)[0];
-    vertex_model vert1 = ((vertex_model*)vdata)[1];
-    vertex_model vert2 = ((vertex_model*)vdata)[2];
-    vertex_model vert3 = ((vertex_model*)vdata)[3];
+    typedef struct _vertex_model {
+        vec3f pos;
+        //vec3f normal;
+        vec2f uv;
+    } vertex_model;
 
-    if (vertex_count == 8383) {
-        for (int j = 0; j < vertex_count; j++) {
-            vertex_model* dst  = &vdata[j * vertex_size];
-            //dst->uv.x = 1.0;
-            //dst->uv.y = 0.2;
-        }
-    }
-
+    int size = sizeof(vertex_model);
 
     /// write IBO data (todo: use reference)
     i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
@@ -571,6 +556,38 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         model = mat4f_scale(&model, &n->scale);
     model = mat4f_rotate(&model, &n->rotation);
     
+    /// override blender's terrible quad
+    if (vertex_count == 4 && vertex_size != size) {
+        int test2 = 2;
+        test2 += 2;
+    }
+    if (vertex_count == 4 && vertex_size == size) {
+        vertex_model* vert0 = &((vertex_model*)vdata)[0];
+        vertex_model* vert1 = &((vertex_model*)vdata)[1];
+        vertex_model* vert2 = &((vertex_model*)vdata)[2];
+        vertex_model* vert3 = &((vertex_model*)vdata)[3];
+        
+        
+        u16* ibo = (u32*)idata;
+        /// les rewrite this quad to something that makes sense for VK_FRONT_FACE_CLOCKWISE
+        vert0->pos = vec3f( -1.0f, -1.0f, 0.0f ); // bottom-left
+        vert1->pos = vec3f(  1.0f, -1.0f, 0.0f ); // bottom-right
+        vert2->pos = vec3f(  1.0f,  1.0f, 0.0f ); // top-right
+        vert3->pos = vec3f( -1.0f,  1.0f, 0.0f ); // top-left
+
+        vert0->uv = vec2f( 0.0f, 0.0f );
+        vert1->uv = vec2f( 1.0f, 0.0f );
+        vert2->uv = vec2f( 1.0f, 1.0f );
+        vert3->uv = vec2f( 0.0f, 1.0f );
+
+        ibo[0] = 0;
+        ibo[1] = 1;
+        ibo[2] = 2;
+        ibo[3] = 0;
+        ibo[4] = 2;
+        ibo[5] = 3;
+    }
+
     /// pipeline processes samplers, and creates placeholders
     pipeline pipe = pipeline(
         t,          t,
@@ -726,7 +743,7 @@ texture trinity_environment(
     path   gltf     = path   ("models/env.gltf" );
     Model  data     = read   (gltf, typeid(Model) );
     Env    e        = Env    (t, t, name, string("env"));
-    array  samplers = a      (clone);
+    map    samplers = map_of ("color", clone, null);
     model  m_env    = model  (w, w, id, data, s, e, samplers, samplers);
     render r_env    = render (w, w, models, a(m_env));
     
@@ -820,7 +837,7 @@ texture trinity_environment(
     /// convolve environment to create a multi-sampled cube
     Convolve conv_shader = Convolve(
         t, t, name, string("conv"), proj, e->proj);
-    array  conv_samplers = a(cube); // must allow textures to register with gpu
+    map    conv_samplers = map_of("convolve", cube, null); // must allow textures to register with gpu
     model  m_conv  = model(
         t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  r_conv = render(
@@ -1336,7 +1353,7 @@ void model_finish(model m, render r) {
     m->r         = r;
     m->pipelines = array();
 
-    if (!m->samplers) m->samplers = array(alloc, 32);
+    if (!m->samplers) m->samplers = map(hsize, 32);
 
     if (!m->s) {
         UVQuad q = m->s  = UVQuad  (t, m->t, name, string("uv-quad")); // as of right now, this is simplifying the inputs, and should be called UVScreen if anything
@@ -1352,7 +1369,7 @@ void model_finish(model m, render r) {
     if (!m->id) {
         static path  gltf_quad;
         static Model quad;
-        if (!gltf_quad) gltf_quad = f(path, "models/uv-quad.gltf");
+        if (!gltf_quad) gltf_quad = f(path, "models/uv-quad2.gltf");
         if (!quad)      quad      = read(gltf_quad, typeid(Model));
         m->id = hold(quad);
     }
@@ -1385,18 +1402,21 @@ void model_init(model m) {
 }
 
 
-array Surface_resources(Surface surface_value, pipeline p) {
+array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline p) {
     gpu res = null;
     trinity t = p->t;
     /// check if user provides an image
     array result = array(alloc, 32);
-    each (p->samplers, image, img) {
+    pairs (p->samplers, i) {
+        string name = i->key;
+        image img   = i->value;
+        i32 evalue = A_enum_value(surface_enum_type, name->chars);
         AType ty = isa(img);
         texture tx = instanceof((object)img, texture);
         render  re = instanceof((object)img, render);
         if (re) tx = re->color;
-        if ((tx && tx->surface == surface_value) ||
-            (int)img->surface  == surface_value) {
+        if (evalue == surface_value) {
+            verify(tx || instanceof(img, image), "expected texture or image");
             res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler,
                 (object)(tx ? (object)tx : (object)img));
             push(result, res);
@@ -1520,7 +1540,12 @@ void pipeline_bind_resources(pipeline p) {
 
             //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
             //verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
-            array all = Surface_resources(enum_value, p); // based on enum types, we may switch here
+            static int test2 = 0;
+            test2++;
+            if (test2 == 34) {
+                test2 = test2;
+            }
+            array all = Surface_resources(enum_type, enum_value, p); // based on enum types, we may switch here
             verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
                 "unexpected len(samplers) for value on attrib");
             each(all, gpu, res) {
@@ -2111,7 +2136,7 @@ none window_draw(window w) {
     each (w->list, render, r) {
         draw(r);
         sync_fence(r);
-        w->last_render = r;
+        //w->last_render = r;
     }
 
     /// acquire swap image
@@ -2658,10 +2683,16 @@ none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
 none canvas_arc(canvas a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 end_angle) {
 }
 
-none canvas_draw_fill(canvas a, bool preserve) {
+none canvas_draw_fill(canvas a) {
 }
 
-none canvas_draw_stroke(canvas a, bool preserve) {
+none canvas_draw_stroke(canvas a) {
+}
+
+none canvas_draw_fill_preserve(canvas a) {
+}
+
+none canvas_draw_stroke_preserve(canvas a) {
 }
 
 none canvas_cubic(canvas a, f32 cp1_x, f32 cp1_y, f32 cp2_x, f32 cp2_y, f32 ep_x, f32 ep_y) {
@@ -2787,8 +2818,7 @@ define_class(canvas)
 define_class(particle)
 
 define_enum(Surface)
- 
-
+define_enum(UXSurface)
 
 define_sentry(Zero,  0);
 define_sentry(One,   1);
