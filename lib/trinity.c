@@ -2677,6 +2677,9 @@ none canvas_line_to(canvas a, f32 x, f32 y) {
 none canvas_rect_to(canvas a, f32 x, f32 y, f32 w, f32 h) {
 }
 
+none canvas_rounded_rect_to(canvas a, f32 x, f32 y, f32 w, f32 h, f32 sx, f32 sy) {
+}
+
 none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
 }
 
