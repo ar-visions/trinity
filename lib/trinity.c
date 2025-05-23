@@ -166,7 +166,7 @@ static void handle_glfw_key(
     }
 }
 
-void render_init(render r) {
+void target_init(target r) {
     if (!r->t) r->t = r->w->t;
     trinity  t          = r->t;
     window   w          = r->w;
@@ -328,7 +328,7 @@ void render_init(render r) {
     }
 }
 
-void render_dealloc(render r) {
+void target_dealloc(target r) {
     trinity t = r->t;
     window  w = r->w;
 
@@ -370,7 +370,7 @@ void window_resize(window w, i32 width, i32 height) {
     w->extent.width  = width;
     w->extent.height = height;
 
-    each (w->list, render, r) {
+    each (w->list, target, r) {
         if (r->target && r->target->window_size) {
             resize(r->target, width, height);
         } else if (r->target) {
@@ -431,7 +431,7 @@ void window_resize(window w, i32 width, i32 height) {
     if (!w->backbuffer) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
-            render top     = w->last_render; //last(w->list);
+            target top     = w->last_target; //last(w->list);
             w->swap_model  = model(w, w, samplers, map_of("color", top, null));
         }
 
@@ -446,7 +446,7 @@ void window_resize(window w, i32 width, i32 height) {
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
             drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = render(w, w,
+            w->swap_renders->elements[i] = target(w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
@@ -468,7 +468,7 @@ static void handle_glfw_framebuffer_size(
 void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     Model      mdl          = m->id;
     trinity    t            = m->t;
-    render     r            = m->r;
+    target     r            = m->r;
     string     name         = prim->name ? prim->name : string("default");
     i64        indices      = prim->indices;
     Accessor   ai           = get(mdl->accessors, indices);
@@ -745,7 +745,7 @@ texture trinity_environment(
     Env    e        = Env    (t, t, name, string("env"));
     map    samplers = map_of ("color", clone, null);
     model  m_env    = model  (w, w, id, data, s, e, samplers, samplers);
-    render r_env    = render (w, w, models, a(m_env));
+    target r_env    = target (w, w, models, a(m_env));
     
     e->proj         = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
 
@@ -796,7 +796,7 @@ texture trinity_environment(
     }
 
     command cmd = command(t, t);
-    render final = null;
+    target final = null;
     
     w->list = a(r_env);
 
@@ -804,7 +804,7 @@ texture trinity_environment(
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         //
         draw(w);
-        final = w->last_render; // will need to do this after if it changes per process
+        final = w->last_target; // will need to do this after if it changes per process
         transition(final->color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         transition_image_layout(t, vk_image[0],
             VK_IMAGE_LAYOUT_UNDEFINED,
@@ -840,7 +840,7 @@ texture trinity_environment(
     map    conv_samplers = map_of("convolve", cube, null); // must allow textures to register with gpu
     model  m_conv  = model(
         t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
-    array  r_conv = render(
+    array  r_conv = target(
         t, t, w, w, models, a(m_conv)); // model_finish is called on this list
 
     vec4f v = vec4f(r_axis.x, r_axis.y, r_axis.z, radians(90.0f));
@@ -857,7 +857,7 @@ texture trinity_environment(
         for (int f = 0; f < 6; f++) {
             int face_id = a * 6 + f;
             conv_shader->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
-            final = w->last_render;
+            final = w->last_target;
             draw(w);
             //image screen = cast(image, w);
             //exr(screen, f(path, "screenshot.exr"));
@@ -1016,7 +1016,7 @@ none gpu_sync(gpu a, window w) {
     if (a->sampler && !a->tx) {
         image   img = instanceof(a->sampler, image);
         texture tx  = instanceof(a->sampler, texture);
-        render  re  = instanceof(a->sampler, render);
+        target  re  = instanceof(a->sampler, target);
 
         if (re) {
             verify(re->target, "expected render target texture");
@@ -1348,7 +1348,7 @@ static pbrMetallicRoughness pbr_defaults() {
 
 path path_with_cstr(path, cstr);
 
-void model_finish(model m, render r) {
+void model_finish(model m, target r) {
     trinity t    = m->t;
     m->r         = r;
     m->pipelines = array();
@@ -1413,7 +1413,7 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
         i32 evalue = A_enum_value(surface_enum_type, name->chars);
         AType ty = isa(img);
         texture tx = instanceof((object)img, texture);
-        render  re = instanceof((object)img, render);
+        target  re = instanceof((object)img, target);
         if (re) tx = re->color;
         if (evalue == surface_value) {
             verify(tx || instanceof(img, image), "expected texture or image");
@@ -1637,7 +1637,7 @@ void pipeline_bind_resources(pipeline p) {
 }
 
 void pipeline_init(pipeline p) {
-    render r   = p->r;
+    target r   = p->r;
     gpu vbo    = p->vbo, compute = p->memory;
     p->vbo     = vbo;
     p->memory  = compute;
@@ -1883,7 +1883,7 @@ void pipeline_draw(pipeline p, handle f) {
     }
 }
 
-render window_final_render(window w) {
+target window_final_target(window w) {
     return last(w->list);
 }
 
@@ -2048,7 +2048,7 @@ void window_init(window w) {
     }
 }
 
-void render_draw(render r) {
+void target_draw(target r) {
     trinity  t = r->w->t;
     window   w = r->w;
     uint32_t index = 0;
@@ -2124,7 +2124,7 @@ void render_draw(render r) {
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
 }
 
-void render_sync_fence(render r) {
+void target_sync_fence(target r) {
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
     verify(result == VK_SUCCESS, "fence wait failed");
 }
@@ -2133,10 +2133,10 @@ none window_draw(window w) {
     trinity t = w->t;
 
     /// render background targets first
-    each (w->list, render, r) {
+    each (w->list, target, r) {
         draw(r);
         sync_fence(r);
-        //w->last_render = r;
+        //w->last_target = r;
     }
 
     /// acquire swap image
@@ -2151,7 +2151,7 @@ none window_draw(window w) {
             verify(result == VK_SUCCESS, "failed to acquire swapchain image");
             w->swap_render_current = w->swap_renders->elements[w->swap_image_current];
             
-            transition(w->last_render->color,
+            transition(w->last_target->color,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             
             transition(w->swap_render_current->color,
@@ -2159,7 +2159,7 @@ none window_draw(window w) {
 
             draw(w->swap_render_current);
 
-            transition(w->last_render->color,
+            transition(w->last_target->color,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             // present the swapchain image
             VkPresentInfoKHR presentInfo = {
@@ -2183,7 +2183,7 @@ none window_draw(window w) {
                 verify(result == VK_SUCCESS, "present");
                 sync_fence(w->swap_render_current);
             }
-            w->last_render = w->swap_render_current;
+            w->last_target = w->swap_render_current;
         }
     }
 }
@@ -2572,10 +2572,10 @@ none buffer_init(buffer b) {
 }
 
 void buffer_transfer(buffer b, window w) {
-    verify(w->last_render,
+    verify(w->last_target,
         "expected render pass to be run prior to a buffer transfer from that window");
 
-    VkImage  image  = w->last_render->color->vk_image;
+    VkImage  image  = w->last_target->color->vk_image;
     trinity  t      = b->t;
     VkBuffer buffer = b->vk_buffer;
     VkCommandBuffer cmd;
@@ -2802,7 +2802,7 @@ define_class(gltf_part)
 define_class(gltf_node)
 define_class(model)
 define_class(window)
-define_class(render)
+define_class(target)
 define_class(buffer)
 define_class(command)
 define_class(uniforms) 

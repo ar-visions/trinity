@@ -211,7 +211,7 @@ declare_mod(UXQuad, shader)
 /// when created with a mere window reference, it will create a texture the size of the window
 /// the last render in list will draw to swap-image; trinity works simply
 /// everything renders to texture (target == texture) or the swap (target == window)
-#define render_schema(X,Y,...) \
+#define target_schema(X,Y,...) \
     i_prop    (X,Y, public,     trinity,                t) \
     i_prop    (X,Y, public,     window,                 w) \
     i_prop    (X,Y, public,     i32,                    width) \
@@ -234,7 +234,7 @@ declare_mod(UXQuad, shader)
     i_method  (X,Y, public,     none,                   draw) \
     i_method  (X,Y, public,     none,                   sync_fence) \
     i_override(X,Y, method,     init, dealloc)
-declare_class(render)
+declare_class(target)
 
 
 #define window_schema(X,Y,...) \
@@ -253,8 +253,8 @@ declare_class(render)
     i_prop    (X,Y, intern,     VkSurfaceFormatKHR,     surface_format,        as, i64) \
     i_prop    (X,Y, intern,     VkPresentModeKHR,       present_mode,          as, i32) \
     i_prop    (X,Y, intern,     VkExtent2D,             extent,                as, i64) \
-    i_prop    (X,Y, intern,     render,                 swap_render_current) \
-    i_prop    (X,Y, intern,     render,                 semaphore_frame) \
+    i_prop    (X,Y, intern,     target,                 swap_render_current) \
+    i_prop    (X,Y, intern,     target,                 semaphore_frame) \
     i_prop    (X,Y, intern,     u32,                    swap_image_count) \
     i_prop    (X,Y, intern,     u32,                    swap_image_current) \
     i_prop    (X,Y, required,   u32,                    width) \
@@ -266,9 +266,9 @@ declare_class(render)
     i_prop    (X,Y, public,     i32,                    current_swap_index) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
     i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
-    i_method  (X,Y, public,     render,                 final_render) \
+    i_method  (X,Y, public,     target,                 final_target) \
     i_method  (X,Y, public,     none,                   draw) \
-    i_prop    (X,Y, public,     render,                 last_render) \
+    i_prop    (X,Y, public,     target,                 last_target) \
     i_cast    (X,Y, public,     image) \
     i_override(X,Y, method,     init, dealloc)
 declare_class(window)
@@ -387,7 +387,7 @@ typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,                t) \
     i_prop    (X,Y, required,   window,                 w) \
-    i_prop    (X,Y, required,   render,                 r) \
+    i_prop    (X,Y, required,   target,                 r) \
     i_prop    (X,Y, public,     i32,                    test2) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
@@ -430,13 +430,13 @@ typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
     i_prop    (X,Y, public,   trinity, t) \
     i_prop    (X,Y, required, window,  w) \
-    i_prop    (X,Y, public,   render,  r) \
+    i_prop    (X,Y, public,   target,  r) \
     i_prop    (X,Y, public,   Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
     i_prop    (X,Y, public,   shader,  s) \
     i_prop    (X,Y, public,   map,     samplers) \
     i_prop    (X,Y, intern,   array,   pipelines) \
-    i_method  (X,Y, public,   none,    finish, render) \
+    i_method  (X,Y, public,   none,    finish, target) \
     i_override(X,Y, method, init, dealloc)
 declare_class(model)
 
