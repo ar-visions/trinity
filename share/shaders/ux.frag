@@ -22,7 +22,7 @@ void main() {
 
     /// this is a simple hue shift and sat/lum shift.. thats what we want for g0
     vec3 base_hsv  = rgb2hsv(base); // already in your utilities
-    base_hsv.x     =   mod(base_hsv.x + colorize.r, 1.0);     // hue shift
+    base_hsv.x     =   mod(clamp(base_hsv.x + colorize.r, 0.0, 1.0), 1.0);     // hue shift
     base_hsv.y     = clamp(base_hsv.y + colorize.g, 0.0, 1.0); // sat scale
     base_hsv.z     = clamp(base_hsv.z + colorize.b, 0.0, 1.0); // lum scale
     vec3 g0        = hsv2rgb(base_hsv);

@@ -2796,9 +2796,6 @@ define_enum(Filter)
 define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
-define_enum (join)
-define_enum (cap)
-
 
 define_class(pipeline)
 define_class(gltf_part)
@@ -2810,8 +2807,7 @@ define_class(buffer)
 define_class(command)
 define_class(uniforms) 
 define_class(IBL)
-define_class(stroke)
-define_class(font)
+
 define_class(draw_state)
 define_class(canvas)
 

@@ -1,10 +1,10 @@
 import:
-	A 		https://github.com/ar-visions/A main
-	vec 	https://github.com/ar-visions/vec main
-	gltf 	https://github.com/ar-visions/gltf main
-	img 	https://github.com/ar-visions/img main
-	
-	glfw 	https://github.com/glfw/glfw 7b6aead
+	A 		https://github.com/ar-visions/A 		main
+	vec 	https://github.com/ar-visions/vec 		main
+	gltf 	https://github.com/ar-visions/gltf 		main
+	img 	https://github.com/ar-visions/img 		main
+	ion 	https://github.com/ar-visions/ion 		main
+	glfw 	https://github.com/glfw/glfw 			7b6aead
 		-DBUILD_SHARED_LIBS=ON
 		-DGLFW_BUILD_WAYLAND=OFF
 		-DGLFW_VULKAN=ON

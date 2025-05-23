@@ -275,35 +275,6 @@ declare_class(window)
 
 forward(texture)
 
-#define join_schema(X,Y,...) \
-    enum_value_v(X, Y, none,       0) \
-    enum_value_v(X, Y, miter,      1) \
-    enum_value_v(X, Y, round,      2) \
-    enum_value_v(X, Y, bevel,      3)
-declare_enum(join)
-
-
-#define cap_schema(X,Y,...) \
-    enum_value_v(X, Y, none,       0) \
-    enum_value_v(X, Y, round,      1) \
-    enum_value_v(X, Y, square,     2)
-declare_enum(cap)
-
-
-#define stroke_schema(X,Y,...) \
-    i_prop    (X,Y, public,   f32,     width) \
-    i_prop    (X,Y, public,   cap,     cap) \
-    i_prop    (X,Y, public,   join,    join) \
-    i_prop    (X,Y, public,   f32,     miter_limit) \
-    i_prop    (X,Y, public,   f32,     dash_offset)
-declare_class(stroke)
-
-
-#define font_schema(X,Y,...) \
-    i_prop    (X,Y, public,   path,    path) \
-    i_prop    (X,Y, public,   f32,     size)
-declare_class(font)
-
 
 #define draw_state_schema(X,Y,...) \
     i_prop    (X,Y, public,   stroke,  stroke) \
@@ -324,6 +295,7 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    arc_to,      f32, f32, f32, f32, f32) \
     i_method  (X,Y, interface, none,    arc,         f32, f32, f32, f32, f32) \
     i_method  (X,Y, interface, none,    rect_to,     f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    rounded_rect_to, f32, f32, f32, f32, f32, f32) \
     i_method  (X,Y, interface, none,    fill_color,  object) \
     i_method  (X,Y, interface, none,    stroke_color, object) \
     i_method  (X,Y, interface, none,    clear,       object) \
