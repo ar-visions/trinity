@@ -87,6 +87,11 @@ void transition_image_layout(
     barrier.srcAccessMask = src->access;
     barrier.dstAccessMask = dst->access;
 
+    static int test2 = 0;
+    test2++;
+    if (test2 == 58) {
+        test2 = test2;
+    }
     vkCmdPipelineBarrier(
         cmd->vk, src->stage, dst->stage, 0, 0, null, 0, null, 1, &barrier);
     submit(cmd);
@@ -1237,6 +1242,7 @@ none texture_init(texture a) {
             });
             submit(cmd);
             create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
+            a->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
     }
 
@@ -1540,11 +1546,6 @@ void pipeline_bind_resources(pipeline p) {
 
             //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
             //verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
-            static int test2 = 0;
-            test2++;
-            if (test2 == 34) {
-                test2 = test2;
-            }
             array all = Surface_resources(enum_type, enum_value, p); // based on enum types, we may switch here
             verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
                 "unexpected len(samplers) for value on attrib");
@@ -2054,6 +2055,9 @@ void target_draw(target r) {
     uint32_t index = 0;
     VkResult result;
 
+    if (r->color)
+        transition(r->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
     vkResetFences  (t->device, 1, &r->vk_fence);
     // Begin command buffer recording
     VkCommandBuffer frame = r->vk_command_buffer;
@@ -2100,6 +2104,10 @@ void target_draw(target r) {
 
             // user may indeed set uniforms different depending on the pipeline
             // this is quite natural and not always redundant
+            each (p->resources, gpu, g)
+                if (g->tx)
+                    transition(g->tx, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
             draw(p, frame);
         }
     }
@@ -2136,7 +2144,7 @@ none window_draw(window w) {
     each (w->list, target, r) {
         draw(r);
         sync_fence(r);
-        //w->last_target = r;
+        w->last_target = r;
     }
 
     /// acquire swap image
