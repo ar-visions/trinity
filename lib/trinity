@@ -11,7 +11,8 @@
 typedef void* skia_t;
 typedef void* handle_t;
 
-skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle_t queue, unsigned int graphics_family, unsigned int vk_version);
+skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, 
+    handle_t queue, unsigned int graphics_family, unsigned int vk_version);
 
 /*
 
@@ -46,6 +47,7 @@ typedef struct _pipeline* pipeline;
 typedef struct _shader*   shader;
 typedef struct _texture*  texture;
 typedef struct _image*    image;
+
 #define trinity_schema(X,Y,...) \
     i_prop    (X,Y, intern,     VkInstance,          instance,        as, ARef) \
     i_prop    (X,Y, intern,     i64,                 msaa_samples) \
@@ -214,6 +216,7 @@ declare_mod(UXQuad, shader)
 #define target_schema(X,Y,...) \
     i_prop    (X,Y, public,     trinity,                t) \
     i_prop    (X,Y, public,     window,                 w) \
+    i_prop    (X,Y, public,     f32,                    wscale) \
     i_prop    (X,Y, public,     i32,                    width) \
     i_prop    (X,Y, public,     i32,                    height) \
     i_prop    (X,Y, public,     texture,                target) \
@@ -231,10 +234,49 @@ declare_mod(UXQuad, shader)
     i_prop    (X,Y, intern,     VkSemaphore,            vk_render_finished_semaphore,  as, ARef) \
     i_prop    (X,Y, intern,     VkFramebuffer,          vk_framebuffer,             as, ARef) \
     i_prop    (X,Y, intern,     VkRenderPass,           vk_render_pass,             as, ARef) \
+    i_method  (X,Y, public,     none,                   update) \
     i_method  (X,Y, public,     none,                   draw) \
     i_method  (X,Y, public,     none,                   sync_fence) \
     i_override(X,Y, method,     init, dealloc)
 declare_class(target)
+
+forward(sk)
+forward(window)
+
+#define app_schema(X,Y,...) \
+    i_prop    (X,Y, public,     window,                 w) \
+    i_prop    (X,Y, public,     trinity,                t) \
+    i_prop    (X,Y, public,     composer,               ux) \
+    i_prop    (X,Y, public,     object,                 arg) \
+    i_prop    (X,Y, intern,     sk,                     compose) \
+    i_prop    (X,Y, intern,     sk,                     colorize) \
+    i_prop    (X,Y, intern,     sk,                     overlay) \
+    i_prop    (X,Y, public,     hook,                   on_interface) \
+    i_prop    (X,Y, public,     hook,                   on_background) \
+    i_prop    (X,Y, public,     target,                 r_background) \
+    i_prop    (X,Y, intern,     model,                  m_reduce) \
+    i_prop    (X,Y, intern,     target,                 r_reduce) \
+    i_prop    (X,Y, intern,     model,                  m_reduce0) \
+    i_prop    (X,Y, intern,     target,                 r_reduce0) \
+    i_prop    (X,Y, intern,     model,                  m_reduce1) \
+    i_prop    (X,Y, intern,     target,                 r_reduce1) \
+    i_prop    (X,Y, intern,     model,                  m_reduce2) \
+    i_prop    (X,Y, intern,     target,                 r_reduce2) \
+    i_prop    (X,Y, intern,     model,                  m_reduce3) \
+    i_prop    (X,Y, intern,     target,                 r_reduce3) \
+    i_prop    (X,Y, intern,     model,                  m_blur_v) \
+    i_prop    (X,Y, intern,     target,                 r_blur_v) \
+    i_prop    (X,Y, intern,     model,                  m_blur) \
+    i_prop    (X,Y, intern,     target,                 r_blur) \
+    i_prop    (X,Y, intern,     model,                  m_frost_v) \
+    i_prop    (X,Y, intern,     target,                 r_frost_v) \
+    i_prop    (X,Y, intern,     model,                  m_frost) \
+    i_prop    (X,Y, intern,     target,                 r_frost) \
+    i_prop    (X,Y, intern,     model,                  m_view) \
+    i_prop    (X,Y, intern,     target,                 r_view) \
+    i_method  (X,Y, public,     i32,                    run) \
+    i_override(X,Y, method,     init, dealloc)
+declare_class(app)
 
 
 #define window_schema(X,Y,...) \
@@ -257,6 +299,7 @@ declare_class(target)
     i_prop    (X,Y, intern,     target,                 semaphore_frame) \
     i_prop    (X,Y, intern,     u32,                    swap_image_count) \
     i_prop    (X,Y, intern,     u32,                    swap_image_current) \
+    i_prop    (X,Y, intern,     bool,                   resized) \
     i_prop    (X,Y, required,   u32,                    width) \
     i_prop    (X,Y, required,   u32,                    height) \
     i_prop    (X,Y, public,     Pixel,                  format) \
@@ -264,8 +307,9 @@ declare_class(target)
     i_prop    (X,Y, public,     f32,                    debug_value) \
     i_prop    (X,Y, public,     bool,                   backbuffer) \
     i_prop    (X,Y, public,     i32,                    current_swap_index) \
+    i_prop    (X,Y, public,     hook,                   on_render) \
+    i_prop    (X,Y, public,     hook,                   on_background) \
     i_method  (X,Y, public,     none,                   resize, i32, i32) \
-    i_method  (X,Y, public,     i32,                    loop, ARef, ARef) \
     i_method  (X,Y, public,     target,                 final_target) \
     i_method  (X,Y, public,     none,                   draw) \
     i_prop    (X,Y, public,     target,                 last_target) \
@@ -285,7 +329,7 @@ forward(texture)
 declare_class(draw_state)
 
 #define canvas_schema(X,Y,...) \
-    i_prop    (X,Y, required,  trinity, t) \
+    i_prop    (X,Y, public,    trinity, t) \
     i_prop    (X,Y, public,    texture, tx) \
     i_prop    (X,Y, public,    array,   state, of, draw_state) \
     i_method  (X,Y, interface, none,    save) \
@@ -310,9 +354,42 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
     i_method  (X,Y, interface, none,    output_mode, bool) \
-    i_method  (X,Y, interface, none,    resize_texture, i32, i32)
+    i_override(X,Y, method, resize)
 declare_mod(canvas, image)
 
+#define sk_schema(X,Y,...) \
+    i_prop    (X,Y, intern,   ARef,    sk_context) \
+    i_prop    (X,Y, intern,   ARef,    sk_surface) \
+    i_prop    (X,Y, intern,   ARef,    sk_canvas) \
+    i_prop    (X,Y, intern,   ARef,    sk_path) \
+    i_prop    (X,Y, intern,   bool,    once) \
+    i_prop    (X,Y, intern,   struct Skia*, skia) \
+    i_prop    (X,Y, intern,   VkImageLayout, vk_layout, as, i32) \
+    i_method  (X,Y, public,   none,    save) \
+    i_method  (X,Y, public,   none,    restore) \
+    i_method  (X,Y, public,   none,    move_to,     f32, f32) \
+    i_method  (X,Y, public,   none,    line_to,     f32, f32) \
+    i_method  (X,Y, public,   none,    arc_to,      f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    arc,         f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    rect_to,     f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    rounded_rect_to, f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    fill_color,  object) \
+    i_method  (X,Y, public,   none,    stroke_color, object) \
+    i_method  (X,Y, public,   none,    clear,       object) \
+    i_method  (X,Y, public,   none,    set_stroke,  stroke) \
+    i_method  (X,Y, public,   none,    set_font,    font) \
+    i_method  (X,Y, public,   none,    cubic,       f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    quadratic,   f32, f32, f32, f32) \
+    i_method  (X,Y, public,   none,    draw_fill) \
+    i_method  (X,Y, public,   none,    draw_stroke) \
+    i_method  (X,Y, public,   none,    draw_fill_preserve) \
+    i_method  (X,Y, public,   none,    draw_stroke_preserve) \
+    i_method  (X,Y, public,   none,    sync) \
+    i_method  (X,Y, public,   none,    prepare) \
+    i_method  (X,Y, public,   none,    output_mode, bool) \
+    i_override(X,Y, method,   resize) \
+    i_override(X,Y, method,   init,    dealloc)
+declare_mod(sk, canvas, image)
 
 
 #define command_schema(X,Y,...) \
@@ -335,7 +412,6 @@ declare_class(command)
     i_prop(X,Y, public,   i32,              mip_levels) \
     i_prop(X,Y, public,   i32,              layer_count) \
     i_prop(X,Y, public,   Surface,          surface) \
-    i_prop(X,Y, public,   bool,             window_size) \
     i_prop(X,Y, public,   bool,             linear) \
     i_prop(X,Y, intern,   VkImageLayout,    vk_layout,      as, i32) \
     i_prop(X,Y, intern,   VkFormat,         vk_format,      as, i32) \
@@ -380,9 +456,6 @@ typedef struct vertex_member_t {
     i_override(X,Y, method, init, dealloc)
 declare_class(gpu)
 
-/// shader is an array
-///
-
 typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,                t) \
@@ -397,6 +470,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, intern,     uniforms,               shader_uniforms) \
     i_prop    (X,Y, intern,     gpu,                    vbo) \
     i_prop    (X,Y, intern,     gpu,                    memory) \
+    i_method  (X,Y, public,     none,                   rebind) \
     i_array   (X,Y, intern,     VkDescriptorSetLayout,  2, descriptor_layouts) \
     i_prop    (X,Y, intern,     VkDescriptorPool,       descriptor_pool,    as, ARef) \
     i_prop    (X,Y, intern,     VkDescriptorSet,        bind,               as, ARef) \
@@ -436,6 +510,7 @@ typedef struct _Model* Model;
     i_prop    (X,Y, public,   shader,  s) \
     i_prop    (X,Y, public,   map,     samplers) \
     i_prop    (X,Y, intern,   array,   pipelines) \
+    i_method  (X,Y, public,   none,    rebind_model) \
     i_method  (X,Y, public,   none,    finish, target) \
     i_override(X,Y, method, init, dealloc)
 declare_class(model)

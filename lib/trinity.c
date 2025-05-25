@@ -121,8 +121,9 @@ void get_required_extensions(const char*** extensions, uint32_t* extension_count
 
     if (enable_validation) result[(*extension_count)++] = 
         VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-    for (int i = 0; i < *extension_count; i++)
-        print("instance extension: %s", result[i]);
+    if (getenv("VERBOSE")) 
+        for (int i = 0; i < *extension_count; i++)
+            print("instance extension: %s", result[i]);
 
     *extensions = result;
 }
@@ -171,24 +172,91 @@ static void handle_glfw_key(
     }
 }
 
-void target_init(target r) {
-    if (!r->t) r->t = r->w->t;
+void model_rebind_model(model m) {
+    if (m->pipelines)
+        each (m->pipelines, pipeline, p)
+            rebind(p);
+}
+
+void target_update(target r) {
     trinity  t          = r->t;
     window   w          = r->w;
     bool     backbuffer = !r->vk_swap_image;
-    int width  = r->width  ? r->width  : r->w->width;
-    int height = r->height ? r->height : r->w->height;
 
-    if (backbuffer)
-         r->target = texture(t, t,
-            width,        width,
-            height,       height,
-            window_size, (r->width && r->height),
-            format,       Pixel_rgba8);
-    VkResult result;
+    r->width  = r->wscale > 0 ? r->w->width  * r->wscale : r->width;
+    r->height = r->wscale > 0 ? r->w->height * r->wscale : r->height;
 
-    if (r->width  == 0) r->width  = w->width;
-    if (r->height == 0) r->height = w->height;
+    if (!r->width || !r->height) {
+        fault("width / height or wscale not set on render target");
+        exit(0);
+    }
+
+    if (backbuffer) {
+        if (r->target)
+            resize(r->target, r->width, r->height);
+        else
+            r->target = texture(t, t,
+                width,        r->width,
+                height,       r->height,
+                format,       Pixel_rgba8);
+    }
+    
+    /// providing w always supplements t, width and height, layers/mips default to 1
+    if (r->color) {
+        resize(r->color, r->width, r->height);
+        resize(r->depth, r->width, r->height);
+    } else {
+        r->color = texture(w, w, width, r->width, height, r->height,
+            vk_format, w->surface_format.format, swap, !backbuffer,
+            surface, Surface_color, vk_image, r->vk_swap_image);
+        r->depth = texture(w, w, width, r->width, height, r->height,
+            vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer);
+    }
+ 
+    if (!backbuffer) {
+        // i think this needs to be set to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        transition(r->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    } else {
+        transition(r->color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+
+    static int test2 = 2;
+    test2++;
+    print("test2 = %i", test2);
+    if (test2 == 41) {
+        test2++;
+    }
+    VkImageView vk_view_attachments[2] = {
+        r->color->vk_image_view,
+        r->depth->vk_image_view };
+    
+    VkResult result = vkCreateFramebuffer(
+        t->device, &(VkFramebufferCreateInfo) {
+        .sType              = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass         = r->vk_render_pass,
+        .attachmentCount    = 2,
+        .pAttachments       = vk_view_attachments,
+        .width              = r->width,
+        .height             = r->height,
+        .layers             = 1
+    }, null, &r->vk_framebuffer);
+    verify(result == VK_SUCCESS, "Failed to create framebuffer");
+}
+
+void target_init(target r) {
+    bool backbuffer = !r->vk_swap_image;
+    if (!r->t) r->t = r->w->t;
+    window  w = r->w;
+    trinity t = w->t;
+
+    VkResult result = vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = t->command_pool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    }, &r->vk_command_buffer);
+
+    verify(result == VK_SUCCESS, "failed to allocate command buffers");
 
     // create render pass
     VkAttachmentDescription attachments[2] = {
@@ -271,15 +339,6 @@ void target_init(target r) {
     result = vkCreateRenderPass(t->device, &render_pass_info, null, &r->vk_render_pass);
     verify(result == VK_SUCCESS, "failed to create render pass");
 
-    result = vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
-        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool        = t->command_pool,
-        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = 1,
-    }, &r->vk_command_buffer);
-
-    verify(result == VK_SUCCESS, "failed to allocate command buffers");
-
     if (!backbuffer) {
         VkSemaphoreCreateInfo semaphore_info = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO
@@ -299,38 +358,12 @@ void target_init(target r) {
         }, null, &r->vk_fence);
     verify(result == VK_SUCCESS, "failed to create fence");
 
-    /// providing w always supplements t, width and height, layers/mips default to 1
-    r->color = texture(w, w, width, width, height, height,
-        vk_format, w->surface_format.format, swap, !backbuffer, surface, Surface_color,
-        vk_image, r->vk_swap_image);
 
-    r->depth = texture(w, w, width, width, height, height,
-        vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer);
+    /// now create or resize the target/color/depth textures and their framebuffer
+    update(r);
 
-    if (!backbuffer) {
-        transition(r->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-
-    VkImageView vk_view_attachments[2] = {
-        r->color->vk_image_view,
-        r->depth->vk_image_view };
-    
-    result = vkCreateFramebuffer(
-        t->device, &(VkFramebufferCreateInfo) {
-        .sType              = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        .renderPass         = r->vk_render_pass,
-        .attachmentCount    = 2,
-        .pAttachments       = vk_view_attachments,
-        .width              = r->width,
-        .height             = r->height,
-        .layers             = 1
-    }, null, &r->vk_framebuffer);
-    verify(result == VK_SUCCESS, "Failed to create framebuffer");
-    
-    /// finish models once we
-    each (r->models, model, m) {
+    each (r->models, model, m)
         finish(m, r);
-    }
 }
 
 void target_dealloc(target r) {
@@ -376,12 +409,15 @@ void window_resize(window w, i32 width, i32 height) {
     w->extent.height = height;
 
     each (w->list, target, r) {
-        if (r->target && r->target->window_size) {
-            resize(r->target, width, height);
-        } else if (r->target) {
-            resize(r->target, r->width, r->height);
-        }
+        update(r);
+
+        if (w->resized && r->models)
+            each (r->models, model, m)
+                rebind_model(m);
+
     }
+
+    w->resized = true;
 
     if (!w->backbuffer) {
         VkSurfaceCapabilitiesKHR capabilities;
@@ -1123,17 +1159,25 @@ static none placeholder_image(
 none texture_dealloc(texture a);
 none texture_init(texture a);
 
+// we keep 'texture' identity yes, but this is a total dealloc/reinit 
+// (which we may want to simply call, reinit?)
 none texture_resize(texture a, i32 w, i32 h) {
     trinity t = a->t;
+
     if (w == a->width && h == a->height)
         return;
-    
-    /// no where else can we do this with objects
-    a->width  = w;
-    a->height = h;
+
+    a->width     = w;
+    a->height    = h;
+
     vkDeviceWaitIdle(a->t->device);
     texture_dealloc(a);
     texture_init(a);
+}
+
+none pipeline_rebind(pipeline p) {
+    drop(p->resources);
+    p->resources = null;
 }
 
 none texture_init(texture a) {
@@ -1143,7 +1187,6 @@ none texture_init(texture a) {
     int     ansio     = 4;
     i32     sampler_size = 0;
     u8      fill[256]; // 4 * 4 = 16 * 4 = 64 bytes max, so we use this as staging
-
 
     if (a->width  == 0 && a->w) a->width  = a->w->width;
     if (a->height == 0 && a->w) a->height = a->w->height;
@@ -1183,7 +1226,7 @@ none texture_init(texture a) {
         } else {
             usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                     VK_IMAGE_USAGE_TRANSFER_DST_BIT     |
-                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT     | // canvas has no DST BIT; but that may not matter for skia
+                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT     |
                     VK_IMAGE_USAGE_SAMPLED_BIT;
         }
         if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->linear);
@@ -1219,7 +1262,6 @@ none texture_init(texture a) {
 
         if (sampler_size > 0) {
             //png(img, f(path, "/src/image-%o.png", e_str(Surface, img->surface)));
-
             transition(a, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             verify(!is_depth, "unexpected");
             command cmd = command(t, t);
@@ -1305,6 +1347,7 @@ none texture_dealloc(texture a) {
     vkDestroyImageView(a->t->device, a->vk_image_view, null);
     vkDestroyImage    (a->t->device, a->vk_image,      null);
     vkFreeMemory      (a->t->device, a->vk_memory,     null);
+    a->vk_layout     = VK_IMAGE_LAYOUT_UNDEFINED;
     a->vk_memory     = null;
     a->vk_image      = null;
     a->vk_image_view = null;
@@ -1856,6 +1899,13 @@ void pipeline_dealloc(pipeline p) {
 }
 
 void pipeline_draw(pipeline p, handle f) {
+    if (!p->resources)
+        bind_resources(p);
+
+    each (p->resources, gpu, g)
+        if (g->tx)
+            transition(g->tx, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
     VkCommandBuffer frame = f;
 
     /// for each uniform resource instanced from shader
@@ -2102,12 +2152,6 @@ void target_draw(target r) {
             if (instanceof(p->s, PBR))
                 ((PBR)p->s)->model = p->model;
 
-            // user may indeed set uniforms different depending on the pipeline
-            // this is quite natural and not always redundant
-            each (p->resources, gpu, g)
-                if (g->tx)
-                    transition(g->tx, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
             draw(p, frame);
         }
     }
@@ -2128,7 +2172,6 @@ void target_draw(target r) {
         .pSignalSemaphores      = r->vk_swap_image ?
             &w->semaphore_frame->vk_render_finished_semaphore : null
     };
-
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
 }
 
@@ -2196,19 +2239,6 @@ none window_draw(window w) {
     }
 }
 
-int window_loop(window w, ARef callback, ARef arg) {
-    resize(w, w->extent.width, w->extent.height);
-    
-    trinity t = w->t;
-    void(*cb)(ARef) = callback;
-    while (!glfwWindowShouldClose(w->window)) {
-        glfwPollEvents();
-        cb(arg);
-        draw(w);
-    }
-    return 0;
-}
-
 void window_dealloc(window w) {
     trinity t = w->t;
     if (!w->backbuffer) {
@@ -2217,6 +2247,225 @@ void window_dealloc(window w) {
         glfwDestroyWindow(w->window);
     }
 }
+
+void app_update_canvas(app a) {
+    window  w = a->w;
+    trinity t = w->t;
+    int     width       = w->width;
+    int     height      = w->height;
+    float   stroke_size = 2;
+    float   roundness   = 16;
+    float   margin      = 8;
+
+    a->t = w->t;
+    stroke s = stroke(width, stroke_size,     cap, cap_round, join, join_round);
+    
+    if (a->compose) {
+        resize(a->compose,  width, height);
+        resize(a->colorize, width, height);
+        resize(a->overlay,  width, height);
+    } else {
+        a->compose = sk(
+            t, a->t, format, Pixel_rgba8,
+            width, width, height, height);
+        a->colorize = sk(t, t, format, Pixel_rgba8,
+            width, width, height, height);
+        a->overlay = sk(t, t, format, Pixel_rgba8,
+            width, width, height, height);
+    }
+
+    clear       (a->compose, string("#00f"));
+    sync        (a->compose);
+    output_mode (a->compose, true);
+
+    clear       (a->colorize, string("#000"));
+    sync        (a->colorize);
+    output_mode (a->colorize, true);
+
+    clear       (a->overlay, string("#0000"));
+    sync        (a->overlay);
+    output_mode (a->overlay, true);
+}
+
+void app_init(app a) {
+    window   w = a->w;
+    a->t = w->t;
+
+    trinity  t = a->t;
+    a->ux = composer(app, a);
+    int width  = w->width;
+    int height = w->height;
+    float stroke_size = 2;
+    float roundness   = 16;
+    float margin      = 8;
+    stroke    s = stroke(width, stroke_size,     cap, cap_round, join, join_round);
+
+    app_update_canvas(a);
+
+    //a->r_background = hold(r_background);
+    a->m_reduce  = model (w, w, samplers, map_of(
+        "color", a->r_background->color, null));
+    a->r_reduce  = target(
+        w, w, wscale, 1.0f, models, a(a->m_reduce));
+
+    a->m_reduce0 = model (
+        w, w, samplers, map_of("color", a->r_reduce->color, null));
+    a->r_reduce0 = target(
+        w, w, wscale, 0.5f, models, a(a->m_reduce0));
+    
+    a->m_reduce1 = model (
+        w, w, samplers, map_of("color", a->r_reduce0->color, null));
+    a->r_reduce1 = target(
+        w, w, wscale, 0.25f, models, a(a->m_reduce1));
+
+    BlurV   fbv          = BlurV  (t, t, name, string("blur-v"));
+    fbv->reduction_scale = 4.0f;
+    a->m_blur_v    = model  (
+        w, w, s, fbv, samplers, map_of("color", a->r_reduce1->color, null));
+    a->r_blur_v    = target (
+        w, w, wscale, 1.0, models, a(a->m_blur_v));
+    
+    Blur    fbl          = Blur   (t, t, name, string("blur"));
+    fbl->reduction_scale = 4.0f;
+    a->m_blur      = model  (
+        w, w, s, fbl, samplers, map_of("color", a->r_blur_v->color, null));
+    a->r_blur      = target (
+        w, w, wscale, 1.0, models, a(a->m_blur));
+
+    a->m_reduce2 = model (w, w, samplers, map_of("color", a->r_reduce1->color, null));
+    a->r_reduce2 = target(w, w, wscale, 1.0f / 8.0f, models, a(a->m_reduce2));
+
+    a->m_reduce3 = model (w, w, samplers, map_of("color", a->r_reduce2->color, null));
+    a->r_reduce3 = target(w, w, wscale, 1.0f / 16.0f, models, a(a->m_reduce3));
+
+    BlurV   bv        = BlurV  (t, t, name, string("blur-v"));
+    bv->reduction_scale = 16.0f;
+    a->m_frost_v  = model  (w, w, s, bv, samplers, map_of("color", a->r_reduce3->color, null));
+    a->r_frost_v  = target (w, w, wscale, 1.0f, models, a(a->m_frost_v));
+
+    Blur    bl        = Blur   (t, t, name, string("blur"));
+    bl->reduction_scale = 16.0f;
+    a->m_frost    = model  (w, w, s, bl, samplers, map_of("color", a->r_frost_v->color, null));
+    a->r_frost    = target (w, w, wscale, 1.0f, models, a(a->m_frost));
+    
+    a->m_view    = model  (w, w, s, UXQuad(t, t, name, string("ux")),
+        samplers, map_of(
+            "background", a->r_background->color,
+            "frost",      a->r_frost->color,
+            "blur",       a->r_blur->color,
+            "compose",    a->compose->tx,
+            "colorize",   a->colorize->tx,
+            "overlay",    a->overlay->tx, null));
+    UXQuad  ux_shader = a->m_view->s;
+    ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
+    ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
+
+    a->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
+        models, a(a->m_view));
+
+    //w->list = a(r_background, r_blur_v, r_blur, r_view);
+    w->list = a(
+        a->r_background, a->r_reduce,  a->r_reduce0, a->r_reduce1, a->r_blur_v, a->r_blur,
+        a->r_reduce2,    a->r_reduce3, a->r_frost_v, a->r_frost,
+        a->r_view);
+    w->last_target = a->r_view;
+}
+
+void app_dealloc(app a) {
+}
+
+/// todo:
+/// orbiter: the ide is the os
+/// orbiter: windows are for widgets:
+///     free-floating windows are for overlaying over your desktop, the base app effectively
+
+/// recursive draw function
+/// This is the app_draw function that updates the canvases and paints the UI state
+static void app_draw(app a, element e) {
+    window  w           = a->w; // todo: we need to have a bounds/content on element
+    int     width       = w->width;
+    int     height      = w->height;
+    float   stroke_size = 8;
+    float   roundness   = 16;
+    float   margin      = 8;
+    stroke  s = stroke(width, stroke_size, cap, cap_round, join, join_round);
+
+    if (!a->compose || (a->compose->width != width || a->compose->height != height))
+        app_update_canvas(a);
+
+    clear (a->compose, string("#00f"));
+    rounded_rect_to (
+        a->compose,
+        margin + stroke_size / 2,
+        margin + stroke_size / 2,
+       (width  - margin * 2) - stroke_size,
+       (height - margin * 2) - stroke_size,
+        roundness, roundness);
+    fill_color  (a->compose, string("#f0f"));
+    draw_fill   (a->compose);
+
+    static int x = 200;
+    static int y = 110;
+    static int ax = 4;
+    static int ay = 4;
+
+    x += ax;
+    y += ay;
+
+    if (x > (int)w->width)
+        ax = -4;
+    else if (x < 0)
+        ax = 4;
+
+    if (y > (int)w->height)
+        ay = -4;
+    else if (y < 0)
+        ay = 4;
+
+    rounded_rect_to (a->compose, x, y, 32, 32, 8, 8);
+    fill_color  (a->compose, string("#fff"));
+    draw_fill   (a->compose);
+
+
+    sync        (a->compose);
+    output_mode (a->compose, true);
+
+
+    clear       (a->colorize, string("#000"));
+    rounded_rect_to (
+        a->colorize, margin, margin,
+       (width  - margin * 2),
+       (height - margin * 2),
+        roundness, roundness);
+    set_stroke  (a->colorize, s);
+    stroke_color(a->colorize, string("#002"));
+    draw_stroke (a->colorize);
+    sync        (a->colorize);
+    output_mode (a->colorize, true);
+
+    
+    clear       (a->overlay, string("#0000"));
+    sync        (a->overlay);
+    output_mode (a->overlay, true);
+}
+
+i32 app_run(app a) {
+    window w = a->w;
+    resize(w, w->extent.width, w->extent.height);
+    while (!glfwWindowShouldClose(w->window)) {
+        glfwPollEvents();
+        a->on_background(a->arg);
+        
+        map elements = a->on_interface(a);
+        update_all(a->ux, elements);
+
+        app_draw(a, a->ux->root);
+        draw(w);
+    }
+    return 0;
+}
+
+define_class(app)
 
 #define BUFFER_SIZE         4096
 #define MAX_IMPORT_NAME     256
@@ -2465,8 +2714,9 @@ void trinity_init(trinity t) {
     memset(found_extensions, 0, sizeof(found_extensions));
     
     // Check which extensions are available
+    bool pr = getenv("VERBOSE") != null;
     for (uint32_t i = 0; i < extension_count; i++) {
-        print("[supported] device extension: %s", extensions[i].extensionName);
+        if (pr) print("[supported] device extension: %s", extensions[i].extensionName);
         if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
             swapchain_supported = true;
         
@@ -2635,7 +2885,6 @@ void buffer_transfer(buffer b, window w) {
                 .imageExtent = {w->width, w->height, 1}});
     
     vkEndCommandBuffer(cmd);
-
     vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
         .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount = 1,
@@ -2673,7 +2922,7 @@ none buffer_dealloc(buffer a) {
 
 
 
-none canvas_resize_texture(canvas a, i32 w, i32 h) {
+none canvas_resize(canvas a, i32 w, i32 h) {
 }
 
 none canvas_move_to(canvas a, f32 x, f32 y) {

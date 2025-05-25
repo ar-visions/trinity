@@ -1,0 +1,5 @@
+ion.root > pane {
+    area:     0;
+    children: 10;
+    content:  "css-string";
+}
