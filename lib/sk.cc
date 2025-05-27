@@ -207,10 +207,10 @@ none sk_draw_fill(sk a) {
 none sk_draw_stroke_preserve(sk a) {
     SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
     draw_state ds     = (draw_state)last(a->state);
-    if (!ds->stroke) return;
+    if (ds->stroke_size <= 0) return;
     SkPaint    paint;
     paint.setStyle(SkPaint::kStroke_Style);
-    paint.setStrokeWidth(ds->stroke->width);
+    paint.setStrokeWidth(ds->stroke_size);
     paint.setColor(ds->stroke_color); // assuming this exists in your draw_state
     paint.setAntiAlias(true); 
     sk->drawPath(*(SkPath*)a->sk_path, paint);
@@ -254,13 +254,54 @@ none sk_set_font(sk a, font f) {
     }
 }
 
-none sk_set_stroke(sk a, stroke s) {
+#undef translate
+none sk_translate(sk a, f32 x, f32 y) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    sk->translate(x, y);
+}
+
+#undef scale
+none sk_scale(sk a, f32 scale) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    sk->scale(scale, scale);
+}
+
+none sk_clip(sk a, rect r) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    SkRect sk_r = SkRect {
+        SkScalar(r->x),          SkScalar(r->y),
+        SkScalar(r->x + r->w), SkScalar(r->y + r->h) };
+    sk->clipRect(sk_r);
+}
+
+none sk_stroke_size(sk a, f32 size) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
-    if (ds->stroke != s) {
-        drop((object)ds->stroke);
-        ds->stroke = (stroke)hold((object)s);
-    }
+    ds->stroke_size = size;
+}
+
+none sk_stroke_cap(sk a, cap stroke_cap) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->stroke_cap = stroke_cap;
+}
+
+none sk_stroke_join(sk a, join stroke_join) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->stroke_join = stroke_join;
+}
+
+none sk_stroke_miter_limit(sk a, f32 stroke_miter_limit) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->stroke_miter_limit = stroke_miter_limit;
+}
+
+none sk_stroke_dash_offset(sk a, f32 stroke_dash_offset) {
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    ds->stroke_dash_offset = stroke_dash_offset;
 }
 
 none sk_restore(sk a) {
@@ -268,7 +309,6 @@ none sk_restore(sk a) {
         return;
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
-    drop((object)ds->stroke);
     drop((object)ds->font);
     pop(a->state);
 }

@@ -1459,7 +1459,7 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
     pairs (p->samplers, i) {
         string name = i->key;
         image img   = i->value;
-        i32 evalue = A_enum_value(surface_enum_type, name->chars);
+        i32 evalue = *A_enum_value(surface_enum_type, name->chars);
         AType ty = isa(img);
         texture tx = instanceof((object)img, texture);
         target  re = instanceof((object)img, target);
@@ -2258,8 +2258,7 @@ void app_update_canvas(app a) {
     float   margin      = 8;
 
     a->t = w->t;
-    stroke s = stroke(width, stroke_size,     cap, cap_round, join, join_round);
-    
+
     if (a->compose) {
         resize(a->compose,  width, height);
         resize(a->colorize, width, height);
@@ -2298,7 +2297,6 @@ void app_init(app a) {
     float stroke_size = 2;
     float roundness   = 16;
     float margin      = 8;
-    stroke    s = stroke(width, stroke_size,     cap, cap_round, join, join_round);
 
     app_update_canvas(a);
 
@@ -2379,21 +2377,100 @@ void app_dealloc(app a) {
 /// orbiter: windows are for widgets:
 ///     free-floating windows are for overlaying over your desktop, the base app effectively
 
+static rect rectangle_offset(region area, rect rel) {
+    if (!area) area = region(0.0f);
+    return rectangle(area, rel);
+}
 /// recursive draw function
 /// This is the app_draw function that updates the canvases and paints the UI state
 static void app_draw(app a, element e) {
     window  w           = a->w; // todo: we need to have a bounds/content on element
     int     width       = w->width;
     int     height      = w->height;
+
+    verify(instanceof(e, element), "e is not an element");
+
+    stroke_size(a->compose,  e->border_size);
+    stroke_cap (a->compose,  cap_round);
+    stroke_join(a->compose,  join_round);
+
+    stroke_size(a->colorize, e->border_size);
+    stroke_cap (a->colorize, cap_round);
+    stroke_join(a->colorize, join_round);
+
+    /// read size from element!
+    /// STORE the size on the element, too. it means we have to apply the bounds
+    /// lets apply it first, then draw.  that way parents may know the layout of their children at the time of draw
+    
+    rect rel = e->parent ? ((element)e->parent)->_bounds :
+        rect(x, 0, y, 0, w, width, h, height); // verify this to be ion: 'root', then pane: 'main'
+    
+    drop(e->_bounds);
+    drop(e->_text_bounds);
+    e->_bounds        = rectangle_offset(e->area,        rel);
+    e->_text_bounds   = rectangle_offset(e->text_area,   e->_bounds);
+    e->_border_bounds = rectangle_offset(e->border_area, e->_bounds);
+    e->_child_bounds  = rectangle_offset(e->child_area,  e->_bounds);
+
+    if (e->fill != Fill_none) {
+        rect b = e->_bounds;
+        rounded_rect_to (
+            a->compose,
+            b->x, b->y,
+            b->w, b->h,
+            e->fill_radius_x, e->fill_radius_y);
+        rgba c0  = rgba("#00f");
+        rgba c1  = rgba("#f0f");
+        rgba clr = mix(c0, c1, e->fill);
+        fill_color(a->compose, clr);
+
+        // reserved for a better effect than frost to transparent
+        // we may want to really have some sort of lensing effect, something of defraction qualities
+        // as well we could grayscale a blured rect onto the compose canvas that gradiates from #80f to #f0f
+        // basis of the single blur map, though, would be nice to defract with
+        draw_fill(a->compose);
+    }
+
+    if (e->border_color && e->border_size > 0) {
+        rect b = e->_border_bounds;
+        rounded_rect_to(
+            a->colorize,
+            b->x, b->y,
+            b->w, b->h,
+            e->border_radius_x, e->border_radius_y);
+        stroke_color(a->colorize, e->border_color);
+        draw_stroke (a->colorize);
+    }
+
+    save(a->compose);
+    translate(a->compose,
+        e->_bounds->x + e->_child_bounds->x,
+        e->_bounds->y + e->_child_bounds->y);
+    clip(a->compose, e->_bounds);
+    
+    save(a->colorize);
+    translate(a->colorize,
+        e->_bounds->x + e->_child_bounds->x,
+        e->_bounds->y + e->_child_bounds->y);
+    clip(a->colorize, e->_bounds);
+
+    pairs(e->elements, i) {
+        string  id = i->key;
+        element ee = i->value;
+        //ee->parent = e;
+        app_draw(a, ee);
+    }
+
+    restore(a->compose);
+    restore(a->colorize);
+    // bounds is relative to its parent
+    // all rects after bounds are relative-to (easier for user)
+
+    /*
     float   stroke_size = 8;
     float   roundness   = 16;
     float   margin      = 8;
-    stroke  s = stroke(width, stroke_size, cap, cap_round, join, join_round);
 
-    if (!a->compose || (a->compose->width != width || a->compose->height != height))
-        app_update_canvas(a);
-
-    clear (a->compose, string("#00f"));
     rounded_rect_to (
         a->compose,
         margin + stroke_size / 2,
@@ -2401,52 +2478,19 @@ static void app_draw(app a, element e) {
        (width  - margin * 2) - stroke_size,
        (height - margin * 2) - stroke_size,
         roundness, roundness);
+    
     fill_color  (a->compose, string("#f0f"));
     draw_fill   (a->compose);
 
-    static int x = 200;
-    static int y = 110;
-    static int ax = 4;
-    static int ay = 4;
-
-    x += ax;
-    y += ay;
-
-    if (x > (int)w->width)
-        ax = -4;
-    else if (x < 0)
-        ax = 4;
-
-    if (y > (int)w->height)
-        ay = -4;
-    else if (y < 0)
-        ay = 4;
-
-    rounded_rect_to (a->compose, x, y, 32, 32, 8, 8);
-    fill_color  (a->compose, string("#fff"));
-    draw_fill   (a->compose);
-
-
-    sync        (a->compose);
-    output_mode (a->compose, true);
-
-
-    clear       (a->colorize, string("#000"));
     rounded_rect_to (
         a->colorize, margin, margin,
        (width  - margin * 2),
        (height - margin * 2),
         roundness, roundness);
-    set_stroke  (a->colorize, s);
+    
     stroke_color(a->colorize, string("#002"));
     draw_stroke (a->colorize);
-    sync        (a->colorize);
-    output_mode (a->colorize, true);
-
-    
-    clear       (a->overlay, string("#0000"));
-    sync        (a->overlay);
-    output_mode (a->overlay, true);
+    */
 }
 
 i32 app_run(app a) {
@@ -2456,10 +2500,39 @@ i32 app_run(app a) {
         glfwPollEvents();
         a->on_background(a->arg);
         
+        static int test_once = 0;
         map elements = a->on_interface(a);
-        update_all(a->ux, elements);
+        if (test_once < 3) {
+            update_all(a->ux, elements);
+            element root_element = a->ux->root;
+            verify(instanceof(root_element, element), "e is not an element");
+            test_once++;
+        }
+        
+        if (!a->compose || (a->compose->width  != w->width || 
+                            a->compose->height != w->height))
+            app_update_canvas(a);
 
-        app_draw(a, a->ux->root);
+        animate(a->ux);
+
+        // clear canvases
+        clear       (a->compose,  string("#00f"));
+        clear       (a->colorize, string("#000"));
+        clear       (a->overlay,  string("#0000")); // alpha clear
+
+        // draw app ux
+        //print("root ptr = %p", a->ux->root);
+        app_draw    (a, a->ux->root);
+
+        // sync canvases (the elements should not perform sync)
+        sync        (a->compose);
+        sync        (a->colorize);
+        sync        (a->overlay);
+        output_mode (a->compose,  true);
+        output_mode (a->overlay,  true);
+        output_mode (a->colorize, true);
+
+        // draw background, and entire render list, then swap-targets[N]
         draw(w);
     }
     return 0;
@@ -2964,7 +3037,15 @@ none canvas_save(canvas a) { }
 
 none canvas_set_font(canvas a, font f) { }
 
-none canvas_set_stroke(canvas a, stroke s) { }
+none canvas_stroke_size(canvas a, i32 size) { }
+
+none canvas_stroke_cap(canvas a, cap stroke_cap) { }
+
+none canvas_stroke_join(canvas a, join stroke_join) { }
+
+none canvas_stroke_miter_limit(canvas a, f32 miter_limit) { }
+
+none canvas_stroke_dash_offset(canvas a, f32 offset) { }
 
 none canvas_restore(canvas a) { }
 
@@ -3021,9 +3102,29 @@ SkColor sk_color(object any) {
         } else {
             /// convert from color name
         }
+    } else if (type == typeid(rgba8)) {
+        rgba c = any;
+        ir     = c->r;
+        ig     = c->g;
+        ib     = c->b;
+        ia     = c->a;
+    } else if (type == typeid(rgba)) {
+        rgba c = any;
+        ir     = c->r * 255.0f;
+        ig     = c->g * 255.0f;
+        ib     = c->b * 255.0f;
+        ia     = c->a * 255.0f;
+    } else if (type == typeid(rgbaf)) {
+        rgba c = any;
+        ir     = c->r * 255.0f;
+        ig     = c->g * 255.0f;
+        ib     = c->b * 255.0f;
+        ia     = c->a * 255.0f;
     } else {
         /// double: convert to SkColor
         /// float:  convert to SkColor
+        verify(false,
+            "sk_color: implement color conversion for type %s", type->name);
     }
     SkColor sk = (SkColor)((ib | (ig << 8) | (ir << 16) | (ia << 24)));
     return sk;
@@ -3031,7 +3132,9 @@ SkColor sk_color(object any) {
 
 none draw_state_set_default(draw_state ds) {
     ds->font         = font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf"));
-    ds->stroke       = stroke(width, 0, cap, cap_round, join, join_round);
+    ds->stroke_cap   = cap_round;
+    ds->stroke_join  = join_round;
+    ds->stroke_size  = 0;
     ds->fill_color   = sk_color((object)string("#000"));
     ds->stroke_color = sk_color((object)string("#000"));
 }

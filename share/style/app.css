@@ -1,5 +1,11 @@
-ion.root > pane {
-    area:     0;
-    children: 10;
-    content:  "css-string";
+ion.root / pane {
+    fill:       frost;
+    fill-color: #82a;
+    area:       0, 220ms;
 }
+
+ion.root / pane:active {
+    fill:       frost;
+    fill-color: #22a, 220ms;
+}
+

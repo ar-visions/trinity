@@ -186,13 +186,13 @@ declare_mod(Blur, shader)
     i_override(X,Y, method, init)
 declare_mod(UVQuad, shader)
 
-#define UXSurface_schema(X,Y,...) \
-    enum_value(X,Y, background) \
-    enum_value(X,Y, frost) \
-    enum_value(X,Y, blur) \
-    enum_value(X,Y, compose) \
-    enum_value(X,Y, colorize) \
-    enum_value(X,Y, overlay)
+#define UXSurface_schema(E,T,Y,...) \
+    enum_value(E,T,Y, background,   0) \
+    enum_value(E,T,Y, frost,        1) \
+    enum_value(E,T,Y, blur,         2) \
+    enum_value(E,T,Y, compose,      3) \
+    enum_value(E,T,Y, colorize,     4) \
+    enum_value(E,T,Y, overlay,      5)
 declare_enum(UXSurface)
 
 #define UXQuad_schema(X,Y,...) \
@@ -319,9 +319,12 @@ declare_class(window)
 
 forward(texture)
 
-
 #define draw_state_schema(X,Y,...) \
-    i_prop    (X,Y, public,   stroke,  stroke) \
+    i_prop    (X,Y, public,   f32,     stroke_size) \
+    i_prop    (X,Y, public,   cap,     stroke_cap) \
+    i_prop    (X,Y, public,   join,    stroke_join) \
+    i_prop    (X,Y, public,   f32,     stroke_miter_limit) \
+    i_prop    (X,Y, public,   f32,     stroke_dash_offset) \
     i_prop    (X,Y, public,   font,    font) \
     i_prop    (X,Y, public,   u32,     fill_color) \
     i_prop    (X,Y, public,   u32,     stroke_color) \
@@ -334,26 +337,34 @@ declare_class(draw_state)
     i_prop    (X,Y, public,    array,   state, of, draw_state) \
     i_method  (X,Y, interface, none,    save) \
     i_method  (X,Y, interface, none,    restore) \
-    i_method  (X,Y, interface, none,    move_to,     f32, f32) \
-    i_method  (X,Y, interface, none,    line_to,     f32, f32) \
-    i_method  (X,Y, interface, none,    arc_to,      f32, f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    arc,         f32, f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    rect_to,     f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    rounded_rect_to, f32, f32, f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    fill_color,  object) \
-    i_method  (X,Y, interface, none,    stroke_color, object) \
-    i_method  (X,Y, interface, none,    clear,       object) \
-    i_method  (X,Y, interface, none,    set_stroke,  stroke) \
-    i_method  (X,Y, interface, none,    set_font,    font) \
-    i_method  (X,Y, interface, none,    cubic,       f32, f32, f32, f32, f32, f32) \
-    i_method  (X,Y, interface, none,    quadratic,   f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    move_to,            f32, f32) \
+    i_method  (X,Y, interface, none,    line_to,            f32, f32) \
+    i_method  (X,Y, interface, none,    arc_to,             f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    arc,                f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    rect_to,            f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    rounded_rect_to,    f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    fill_color,         object) \
+    i_method  (X,Y, interface, none,    stroke_color,       object) \
+    i_method  (X,Y, interface, none,    clear,              object) \
+    i_method  (X,Y, interface, none,    set_stroke,         stroke) \
+    i_method  (X,Y, interface, none,    set_font,           font) \
+    i_method  (X,Y, interface, none,    cubic,              f32, f32, f32, f32, f32, f32) \
+    i_method  (X,Y, interface, none,    quadratic,          f32, f32, f32, f32) \
     i_method  (X,Y, interface, none,    draw_fill) \
     i_method  (X,Y, interface, none,    draw_stroke) \
     i_method  (X,Y, interface, none,    draw_fill_preserve) \
     i_method  (X,Y, interface, none,    draw_stroke_preserve) \
     i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
-    i_method  (X,Y, interface, none,    output_mode, bool) \
+    i_method  (X,Y, interface, none,    output_mode,        bool) \
+    i_method  (X,Y, interface, none,    translate,          f32, f32) \
+    i_method  (X,Y, interface, none,    scale,              f32) \
+    i_method  (X,Y, interface, none,    clip,               rect) \
+    i_method  (X,Y, interface, none,    stroke_size,        f32) \
+    i_method  (X,Y, interface, none,    stroke_cap,         cap) \
+    i_method  (X,Y, interface, none,    stroke_join,        join) \
+    i_method  (X,Y, interface, none,    stroke_miter_limit, f32) \
+    i_method  (X,Y, interface, none,    stroke_dash_offset, f32) \
     i_override(X,Y, method, resize)
 declare_mod(canvas, image)
 
@@ -374,9 +385,7 @@ declare_mod(canvas, image)
     i_method  (X,Y, public,   none,    rect_to,     f32, f32, f32, f32) \
     i_method  (X,Y, public,   none,    rounded_rect_to, f32, f32, f32, f32, f32, f32) \
     i_method  (X,Y, public,   none,    fill_color,  object) \
-    i_method  (X,Y, public,   none,    stroke_color, object) \
     i_method  (X,Y, public,   none,    clear,       object) \
-    i_method  (X,Y, public,   none,    set_stroke,  stroke) \
     i_method  (X,Y, public,   none,    set_font,    font) \
     i_method  (X,Y, public,   none,    cubic,       f32, f32, f32, f32, f32, f32) \
     i_method  (X,Y, public,   none,    quadratic,   f32, f32, f32, f32) \
@@ -387,6 +396,15 @@ declare_mod(canvas, image)
     i_method  (X,Y, public,   none,    sync) \
     i_method  (X,Y, public,   none,    prepare) \
     i_method  (X,Y, public,   none,    output_mode, bool) \
+    i_method  (X,Y, public,   none,    translate,          f32, f32) \
+    i_method  (X,Y, public,   none,    scale,              f32) \
+    i_method  (X,Y, public,   none,    clip,               rect) \
+    i_method  (X,Y, public,   none,    stroke_color,       object) \
+    i_method  (X,Y, public,   none,    stroke_size,        f32) \
+    i_method  (X,Y, public,   none,    stroke_cap,         cap) \
+    i_method  (X,Y, public,   none,    stroke_join,        join) \
+    i_method  (X,Y, public,   none,    stroke_miter_limit, f32) \
+    i_method  (X,Y, public,   none,    stroke_dash_offset, f32) \
     i_override(X,Y, method,   resize) \
     i_override(X,Y, method,   init,    dealloc)
 declare_mod(sk, canvas, image)
