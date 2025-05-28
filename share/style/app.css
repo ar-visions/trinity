@@ -1,11 +1,15 @@
 ion.root / pane {
-    fill:       frost;
-    fill-color: #82a;
-    area:       0, 220ms;
+    fill:           blur;
+    fill_color:     #82a;
+    border_color:   #ffff;
+    border_size:    4;
+    area:           l32 t32 r32 b32;
+    fill_radius_x:  16;
+    fill_radius_y:  16;
 }
 
 ion.root / pane:active {
-    fill:       frost;
-    fill-color: #22a, 220ms;
+    fill:           frost;
+    fill_color:     #22a, 220ms;
 }
 

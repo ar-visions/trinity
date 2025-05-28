@@ -1085,7 +1085,7 @@ none gpu_dealloc(gpu a) {
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
-define_class(gpu);
+define_class(gpu, A);
 
 
 static VkFormat vk_format(Pixel f, bool linear) {
@@ -1354,7 +1354,7 @@ none texture_dealloc(texture a) {
     a->vk_sampler    = null;
 }
 
-define_class(texture)
+define_class(texture, A)
 
 
 VkIndexType gpu_index_type(gpu a) {
@@ -2420,8 +2420,8 @@ static void app_draw(app a, element e) {
             b->w, b->h,
             e->fill_radius_x, e->fill_radius_y);
         rgba c0  = rgba("#00f");
-        rgba c1  = rgba("#f0f");
-        rgba clr = mix(c0, c1, e->fill);
+        rgba c1  = rgba("#f0f"); // blur to frost first
+        rgba clr = mix(c0, c1, (f32)(e->fill - Fill_blur) / 0.25f);
         fill_color(a->compose, clr);
 
         // reserved for a better effect than frost to transparent
@@ -2434,12 +2434,12 @@ static void app_draw(app a, element e) {
     if (e->border_color && e->border_size > 0) {
         rect b = e->_border_bounds;
         rounded_rect_to(
-            a->colorize,
+            a->overlay,
             b->x, b->y,
             b->w, b->h,
             e->border_radius_x, e->border_radius_y);
-        stroke_color(a->colorize, e->border_color);
-        draw_stroke (a->colorize);
+        stroke_color(a->overlay, e->border_color);
+        draw_stroke (a->overlay);
     }
 
     save(a->compose);
@@ -2496,19 +2496,17 @@ static void app_draw(app a, element e) {
 i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
+
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
         a->on_background(a->arg);
         
-        static int test_once = 0;
         map elements = a->on_interface(a);
-        if (test_once < 3) {
-            update_all(a->ux, elements);
-            element root_element = a->ux->root;
-            verify(instanceof(root_element, element), "e is not an element");
-            test_once++;
-        }
-        
+        update_all(a->ux, elements);
+
+        element root_element = a->ux->root;
+        verify(instanceof(root_element, element), "e is not an element");
+    
         if (!a->compose || (a->compose->width  != w->width || 
                             a->compose->height != w->height))
             app_update_canvas(a);
@@ -2521,7 +2519,6 @@ i32 app_run(app a) {
         clear       (a->overlay,  string("#0000")); // alpha clear
 
         // draw app ux
-        //print("root ptr = %p", a->ux->root);
         app_draw    (a, a->ux->root);
 
         // sync canvases (the elements should not perform sync)
@@ -2538,7 +2535,7 @@ i32 app_run(app a) {
     return 0;
 }
 
-define_class(app)
+define_class(app, A)
 
 #define BUFFER_SIZE         4096
 #define MAX_IMPORT_NAME     256
@@ -3139,17 +3136,17 @@ none draw_state_set_default(draw_state ds) {
     ds->stroke_color = sk_color((object)string("#000"));
 }
 
-define_class(trinity)
-define_class(shader)
+define_class(trinity,   A)
+define_class(shader,    A)
 
-define_mod(BlurV,   shader)
-define_mod(Blur,    shader)
-define_mod(UVQuad,  shader)
-define_mod(UXQuad,  shader)
-define_mod(PBR,     shader)
-define_mod(Env,     shader)
-define_mod(Convolve,  shader)
-define_mod(Basic, shader)
+define_class(BlurV,     shader)
+define_class(Blur,      shader)
+define_class(UVQuad,    shader)
+define_class(UXQuad,    shader)
+define_class(PBR,       shader)
+define_class(Env,       shader)
+define_class(Convolve,  shader)
+define_class(Basic,     shader)
 
 define_enum(Pixel)
 define_enum(Filter)
@@ -3157,30 +3154,24 @@ define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
 
-define_class(pipeline)
-define_class(gltf_part)
-define_class(gltf_node)
-define_class(model)
-define_class(window)
-define_class(target)
-define_class(buffer)
-define_class(command)
-define_class(uniforms) 
-define_class(IBL)
+define_class(pipeline,      A)
+define_class(gltf_part,     A)
+define_class(gltf_node,     A)
+define_class(model,         A)
+define_class(window,        A)
+define_class(target,        A)
+define_class(buffer,        A)
+define_class(command,       A)
+define_class(uniforms,      A) 
+define_class(IBL,           A)
 
-define_class(draw_state)
-define_class(canvas)
+define_class(draw_state,    A)
+define_class(canvas,        A)
 
 // abstract identifier to indicate functionality 
 // of non-texture case of attribute, still under the enumerable Surface
 
-define_class(particle)
+define_class(particle,      A)
 
 define_enum(Surface)
 define_enum(UXSurface)
-
-define_sentry(Zero,  0);
-define_sentry(One,   1);
-define_sentry(Two,   2);
-define_sentry(Three, 3);
-define_sentry(Four,  4);

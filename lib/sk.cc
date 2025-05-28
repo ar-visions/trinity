@@ -243,6 +243,9 @@ none sk_save(sk a) {
         set_default(ds);
     }
     push(a->state, (object)ds);
+    #undef save
+    SkCanvas* sk = (SkCanvas*)a->sk_canvas;
+    sk->save();
 }
 
 none sk_set_font(sk a, font f) {
@@ -311,6 +314,8 @@ none sk_restore(sk a) {
     draw_state ds = (draw_state)last(a->state);
     drop((object)ds->font);
     pop(a->state);
+    #undef restore
+    sk->restore();
 }
 
 none sk_fill_color(sk a, object clr) {
@@ -361,7 +366,7 @@ none sk_output_mode(sk a, bool output) {
     a->tx->vk_layout = to;
 }
 
-define_mod(sk, canvas)
+define_class(sk, canvas, A)
 
 }
 

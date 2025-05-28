@@ -34,12 +34,6 @@ T.png → Transmission
 /// object(1.2f) creates a primitive f32
 /// object(1.2) creates f64
 
-declare_sentry(Zero);
-declare_sentry(One);
-declare_sentry(Two);
-declare_sentry(Three);
-declare_sentry(Four);
-
 typedef struct _pipeline* pipeline;
 typedef struct _gpu* gpu;
 
@@ -92,10 +86,11 @@ declare_class(shader)
     i_prop   (X,Y, public,     mat4f, model) \
     i_prop   (X,Y, public,     mat4f, view) \
     i_attr   (X,Y, Surface,    color, 1, rgbaf)
-declare_mod(Basic, shader)
+declare_class_2(Basic, shader)
 
 
-#define IBL_schema(X,Y,...)
+#define IBL_schema(X,Y,...) \
+    i_prop   (X,Y, public,     i32, placeholder)
 declare_class(IBL)
 
 /// attribute is a type, and a value; name is baked into enumerables
@@ -115,7 +110,7 @@ declare_class(IBL)
     i_attr   (X,Y, Surface,    ior,           1, f32) \
     i_attr   (X,Y, Surface,    environment,   1, rgbaf, IBL) \
     i_override(X,Y, method, init)
-declare_mod(PBR, shader)
+declare_class_2(PBR, shader)
 
 #define Env_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, view) \
@@ -123,7 +118,7 @@ declare_mod(PBR, shader)
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
     i_attr   (X,Y, Surface,    color, 1, rgbaf) \
     i_override(X,Y, method, init)
-declare_mod(Env, shader)
+declare_class_2(Env, shader)
 
 #define Convolve_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, env) \
@@ -131,7 +126,7 @@ declare_mod(Env, shader)
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     vec2f, roughness_samples) \
     i_attr   (X,Y, Surface,    environment,  1, rgbaf)
-declare_mod(Convolve, shader)
+declare_class_2(Convolve, shader)
 
 typedef struct _pipeline* pipeline;
 typedef struct _model*    model;
@@ -168,7 +163,7 @@ declare_class(buffer)
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     f32,   reduction_scale) \
     i_attr   (X,Y, Surface,    color, 1, rgba8)
-declare_mod(BlurV, shader)
+declare_class_2(BlurV, shader)
 
 #define Blur_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
@@ -176,7 +171,7 @@ declare_mod(BlurV, shader)
     i_prop   (X,Y, public,     mat4f, proj) \
     i_prop   (X,Y, public,     f32,   reduction_scale) \
     i_attr   (X,Y, Surface,    color, 1, rgba8)
-declare_mod(Blur, shader)
+declare_class_2(Blur, shader)
 
 #define UVQuad_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f, model) \
@@ -184,7 +179,7 @@ declare_mod(Blur, shader)
     i_prop   (X,Y, public,     mat4f, proj) \
     i_attr   (X,Y, Surface,    color, 1, rgba8) \
     i_override(X,Y, method, init)
-declare_mod(UVQuad, shader)
+declare_class_2(UVQuad, shader)
 
 #define UXSurface_schema(E,T,Y,...) \
     enum_value(E,T,Y, background,   0) \
@@ -208,7 +203,7 @@ declare_enum(UXSurface)
     i_attr   (X,Y, UXSurface,    colorize,   1, rgba8) \
     i_attr   (X,Y, UXSurface,    overlay,    1, rgba8) \
     i_override(X,Y, method, init)
-declare_mod(UXQuad, shader)
+declare_class_2(UXQuad, shader)
 
 /// when created with a mere window reference, it will create a texture the size of the window
 /// the last render in list will draw to swap-image; trinity works simply
@@ -366,7 +361,7 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    stroke_miter_limit, f32) \
     i_method  (X,Y, interface, none,    stroke_dash_offset, f32) \
     i_override(X,Y, method, resize)
-declare_mod(canvas, image)
+declare_class_2(canvas, image)
 
 #define sk_schema(X,Y,...) \
     i_prop    (X,Y, intern,   ARef,    sk_context) \
@@ -407,7 +402,7 @@ declare_mod(canvas, image)
     i_method  (X,Y, public,   none,    stroke_dash_offset, f32) \
     i_override(X,Y, method,   resize) \
     i_override(X,Y, method,   init,    dealloc)
-declare_mod(sk, canvas, image)
+declare_class_3(sk, canvas, image)
 
 
 #define command_schema(X,Y,...) \
