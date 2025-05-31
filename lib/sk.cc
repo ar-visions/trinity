@@ -312,7 +312,6 @@ none sk_restore(sk a) {
         return;
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
-    drop((object)ds->font);
     pop(a->state);
     #undef restore
     sk->restore();

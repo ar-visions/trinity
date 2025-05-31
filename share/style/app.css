@@ -13,3 +13,11 @@ ion.root / pane:active {
     fill_color:     #22a, 220ms;
 }
 
+ion.root / pane / button.button1 {
+    content:        "button";
+    area:           l8 t8 r8 b8;
+    fill:           blur;
+    fill_color:     #22a, 220ms;
+    border_size:    4;
+    border_color:  #ffff;
+}

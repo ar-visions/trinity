@@ -95,7 +95,7 @@ void transition_image_layout(
     vkCmdPipelineBarrier(
         cmd->vk, src->stage, dst->stage, 0, 0, null, 0, null, 1, &barrier);
     submit(cmd);
-    drop(cmd);
+    //drop(cmd);
 }
 
 void texture_transition(texture tx, i32 new_layout) {
@@ -195,10 +195,10 @@ void target_update(target r) {
         if (r->target)
             resize(r->target, r->width, r->height);
         else
-            r->target = texture(t, t,
+            r->target = hold(texture(t, t,
                 width,        r->width,
                 height,       r->height,
-                format,       Pixel_rgba8);
+                format,       Pixel_rgba8));
     }
     
     /// providing w always supplements t, width and height, layers/mips default to 1
@@ -220,12 +220,6 @@ void target_update(target r) {
         transition(r->color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
-    static int test2 = 2;
-    test2++;
-    print("test2 = %i", test2);
-    if (test2 == 41) {
-        test2++;
-    }
     VkImageView vk_view_attachments[2] = {
         r->color->vk_image_view,
         r->depth->vk_image_view };
@@ -473,25 +467,25 @@ void window_resize(window w, i32 width, i32 height) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
             target top     = w->last_target; //last(w->list);
-            w->swap_model  = model(w, w, samplers, map_of("color", top, null));
+            w->swap_model  = hold(model(w, w, samplers, map_of("color", top, null)));
         }
 
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, null);
         if (!w->vk_swap_images)
              w->vk_swap_images = malloc(w->swap_image_count * sizeof(VkImage));
-        if (!w->swap_renders) w->swap_renders = array(alloc, w->swap_image_count);
+        if (!w->swap_renders) w->swap_renders = hold(array(alloc, w->swap_image_count));
         
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
             drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = target(w, w,
+            w->swap_renders->elements[i] = hold(target(w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
-                models,         a(w->swap_model));
+                models,         a(w->swap_model)));
         }
         w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
@@ -839,7 +833,7 @@ texture trinity_environment(
     command cmd = command(t, t);
     target final = null;
     
-    w->list = a(r_env);
+    w->list = hold(a(r_env));
 
     for (int f = 0; f < 6; f++) { 
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
@@ -889,7 +883,7 @@ texture trinity_environment(
     conv_shader->env = mat4f_ident();
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
 
-    w->list = a(r_conv);
+    w->list = hold(a(r_conv));
 
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
@@ -1041,17 +1035,17 @@ none gpu_sync(gpu a, window w) {
     /// vbo/ibo only need maintenance upon init, less we want to transfer out
     if (a->vertex_size && !a->vertex) {
         bool comp = a->compute;
-        a->vertex = buffer(t, t, size, a->vertex_size * a->vertex_count, 
+        a->vertex = hold(buffer(t, t, size, a->vertex_size * a->vertex_count, 
             u_storage, comp, u_vertex, !comp, u_dst, !comp, u_shader, !comp,
             m_host_visible, true, m_host_coherent, true,
-            data, a->vertex_data);
+            data, a->vertex_data));
         
         if (a->index_size)
-            a->index = buffer(
+            a->index = hold(buffer(
                 t, t, size, a->index_size * a->index_count,
                 u_index, true, u_dst, true, u_shader, true,
                 m_host_visible, true, m_host_coherent, true,
-                data, a->index_data);
+                data, a->index_data));
     }
 
     if (a->sampler && !a->tx) {
@@ -1067,10 +1061,10 @@ none gpu_sync(gpu a, window w) {
         else if (img && img->user)
             a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
-            a->tx = environment(
-                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
+            a->tx = hold(environment(
+                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f)));
         else
-            a->tx = texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color);
+            a->tx = hold(texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color));
     }
 }
 
@@ -1400,7 +1394,7 @@ path path_with_cstr(path, cstr);
 void model_finish(model m, target r) {
     trinity t    = m->t;
     m->r         = r;
-    m->pipelines = array();
+    m->pipelines = hold(array(alloc, 16));
 
     if (!m->samplers) m->samplers = map(hsize, 32);
 
@@ -1545,7 +1539,7 @@ void pipeline_bind_resources(pipeline p) {
     int                          sampler_counts   [32];
     VkWriteDescriptorSet         descriptor_writes[32];
 
-    p->resources = array(alloc, 32);
+    p->resources = hold(array(alloc, 32));
     if (p->vbo) {
         sync(p->vbo, p->w);
         push(p->resources, p->vbo);
@@ -1554,7 +1548,7 @@ void pipeline_bind_resources(pipeline p) {
     VkShaderStageFlags stage_flags = VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;
 
     // populate bind layout for uniforms
-    p->shader_uniforms = uniforms(t, t, s, p->s); // no need to have this in 'gpu' magic container
+    p->shader_uniforms = hold(uniforms(t, t, s, p->s)); // no need to have this in 'gpu' magic container
 
     each (p->shader_uniforms->u_buffers, buffer, b) {
         uniform_bindings[uniform_count] = (VkDescriptorSetLayoutBinding) {
@@ -2264,13 +2258,13 @@ void app_update_canvas(app a) {
         resize(a->colorize, width, height);
         resize(a->overlay,  width, height);
     } else {
-        a->compose = sk(
+        a->compose = hold(sk(
             t, a->t, format, Pixel_rgba8,
-            width, width, height, height);
-        a->colorize = sk(t, t, format, Pixel_rgba8,
-            width, width, height, height);
-        a->overlay = sk(t, t, format, Pixel_rgba8,
-            width, width, height, height);
+            width, width, height, height));
+        a->colorize = hold(sk(t, t, format, Pixel_rgba8,
+            width, width, height, height));
+        a->overlay = hold(sk(t, t, format, Pixel_rgba8,
+            width, width, height, height));
     }
 
     clear       (a->compose, string("#00f"));
@@ -2362,10 +2356,10 @@ void app_init(app a) {
         models, a(a->m_view));
 
     //w->list = a(r_background, r_blur_v, r_blur, r_view);
-    w->list = a(
+    w->list = hold(a(
         a->r_background, a->r_reduce,  a->r_reduce0, a->r_reduce1, a->r_blur_v, a->r_blur,
         a->r_reduce2,    a->r_reduce3, a->r_frost_v, a->r_frost,
-        a->r_view);
+        a->r_view));
     w->last_target = a->r_view;
 }
 
@@ -2407,10 +2401,12 @@ static void app_draw(app a, element e) {
     
     drop(e->_bounds);
     drop(e->_text_bounds);
-    e->_bounds        = rectangle_offset(e->area,        rel);
-    e->_text_bounds   = rectangle_offset(e->text_area,   e->_bounds);
-    e->_border_bounds = rectangle_offset(e->border_area, e->_bounds);
-    e->_child_bounds  = rectangle_offset(e->child_area,  e->_bounds);
+    drop(e->_border_bounds);
+    drop(e->_child_bounds);
+    e->_bounds        = hold(rectangle_offset(e->area,        rel));
+    e->_text_bounds   = hold(rectangle_offset(e->text_area,   e->_bounds));
+    e->_border_bounds = hold(rectangle_offset(e->border_area, e->_bounds));
+    e->_child_bounds  = hold(rectangle_offset(e->child_area,  e->_bounds));
 
     if (e->fill != Fill_none) {
         rect b = e->_bounds;
@@ -2497,10 +2493,28 @@ i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
 
+    int free_itr = 4;
+    int itr = 0;
+
+    int next_second = epoch_millis() / 1000;
+    int frames = 0;
+
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
+
+        if (next_second != epoch_millis() / 1000) {
+            next_second  = epoch_millis() / 1000;
+            print("fps: %i", frames);
+            frames = 0;
+        }
+        frames++;
+
         a->on_background(a->arg);
-        
+
+        if (itr == free_itr) {
+            int test2 = 2;
+            test2 += 2;
+        }
         map elements = a->on_interface(a);
         update_all(a->ux, elements);
 
@@ -2529,8 +2543,29 @@ i32 app_run(app a) {
         output_mode (a->overlay,  true);
         output_mode (a->colorize, true);
 
+        
+
         // draw background, and entire render list, then swap-targets[N]
         draw(w);
+
+        itr++;
+        if (itr > free_itr) {
+            array a = auto_free_report();
+            if (len(a)) {
+                bool has_obj = false;
+                each(a, object, obj) {
+                    A header = A_header(obj);
+                    if (header->refs != 0) {
+                        map m = obj;
+                        printf("persistent object: %s\n", header->type->name);
+                        has_obj = true;
+                    }
+                }
+                verify(!has_obj, "memory leak");
+            }
+        } else {
+            auto_free();
+        }
     }
     return 0;
 }
@@ -2599,7 +2634,7 @@ void uniforms_update(uniforms a) {
 
 void uniforms_init(uniforms a) {
     trinity t = a->t;
-    list types = list();
+    list types = list(unmanaged, true);
     Basic basic = a->s;
 
     AType ty = isa(a->s);
@@ -3128,7 +3163,7 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf"));
+    ds->font         = hold(font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf")));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;
