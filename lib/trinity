@@ -54,7 +54,8 @@ typedef struct _image*    image;
     i_prop    (X,Y, intern,     map,                 device_memory) \
     i_prop    (X,Y, public,     bool,                rt_support) \
     i_method  (X,Y, public,     texture,             environment, image, vec3f, f32) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(trinity)
 
 #define uniforms_schema(X,Y,...) \
@@ -78,7 +79,8 @@ typedef none(*u_callback)(pipeline, object);
     i_prop    (X,Y, intern,     VkShaderModule,     vk_vert, as, ARef) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_frag, as, ARef) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_comp, as, ARef) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(shader)
 
  #define Basic_schema(X,Y,...) \
@@ -153,7 +155,8 @@ typedef struct _window*   window;
     i_method  (X,Y, public,     none,               transfer, window) \
     i_method  (X,Y, public,     ARef,               mmap) \
     i_method  (X,Y, public,     none,               unmap) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(buffer)
 
 
@@ -232,7 +235,8 @@ declare_class_2(UXQuad, shader)
     i_method  (X,Y, public,     none,                   update) \
     i_method  (X,Y, public,     none,                   draw) \
     i_method  (X,Y, public,     none,                   sync_fence) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(target)
 
 forward(sk)
@@ -270,7 +274,8 @@ forward(window)
     i_prop    (X,Y, public,     model,                  m_view) \
     i_prop    (X,Y, public,     target,                 r_view) \
     i_method  (X,Y, public,     i32,                    run) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(app)
 
 
@@ -309,7 +314,8 @@ declare_class(app)
     i_method  (X,Y, public,     none,                   draw) \
     i_prop    (X,Y, opaque,     target,                 last_target) \
     i_cast    (X,Y, public,     image) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(window)
 
 forward(texture)
@@ -410,7 +416,8 @@ declare_class_3(sk, canvas, image)
     i_prop(X,Y, intern,   VkCommandBuffer,  vk, as, ARef) \
     i_method  (X,Y, public, none, begin) \
     i_method  (X,Y, public, none, submit) \
-    i_override(X,Y, method, init, dealloc)
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
 declare_class(command)
 
 
@@ -434,7 +441,8 @@ declare_class(command)
     i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory,      as, ARef) \
     i_method(X,Y, public, none, resize, i32, i32) \
     i_method(X,Y, public, none, transition, i32) \
-    i_override(X,Y, method, init, dealloc)
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
 declare_class(texture)
 
 typedef struct _Accessor* Accessor;
@@ -466,13 +474,14 @@ typedef struct vertex_member_t {
     i_prop(X,Y, intern,   VkDeviceMemory, vk_memory,    as, ARef) \
     i_prop(X,Y, public,   bool,         compute) \
     i_method(X,Y, public, none,         sync, window) \
-    i_override(X,Y, method, init, dealloc)
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
 declare_class(gpu)
 
 typedef struct _Material* Material;
 #define pipeline_schema(X,Y,...) \
-    i_prop    (X,Y, required,   trinity,                t) \
-    i_prop    (X,Y, required,   window,                 w) \
+    i_prop    (X,Y, opaque,     trinity,                t) \
+    i_prop    (X,Y, opaque,     window,                 w) \
     i_prop    (X,Y, required,   target,                 r) \
     i_prop    (X,Y, public,     i32,                    test2) \
     i_prop    (X,Y, public,     mat4f,                  model) \
@@ -493,7 +502,8 @@ typedef struct _Material* Material;
     i_array   (X,Y, intern,     VkDescriptorSet, 2,     descriptor_sets) \
     i_method  (X,Y, public,     none, draw,             handle) \
     i_method  (X,Y, public,     none, bind_resources) \
-    i_override(X,Y, method,     init, dealloc)
+    i_override(X,Y, method,     init) \
+    i_override(X,Y, method,     dealloc)
 declare_class(pipeline)
 
 /// will handle different texture overrides and uniforms
@@ -515,8 +525,8 @@ declare_class(gltf_node)
 
 typedef struct _Model* Model;
 #define model_schema(X,Y,...) \
-    i_prop    (X,Y, public,   trinity, t) \
-    i_prop    (X,Y, required, window,  w) \
+    i_prop    (X,Y, opaque,   trinity, t) \
+    i_prop    (X,Y, opaque,   window,  w) \
     i_prop    (X,Y, public,   target,  r) \
     i_prop    (X,Y, public,   Model,   id) \
     i_prop    (X,Y, public,   array,   nodes) \
@@ -525,7 +535,8 @@ typedef struct _Model* Model;
     i_prop    (X,Y, intern,   array,   pipelines) \
     i_method  (X,Y, public,   none,    rebind_model) \
     i_method  (X,Y, public,   none,    finish, target) \
-    i_override(X,Y, method, init, dealloc)
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
 declare_class(model)
 
 #define particle_schema(X,Y,...) \

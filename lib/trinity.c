@@ -1444,6 +1444,10 @@ void model_init(model m) {
     if (!m->t) m->t = m->w->t;
 }
 
+void model_dealloc(model m) {
+    drop(m->pipelines);
+}
+
 
 array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline p) {
     gpu res = null;
@@ -2453,7 +2457,6 @@ static void app_draw(app a, element e) {
     pairs(e->elements, i) {
         string  id = i->key;
         element ee = i->value;
-        //ee->parent = e;
         app_draw(a, ee);
     }
 
@@ -2462,7 +2465,6 @@ static void app_draw(app a, element e) {
     // bounds is relative to its parent
     // all rects after bounds are relative-to (easier for user)
 
-    /*
     float   stroke_size = 8;
     float   roundness   = 16;
     float   margin      = 8;
@@ -2486,22 +2488,18 @@ static void app_draw(app a, element e) {
     
     stroke_color(a->colorize, string("#002"));
     draw_stroke (a->colorize);
-    */
 }
 
 i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
 
-    int free_itr = 4;
-    int itr = 0;
-
     int next_second = epoch_millis() / 1000;
     int frames = 0;
+    auto_free();
 
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
-
         if (next_second != epoch_millis() / 1000) {
             next_second  = epoch_millis() / 1000;
             print("fps: %i", frames);
@@ -2511,10 +2509,6 @@ i32 app_run(app a) {
 
         a->on_background(a->arg);
 
-        if (itr == free_itr) {
-            int test2 = 2;
-            test2 += 2;
-        }
         map elements = a->on_interface(a);
         update_all(a->ux, elements);
 
@@ -2524,17 +2518,17 @@ i32 app_run(app a) {
         if (!a->compose || (a->compose->width  != w->width || 
                             a->compose->height != w->height))
             app_update_canvas(a);
-
+        
         animate(a->ux);
-
+        
         // clear canvases
         clear       (a->compose,  string("#00f"));
         clear       (a->colorize, string("#000"));
         clear       (a->overlay,  string("#0000")); // alpha clear
-
+        
         // draw app ux
         app_draw    (a, a->ux->root);
-
+        
         // sync canvases (the elements should not perform sync)
         sync        (a->compose);
         sync        (a->colorize);
@@ -2543,29 +2537,11 @@ i32 app_run(app a) {
         output_mode (a->overlay,  true);
         output_mode (a->colorize, true);
 
-        
-
-        // draw background, and entire render list, then swap-targets[N]
         draw(w);
 
-        itr++;
-        if (itr > free_itr) {
-            array a = auto_free_report();
-            if (len(a)) {
-                bool has_obj = false;
-                each(a, object, obj) {
-                    A header = A_header(obj);
-                    if (header->refs != 0) {
-                        map m = obj;
-                        printf("persistent object: %s\n", header->type->name);
-                        has_obj = true;
-                    }
-                }
-                verify(!has_obj, "memory leak");
-            }
-        } else {
-            auto_free();
-        }
+        auto_free();
+        //int after = A_alloc_count();
+        //printf("after: %i\n", after);
     }
     return 0;
 }
