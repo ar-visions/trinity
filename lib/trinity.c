@@ -2015,6 +2015,7 @@ void trinity_finish(trinity t, window w) {
 void window_init(window w) {
     trinity t = w->t;
 
+    //print("this is from window");
     if (!w->list) w->list = array(alloc, 32);
     VkResult result;
 
@@ -2379,6 +2380,16 @@ static rect rectangle_offset(region area, rect rel) {
     if (!area) area = region(0.0f);
     return rectangle(area, rel);
 }
+
+static sk sk_canvas(app a, Canvas ct) {
+    switch (ct) {
+        default:
+        case Canvas_overlay:  return a->overlay;
+        case Canvas_compose:  return a->compose;
+        case Canvas_colorize: return a->colorize;
+    }
+}
+
 /// recursive draw function
 /// This is the app_draw function that updates the canvases and paints the UI state
 static void app_draw(app a, element e) {
@@ -2388,71 +2399,96 @@ static void app_draw(app a, element e) {
 
     verify(instanceof(e, element), "e is not an element");
 
-    stroke_size(a->compose,  e->border_size);
-    stroke_cap (a->compose,  cap_round);
-    stroke_join(a->compose,  join_round);
-
-    stroke_size(a->colorize, e->border_size);
-    stroke_cap (a->colorize, cap_round);
-    stroke_join(a->colorize, join_round);
+    sk canvas[3] = { a->overlay, a->compose, a->colorize };
+    for (int i = 0; i < 3; i++) {
+        sk cv = canvas[i];
+        stroke_size(cv,  e->border_size);
+        stroke_cap (cv,  e->border_cap);
+        stroke_join(cv,  e->border_join);
+    }
 
     /// read size from element!
     /// STORE the size on the element, too. it means we have to apply the bounds
     /// lets apply it first, then draw.  that way parents may know the layout of their children at the time of draw
     
-    rect rel = e->parent ? ((element)e->parent)->_bounds :
+    rect rel = e->parent ? 
+        rect(x, 0, y, 0,
+             w, ((element)e->parent)->_bounds->w,
+             h, ((element)e->parent)->_bounds->h) :
         rect(x, 0, y, 0, w, width, h, height); // verify this to be ion: 'root', then pane: 'main'
     
     drop(e->_bounds);
     drop(e->_text_bounds);
     drop(e->_border_bounds);
     drop(e->_child_bounds);
+    drop(e->_clip_bounds);
     e->_bounds        = hold(rectangle_offset(e->area,        rel));
     e->_text_bounds   = hold(rectangle_offset(e->text_area,   e->_bounds));
     e->_border_bounds = hold(rectangle_offset(e->border_area, e->_bounds));
     e->_child_bounds  = hold(rectangle_offset(e->child_area,  e->_bounds));
+    e->_clip_bounds   = hold(rectangle_offset(e->clip_area,   e->_bounds));
 
-    if (e->fill != Fill_none) {
+    if (e->fill_color) {
+        sk cv = canvas[e->fill_canvas];
         rect b = e->_bounds;
         rounded_rect_to (
-            a->compose,
+            cv,
             b->x, b->y,
             b->w, b->h,
             e->fill_radius_x, e->fill_radius_y);
-        rgba c0  = rgba("#00f");
-        rgba c1  = rgba("#f0f"); // blur to frost first
-        rgba clr = mix(c0, c1, (f32)(e->fill - Fill_blur) / 0.25f);
-        fill_color(a->compose, clr);
+        fill_color(cv, e->fill_color);
+        blur_radius(cv, e->fill_blur);
+        draw_fill(cv);
+        blur_radius(cv, 0.0f);
+    }
 
-        // reserved for a better effect than frost to transparent
-        // we may want to really have some sort of lensing effect, something of defraction qualities
-        // as well we could grayscale a blured rect onto the compose canvas that gradiates from #80f to #f0f
-        // basis of the single blur map, though, would be nice to defract with
-        draw_fill(a->compose);
+    for (int i = 0; i < 3; i++) {
+        sk cv = canvas[i];
+        save(cv);
+        translate(cv,
+            e->_clip_bounds->x,
+            e->_clip_bounds->y);
+        rect r = rect(x, 0, y, 0,
+            w, e->_clip_bounds->w, h, e->_clip_bounds->h);
+        if (e->border_clip)
+            clip(cv, r, e->border_radius_x, e->border_radius_y);
     }
 
     if (e->border_color && e->border_size > 0) {
+        sk cv = canvas[e->border_canvas];
         rect b = e->_border_bounds;
         rounded_rect_to(
-            a->overlay,
-            b->x, b->y,
+            cv,
+            b->x - e->_clip_bounds->x,
+            b->y - e->_clip_bounds->y,
             b->w, b->h,
             e->border_radius_x, e->border_radius_y);
-        stroke_color(a->overlay, e->border_color);
-        draw_stroke (a->overlay);
+        stroke_color(cv, e->border_color);
+        stroke_size(cv, e->border_size);
+        blur_radius(cv, e->border_blur);
+        draw_stroke(cv);
+        blur_radius(cv, 0.0f);
     }
 
-    save(a->compose);
-    translate(a->compose,
-        e->_bounds->x + e->_child_bounds->x,
-        e->_bounds->y + e->_child_bounds->y);
-    clip(a->compose, e->_bounds);
-    
-    save(a->colorize);
-    translate(a->colorize,
-        e->_bounds->x + e->_child_bounds->x,
-        e->_bounds->y + e->_child_bounds->y);
-    clip(a->colorize, e->_bounds);
+    string content = instanceof(e->content, string);
+    if (content) {
+        // we could render text onto pane as a kind of dark frost
+        rect t = e->_text_bounds;
+        rect c = e->_clip_bounds;
+        rect r = rect(
+            x, t->x - c->x, y, t->y - c->y,
+            w, t->w,        h, t->h);
+        alignment al = f(alignment, "%f %f", e->text_align_x, e->text_align_y);
+        if (e->text_shadow_color) {
+            fill_color(a->overlay, e->text_shadow_color);
+            vec2f offset = vec2f(e->text_shadow_x, e->text_shadow_y);
+            draw_text(a->overlay, content, r, al, offset, e->text_ellipsis);
+        }
+        fill_color(a->overlay, e->text_color);
+        vec2f offset = vec2f(0, 0);
+        draw_text(a->overlay, content, r, al,
+            offset, e->text_ellipsis);
+    }
 
     pairs(e->elements, i) {
         string  id = i->key;
@@ -2460,43 +2496,18 @@ static void app_draw(app a, element e) {
         app_draw(a, ee);
     }
 
-    restore(a->compose);
-    restore(a->colorize);
-    // bounds is relative to its parent
-    // all rects after bounds are relative-to (easier for user)
-
-    float   stroke_size = 8;
-    float   roundness   = 16;
-    float   margin      = 8;
-
-    rounded_rect_to (
-        a->compose,
-        margin + stroke_size / 2,
-        margin + stroke_size / 2,
-       (width  - margin * 2) - stroke_size,
-       (height - margin * 2) - stroke_size,
-        roundness, roundness);
-    
-    fill_color  (a->compose, string("#f0f"));
-    draw_fill   (a->compose);
-
-    rounded_rect_to (
-        a->colorize, margin, margin,
-       (width  - margin * 2),
-       (height - margin * 2),
-        roundness, roundness);
-    
-    stroke_color(a->colorize, string("#002"));
-    draw_stroke (a->colorize);
+    for (int i = 0; i < 3; i++) {
+        sk cv = canvas[i];
+        restore(cv);
+    }
 }
 
 i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
-
+    
     int next_second = epoch_millis() / 1000;
     int frames = 0;
-    auto_free();
 
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
@@ -2508,10 +2519,10 @@ i32 app_run(app a) {
         frames++;
 
         a->on_background(a->arg);
-
+        
         map elements = a->on_interface(a);
         update_all(a->ux, elements);
-
+ 
         element root_element = a->ux->root;
         verify(instanceof(root_element, element), "e is not an element");
     
@@ -2540,8 +2551,8 @@ i32 app_run(app a) {
         draw(w);
 
         auto_free();
-        //int after = A_alloc_count();
-        //printf("after: %i\n", after);
+        int after = A_alloc_count();
+        printf("after: %i\n", after);
     }
     return 0;
 }
@@ -3024,6 +3035,8 @@ none canvas_arc_to(canvas a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
 none canvas_arc(canvas a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 end_angle) {
 }
 
+none canvas_blur_radius(canvas a, f32 blur) { }
+
 none canvas_draw_fill(canvas a) {
 }
 
@@ -3139,12 +3152,14 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = hold(font(size, 12, path, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf")));
+    ds->font         = hold(font(
+        size, 12, uri, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf")));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;
     ds->fill_color   = sk_color((object)string("#000"));
     ds->stroke_color = sk_color((object)string("#000"));
+    ds->opacity      = 1.0f;
 }
 
 define_class(trinity,   A)

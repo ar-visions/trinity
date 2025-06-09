@@ -9,12 +9,13 @@ void main() {
     vec4 colorize  = texture(tx_colorize, v_uv);
 
     vec3 base;
+    float brighten = compose.b * 2.0;
     if (compose.r < 0.33) {
-        base = texture(tx_background, v_uv).rgb;
+        base = texture(tx_background, v_uv).rgb * brighten;
     } else if (compose.r < 0.66) {
-        base = texture(tx_blur, v_uv).rgb;
+        base = texture(tx_blur, v_uv).rgb * brighten;
     } else {
-        base = texture(tx_frost, v_uv).rgb;
+        base = texture(tx_frost, v_uv).rgb * brighten;
     }
 
     /// the following is wrong
@@ -32,6 +33,6 @@ void main() {
     vec3  g1           = hsv2rgb(colorize_hsv);
 
     vec3 colorized = mix(g0, g1, compose.g);
-    vec4 base_out = vec4(colorized, compose.b);
+    vec4 base_out = vec4(colorized, colorize.a);
     fragColor     = mix(base_out, overlay, overlay.a);
 }

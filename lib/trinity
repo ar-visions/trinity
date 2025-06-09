@@ -320,7 +320,18 @@ declare_class(window)
 
 forward(texture)
 
+#define SVG_schema(X,Y,...) \
+    i_prop    (X,Y, public,   f32,     w) \
+    i_prop    (X,Y, public,   f32,     h) \
+    i_prop    (X,Y, public,   f32,     rw) \
+    i_prop    (X,Y, public,   f32,     rh) \
+    i_prop    (X,Y, public,   handle,  svg_dom) \
+    i_override(X,Y, method, dealloc)
+declare_class(SVG)
+
+
 #define draw_state_schema(X,Y,...) \
+    i_prop    (X,Y, public,   f32,     blur_radius) \
     i_prop    (X,Y, public,   f32,     stroke_size) \
     i_prop    (X,Y, public,   cap,     stroke_cap) \
     i_prop    (X,Y, public,   join,    stroke_join) \
@@ -329,6 +340,7 @@ forward(texture)
     i_prop    (X,Y, public,   font,    font) \
     i_prop    (X,Y, public,   u32,     fill_color) \
     i_prop    (X,Y, public,   u32,     stroke_color) \
+    i_prop    (X,Y, public,   f32,     opacity) \
     i_method  (X,Y, public,   none,    set_default)
 declare_class(draw_state)
 
@@ -355,12 +367,13 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    draw_stroke) \
     i_method  (X,Y, interface, none,    draw_fill_preserve) \
     i_method  (X,Y, interface, none,    draw_stroke_preserve) \
+    i_method  (X,Y, interface, none,    blur_radius,        f32) \
     i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
     i_method  (X,Y, interface, none,    output_mode,        bool) \
     i_method  (X,Y, interface, none,    translate,          f32, f32) \
     i_method  (X,Y, interface, none,    scale,              f32) \
-    i_method  (X,Y, interface, none,    clip,               rect) \
+    i_method  (X,Y, interface, none,    clip,               rect, f32, f32) \
     i_method  (X,Y, interface, none,    stroke_size,        f32) \
     i_method  (X,Y, interface, none,    stroke_cap,         cap) \
     i_method  (X,Y, interface, none,    stroke_join,        join) \
@@ -368,6 +381,15 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    stroke_dash_offset, f32) \
     i_override(X,Y, method, resize)
 declare_class_2(canvas, image)
+
+#define text_metrics_schema(O, Y, ...) \
+    i_struct_prop(O,Y, f32, w) \
+    i_struct_prop(O,Y, f32, h) \
+    i_struct_prop(O,Y, f32, ascent) \
+    i_struct_prop(O,Y, f32, descent) \
+    i_struct_prop(O,Y, f32, line_height) \
+    i_struct_prop(O,Y, f32, cap_height)
+declare_struct(text_metrics)
 
 #define sk_schema(X,Y,...) \
     i_prop    (X,Y, intern,   ARef,    sk_context) \
@@ -379,6 +401,10 @@ declare_class_2(canvas, image)
     i_prop    (X,Y, intern,   VkImageLayout, vk_layout, as, i32) \
     i_method  (X,Y, public,   none,    save) \
     i_method  (X,Y, public,   none,    restore) \
+    i_method  (X,Y, public,   none,    draw_svg,         SVG,   rect, alignment, vec2f) \
+    i_method  (X,Y, public,   none,    draw_image,       image, rect, alignment, vec2f) \
+    i_method  (X,Y, public,   text_metrics, measure,    string) \
+    i_method  (X,Y, public,   rect,         draw_text,       string, rect, alignment, vec2f, bool) \
     i_method  (X,Y, public,   none,    move_to,     f32, f32) \
     i_method  (X,Y, public,   none,    line_to,     f32, f32) \
     i_method  (X,Y, public,   none,    arc_to,      f32, f32, f32, f32, f32) \
@@ -394,18 +420,21 @@ declare_class_2(canvas, image)
     i_method  (X,Y, public,   none,    draw_stroke) \
     i_method  (X,Y, public,   none,    draw_fill_preserve) \
     i_method  (X,Y, public,   none,    draw_stroke_preserve) \
+    i_method  (X,Y, public,   none,    blur_radius,        f32) \
     i_method  (X,Y, public,   none,    sync) \
     i_method  (X,Y, public,   none,    prepare) \
     i_method  (X,Y, public,   none,    output_mode, bool) \
     i_method  (X,Y, public,   none,    translate,          f32, f32) \
     i_method  (X,Y, public,   none,    scale,              f32) \
-    i_method  (X,Y, public,   none,    clip,               rect) \
+    i_method  (X,Y, public,   none,    clip,               rect, f32, f32) \
     i_method  (X,Y, public,   none,    stroke_color,       object) \
     i_method  (X,Y, public,   none,    stroke_size,        f32) \
     i_method  (X,Y, public,   none,    stroke_cap,         cap) \
     i_method  (X,Y, public,   none,    stroke_join,        join) \
     i_method  (X,Y, public,   none,    stroke_miter_limit, f32) \
     i_method  (X,Y, public,   none,    stroke_dash_offset, f32) \
+    i_method  (X,Y, public,   none,    opacity,            f32) \
+    i_method  (X,Y, public,   string,  ellipsis,           string, rect, ARef) \
     i_override(X,Y, method,   resize) \
     i_override(X,Y, method,   init,    dealloc)
 declare_class_3(sk, canvas, image)

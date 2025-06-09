@@ -160,7 +160,7 @@ void log_callback(WGPULoggingType level, char const* message, void* userdata) {
     fprintf(stderr, "[%s] %s\n", level_str, message);
 }
 int main(int argc, char *argv[]) {
-    A_start();
+    A_start(argc, argv);
     verify(glfwInit(), "glfw init");
 
     struct demo demo = {0};

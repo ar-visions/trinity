@@ -28,13 +28,13 @@ import:
 		> # rsync -a *.so $TAPESTRY/lib/
 		-lskia
 		-lm
-		-lstdc++
+		-lstdc++ 
 	-I$TAPESTRY/checkout/skia
 	-I$TAPESTRY/checkout/skia/src
 	-I$TAPESTRY/checkout/skia/include
 	-I$TAPESTRY/skia/include
 	-I$TAPESTRY/checkout/skia/modules/svg/include
-	linux:
+	linux: 
 		-lasound
 		-lvulkan
 	windows:

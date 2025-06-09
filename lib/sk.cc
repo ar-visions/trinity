@@ -27,11 +27,14 @@
 #include <modules/svg/include/SkSVGDOM.h>
 #include <modules/svg/include/SkSVGNode.h>
 #include <core/SkAlphaType.h>
+#include <core/SkBlurTypes.h>
 #include <core/SkColor.h>
+#include <core/SkMaskFilter.h>
 #include <core/SkColorType.h>
 #include <core/SkImageInfo.h>
 #include <core/SkRefCnt.h>
 #include <core/SkTypes.h>
+#include <core/SkTypeface.h>
 #include <gpu/GrDirectContext.h>
 #include <gpu/ganesh/vk/GrVkDirectContext.h>
 #include <gpu/ganesh/SkSurfaceGanesh.h>
@@ -43,6 +46,7 @@ extern "C" {
 #include <import>
 }
 
+#undef render
 #undef get
 #undef clear
 #undef fill
@@ -57,8 +61,58 @@ struct Skia {
 
 extern "C" {
 
+
+static map font_resources;
+static int font_resources_refs;
+
+none sk_font_dealloc(font f) {
+    if (--font_resources_refs == 0) {
+        pairs(font_resources, i) {
+            SkFont* f = (SkFont*)i->value;
+            delete f; // this should release SkTypeface, an sk_sp used wit SkFont?
+        }
+
+        drop((object)font_resources);
+    }
+}
+
+font sk_font_init(font f) {
+    font_resources_refs++;
+
+    if (!font_resources) {
+         font_resources = map(unmanaged, true);
+         verify(font_resources_refs == 1, "font resources out of sync");
+    }
+    f->res = map_get(font_resources, (object)f->uri);
+    if (!f->res) {
+        static sk_sp<SkFontMgr> fm;
+        if (!fm)
+             fm = SkFontMgr::RefEmpty();
+        f->tf = (handle)new sk_sp<SkTypeface>();
+        *(sk_sp<SkTypeface>*)f->tf = fm->makeFromFile(f->uri->chars);
+        //auto t = SkTypeface::MakeFromFile(f->uri->chars);
+        f->res = new SkFont(*(sk_sp<SkTypeface>*)f->tf);
+        set(font_resources, (object)f->uri, (object)f->res);
+    }
+    return f;
+}
+
+/// this globally adapts font for sk case; useful for dependency management
+none sk_font_initialize() {
+    set_font_manager((hook)sk_font_init, (hook)sk_font_dealloc);
+}
+
+static handle_t vk_prev;
+static skia_t   sk_current;
+
 /// initialize skia from vulkan-resources
 skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle_t queue, unsigned int graphics_family, unsigned int vk_version) {
+    if (sk_current) {
+        verify(vk_instance == vk_prev, "skia_init_vk: more than one vulkan instance");
+        return sk_current;
+    }
+    vk_prev = vk_instance;
+
     //GrBackendFormat gr_conv = GrBackendFormat::MakeVk(VK_FORMAT_R8G8B8_SRGB);
     GrVkBackendContext grc {
         (VkInstance)vk_instance,
@@ -82,6 +136,9 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     sk->ctx = GrDirectContexts::MakeVulkan(grc);
     
     assert(sk->ctx, "could not obtain GrVulkanContext");
+
+    sk_font_initialize();
+    sk_current = sk;
     return sk;
 }
 
@@ -108,7 +165,7 @@ none sk_init(sk a) {
         t->device,
         t->queue,
         t->queue_family_index, VK_API_VERSION_1_2);
-
+    
     verify(a->width > 0 && a->height > 0, "sk requires width and height");
     if (!a->tx) {
         texture tx = texture(t, a->t, width, a->width, height, a->height, 
@@ -128,7 +185,7 @@ none sk_init(sk a) {
     
     GrBackendTexture backend_texture = GrBackendTextures::MakeVk(
         a->width, a->height, info);
-
+    
     GrDirectContext* direct_ctx = a->skia->ctx.get();
     sk_sp<SkSurface> surface = SkSurfaces::WrapBackendTexture(
         direct_ctx, backend_texture, kTopLeft_GrSurfaceOrigin, 1,
@@ -141,6 +198,7 @@ none sk_init(sk a) {
     ((SkCanvas*)a->sk_canvas)->clear(SK_ColorWHITE); // <--- clear to black here
     a->sk_path    = (ARef)new SkPath();
     a->state      = array(alloc, 16);
+    return;
     save(a);
 }
 
@@ -178,6 +236,11 @@ none sk_arc_to(sk a, f32 x1, f32 y1, f32 x2, f32 y2, f32 radius) {
     ((SkPath*)a->sk_path)->arcTo(x1, y1, x2, y2, radius);
 }
 
+none sk_opacity(sk a, f32 o) {
+    draw_state ds = (draw_state)last(a->state);
+    ds->opacity = o;
+}
+
 none sk_arc(sk a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 end_angle) {
     SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
     draw_state ds     = (draw_state)last(a->state);
@@ -194,14 +257,41 @@ none sk_draw_fill_preserve(sk a) {
     draw_state ds     = (draw_state)last(a->state);
     SkPaint    paint;
     paint.setStyle(SkPaint::kFill_Style);
+
+    if (ds->blur_radius > 0.0f)
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
     paint.setColor(ds->fill_color); // assuming this exists in your draw_state
     paint.setAntiAlias(true); 
     sk->drawPath(*(SkPath*)a->sk_path, paint);
 }
 
+none sk_blur_radius(sk a, f32 radius) {
+    draw_state ds = (draw_state)last(a->state);
+    ds->blur_radius = radius;
+}
+
 none sk_draw_fill(sk a) {
     sk_draw_fill_preserve(a);
     ((SkPath*)a->sk_path)->reset();
+}
+
+SkPaint::Cap sk_cap(cap cap) {
+    switch (cap) {
+        case cap_none:   return SkPaint::kButt_Cap;
+        case cap_round:  return SkPaint::kRound_Cap;
+        case cap_square: return SkPaint::kSquare_Cap;
+        default:         return SkPaint::kDefault_Cap;
+    }
+}
+
+SkPaint::Join sk_join(join j) {
+    switch (j) {
+        case join_none:  return SkPaint::kMiter_Join;
+        case join_miter: return SkPaint::kMiter_Join;
+        case join_round: return SkPaint::kRound_Join;
+        case join_bevel: return SkPaint::kBevel_Join;
+        default:         return SkPaint::kDefault_Join;
+    }
 }
 
 none sk_draw_stroke_preserve(sk a) {
@@ -210,6 +300,11 @@ none sk_draw_stroke_preserve(sk a) {
     if (ds->stroke_size <= 0) return;
     SkPaint    paint;
     paint.setStyle(SkPaint::kStroke_Style);
+    if (ds->blur_radius > 0.0f)
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
+
+    paint.setStrokeCap(sk_cap(ds->stroke_cap));
+    paint.setStrokeJoin(sk_join(ds->stroke_join));
     paint.setStrokeWidth(ds->stroke_size);
     paint.setColor(ds->stroke_color); // assuming this exists in your draw_state
     paint.setAntiAlias(true); 
@@ -242,7 +337,10 @@ none sk_save(sk a) {
         ds = draw_state();
         set_default(ds);
     }
-    push(a->state, (object)ds);
+    
+    //push(a->state, (object)ds);
+    a->state = (array)hold((object)a->state);
+    return;
     #undef save
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     sk->save();
@@ -269,12 +367,18 @@ none sk_scale(sk a, f32 scale) {
     sk->scale(scale, scale);
 }
 
-none sk_clip(sk a, rect r) {
+none sk_clip(sk a, rect r, f32 radius_x, f32 radius_y) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
-    SkRect sk_r = SkRect {
-        SkScalar(r->x),          SkScalar(r->y),
-        SkScalar(r->x + r->w), SkScalar(r->y + r->h) };
-    sk->clipRect(sk_r);
+    SkRRect rr;
+    rr.setRectXY(SkRect::MakeXYWH(
+        SkScalar(r->x), 
+        SkScalar(r->y), 
+        SkScalar(r->w), 
+        SkScalar(r->h)),
+        SkScalar(radius_x),
+        SkScalar(radius_y));
+    sk->clipRRect(rr, SkClipOp::kIntersect, true);
+    //rr.setRectXY(SkRect::MakeXYWH(x, y, w, h), rx, ry);
 }
 
 none sk_stroke_size(sk a, f32 size) {
@@ -335,6 +439,229 @@ none sk_clear(sk a, object clr) {
     sk->clear(fill);
 }
 
+
+
+
+/// ASMR AR/AI ramblings -- Work on Orbiter, an open app platform where any app may be edited
+/// -----------------
+/// its steam without costing anything and being completely open; also the consumers of apps in store are now 1:1 developers.
+/// its probably not just another ide, I think.
+/// to me this is what 'platform' is, and what an 'sdk' is.
+/// its not something we install on our machines to obtain
+/// some development headers for our compiler.
+/// apps are native built C apps
+
+/// no tabs, just panels where we load in entire folders at once.
+/// mini map navigator has a bit more to it, as a result, however one does
+/// not need to scroll manually because we use our voice to navigate contextually 
+/// with intelligent voice tracking using whisper to llama-4-8bit.
+
+
+/// console would just think of everything in char units. like it is.
+/// measuring text would just be its length, line height 1.
+
+SkFont* sk_font(sk a) {
+    draw_state ds = (draw_state)last(a->state);
+    return (SkFont*)ds->font->res;
+}
+
+text_metrics sk_measure(sk a, string text) {
+    SkFontMetrics mx;
+    SkFont     *font = sk_font(a);
+    font->setSize(12);
+    auto         adv = font->measureText(text->chars, text->len, SkTextEncoding::kUTF8);
+    auto          lh = font->getMetrics(&mx);
+
+    return text_metrics {
+        adv,
+        abs(mx.fAscent) + abs(mx.fDescent),
+        mx.fAscent,
+        mx.fDescent,
+        lh,
+        mx.fCapHeight
+    };
+}
+
+
+/// the text out has a rect, controls line height, scrolling offset and all of that nonsense we need to handle
+/// as a generic its good to have the rect and alignment enums given.  there simply isnt a user that doesnt benefit
+/// it effectively knocks out several redundancies to allow some components to be consolidated with style difference alone
+
+string sk_ellipsis(sk a, string text, rect r, ARef r_tm) {
+    text_metrics* tm = (text_metrics*)r_tm;
+    static string el;
+    if (!el) el = (string)hold((object)string("..."));
+    
+    string cur = text;
+    int tr = cur->len;
+    *tm = sk_measure(a, el);
+    
+    if (tm->w >= r->w)
+        tr = 0;
+    else
+        for (;;) {
+            *tm = sk_measure(a, cur);
+            if (tm->w <= r->w || tr == 0)
+                break;
+            if (tm->w > r->w && tr >= 1) {
+                cur = mid(text, 0, --tr);
+                concat(cur, el);
+            }
+        }
+    return (tr == 0) ? string("") : cur;
+}
+
+
+SVG SVG_with_path(SVG a, path uri) {
+    fault("svg not implemented because skia doesnt export SkDOM and who knows why");
+    /*
+    SkStream* stream = new SkFILEStream((symbol)uri->chars);
+    a->svg_dom = (handle)new sk_sp<SkSVGDOM>(SkSVGDOM::MakeFromStream(*stream));
+    SkSize size = (*(sk_sp<SkSVGDOM>*)a->svg_dom)->containerSize();
+    a->w = size.fWidth;
+    a->h = size.fHeight;
+    delete stream;*/
+    return a;
+}
+
+
+void SVG_render(SVG a, SkCanvas *sk, int w, int h) {
+    /*
+    if (w == -1) w = a->w;
+    if (h == -1) h = a->h;
+    if (a->rw != w || a->rh != h) {
+        a->rw  = w;
+        a->rh  = h;
+        (*(sk_sp<SkSVGDOM>*)a->svg_dom)->setContainerSize(
+            SkSize::Make(a->rw, a->rh));
+    }
+    (*(sk_sp<SkSVGDOM>*)a->svg_dom)->render(sk);*/
+}
+
+void SVG_dealloc(SVG a) {
+    ///delete (sk_sp<SkSVGDOM>*)a->svg_dom;
+}
+
+define_class(SVG, A)
+
+void sk_draw_svg(sk a, SVG svg, rect r, alignment align, vec2f offset) {
+    SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    
+    vec2f  pos = { 0, 0 };
+    vec2f  fsz = { svg->w, svg->h };
+
+    /// now its just of matter of scaling the little guy to fit in the box.
+    f32 scx = r->w / fsz.x;
+    f32 scy = r->h / fsz.y;
+    f32 sc  = (scy > scx) ? scx : scy;
+    
+    /// no enums were harmed during the making of this function (again)
+    vec2f v2_a = vec2f(r->x, r->y);
+    vec2f v2_b = vec2f(r->x + r->w - fsz.x * scx, 
+                        r->y + r->h - fsz.y * scy);
+    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
+    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+    
+    sk->save();
+    sk->translate(pos.x + offset.x, pos.y + offset.y);
+    
+    sk->scale(sc, sc);
+    SVG_render(svg, sk, (i32)r->w, (i32)r->h);
+    sk->restore();
+}
+
+void sk_image_dealloc(image img) {
+    delete (sk_sp<SkImage>*)img->res;
+}
+
+void sk_draw_image(sk a, image img, rect r, alignment align, vec2f offset) {
+    SVG svg = (SVG)A_instanceof((object)img, typeid(SVG));
+    if (svg) return sk_draw_svg(a, svg, r, align, offset);
+    
+    SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    vec2f  pos = vec2f(0, 0);
+    vec2f  fsz = vec2f((f32)img->width, (f32)img->height);
+    
+    /// cache SkImage on image
+    if (!img->res) {
+        verify(img->format == Pixel_rgba8, "sk_image: unsupported image format: %o", e_str(Pixel, img->format));
+        rgba8 *px = (rgba8*)data(img);
+        SkImageInfo info = SkImageInfo::Make(
+            (i32)fsz.x, (i32)fsz.y, kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+        
+        SkBitmap bm;
+        bm.installPixels(info, px, img->width * sizeof(rgba8));
+        sk_sp<SkImage> bm_image = bm.asImage();
+        img->res         = (handle)new sk_sp<SkImage>(bm_image);
+        img->res_dealloc = (hook)  sk_image_dealloc;
+    }
+    
+    /// now its just of matter of scaling the little guy to fit in the box.
+    f32 scx = r->w / fsz.x;
+    f32 scy = r->h / fsz.y;
+
+    scx   = scy = (scy > scx) ? scx : scy;
+    /// no enums were harmed during the making of this function
+    vec2f v2_a = vec2f(r->x, r->y);
+    vec2f v2_b = vec2f(r->x + r->w - fsz.x * scx, 
+                       r->y + r->h - fsz.y * scy);
+
+    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
+    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+    
+    sk->save();
+    sk->translate(pos.x + offset.x, pos.y + offset.y);
+    
+    SkCubicResampler cubicResampler { 1.0f / 3, 1.0f / 3 };
+    SkSamplingOptions samplingOptions(cubicResampler);
+
+    sk->scale(scx, scy);
+    SkImage *sk_img = ((sk_sp<SkImage>*)img->res)->get();
+    sk->drawImage(sk_img, SkScalar(0), SkScalar(0), samplingOptions);
+    sk->restore();
+}
+
+/// the lines are most definitely just text() calls, it should be up to the user to perform multiline.
+rect sk_draw_text(sk a, string text, rect r, alignment align, vec2f offset, bool ellip) {
+    SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
+    draw_state ds = (draw_state)last(a->state);
+    SkPaint    ps;
+    ps.setColor(ds->fill_color);
+    if (ds->opacity != 1.0f)
+        ps.setAlpha(ds->opacity);
+    SkFont    *f = sk_font(a);
+    vec2f  pos   = { 0, 0 };
+    string ptext = text;
+    text_metrics tm;
+    if (ellip) {
+        ptext  = sk_ellipsis(a, text, r, (ARef)&tm);
+    } else
+        tm     = sk_measure(a, ptext);
+    auto    tb = SkTextBlob::MakeFromText(ptext->chars, ptext->len, *(const SkFont *)f, SkTextEncoding::kUTF8);
+
+    vec2f v2_a = vec2f(r->x,  r->y);
+    vec2f v2_b = vec2f(r->x + r->w - tm.w, 
+                       r->y + r->h - tm.h);
+    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
+    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+
+    double skia_y_offset = (tm.descent + -tm.ascent) / 1.5;
+    
+    sk->drawTextBlob(
+        tb, SkScalar(pos.x + offset.x),
+            SkScalar(pos.y + offset.y + skia_y_offset), ps);
+
+    /// return where its rendered
+    return rect(
+        x, pos.x + offset.x,
+        y, pos.y + offset.y,
+        w, tm.w,
+        h, tm.h);
+}
+
+
 void transition_image_layout(trinity, VkImage, VkImageLayout, VkImageLayout, int, int, int, int, bool);
 
 none sk_prepare(sk a) {
@@ -366,6 +693,10 @@ none sk_output_mode(sk a, bool output) {
 }
 
 define_class(sk, canvas, A)
+
+define_struct(text_metrics, f32)
+define_vector(text_metrics, f32, 6)
+
 
 }
 
