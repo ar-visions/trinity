@@ -36,17 +36,19 @@ element.root / pane / element.outline {
     border-radius-y: 16;
 }
 
-element.root / pane / element.text {
+element.root / pane / editor {
     fill-canvas:        overlay;
-    fill-color:         #fff1;
-    area:               8;
+    fill-color:         #fff8;
+    area:               l12 t44 r12 b12;
+    fill-radius-x:      8;
+    fill-radius-y:      8;
     content:            "this is a string of text";
     text-color:         #fff;
     text-shadow-color:  #000a;
     text-shadow-x:      1;
     text-shadow-y:      1;
-    text-align-x:       middle;
-    text-align-y:       middle;
+    text-align-x:       left;
+    text-align-y:       top;
 }
 
 element.root / pane:active {

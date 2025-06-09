@@ -80,7 +80,7 @@ font sk_font_init(font f) {
     font_resources_refs++;
 
     if (!font_resources) {
-         font_resources = map(unmanaged, true);
+         font_resources = hold(map(unmanaged, true));
          verify(font_resources_refs == 1, "font resources out of sync");
     }
     f->res = map_get(font_resources, (object)f->uri);
@@ -198,7 +198,6 @@ none sk_init(sk a) {
     ((SkCanvas*)a->sk_canvas)->clear(SK_ColorWHITE); // <--- clear to black here
     a->sk_path    = (ARef)new SkPath();
     a->state      = array(alloc, 16);
-    return;
     save(a);
 }
 
@@ -337,10 +336,7 @@ none sk_save(sk a) {
         ds = draw_state();
         set_default(ds);
     }
-    
-    //push(a->state, (object)ds);
-    a->state = (array)hold((object)a->state);
-    return;
+    push(a->state, (object)ds);
     #undef save
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     sk->save();

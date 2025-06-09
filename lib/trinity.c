@@ -2505,10 +2505,9 @@ static void app_draw(app a, element e) {
 i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
-    
+
     int next_second = epoch_millis() / 1000;
     int frames = 0;
-
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
         if (next_second != epoch_millis() / 1000) {
@@ -2519,7 +2518,6 @@ i32 app_run(app a) {
         frames++;
 
         a->on_background(a->arg);
-        
         map elements = a->on_interface(a);
         update_all(a->ux, elements);
  
@@ -2549,8 +2547,8 @@ i32 app_run(app a) {
         output_mode (a->colorize, true);
 
         draw(w);
-
         auto_free();
+
         int after = A_alloc_count();
         printf("after: %i\n", after);
     }
@@ -3152,8 +3150,7 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = hold(font(
-        size, 12, uri, path_with_cstr(new(path), (cstr)"fonts/Avenir-Light.ttf")));
+    ds->font         = hold(font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf")));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;
