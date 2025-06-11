@@ -76,9 +76,11 @@ typedef none(*u_callback)(pipeline, object);
     i_prop    (X,Y, public,     string,             vert)  \
     i_prop    (X,Y, public,     string,             frag)  \
     i_prop    (X,Y, public,     string,             comp)  \
+    i_prop    (X,Y, public,     i32,                reloads)  \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_vert, as, ARef) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_frag, as, ARef) \
     i_prop    (X,Y, intern,     VkShaderModule,     vk_comp, as, ARef) \
+    i_method  (X,Y, public,     bool,               reload, ARef) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
 declare_class(shader)
@@ -512,7 +514,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, opaque,     trinity,                t) \
     i_prop    (X,Y, opaque,     window,                 w) \
     i_prop    (X,Y, required,   target,                 r) \
-    i_prop    (X,Y, public,     i32,                    test2) \
+    i_prop    (X,Y, public,     i32,                    shader_reloads) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \
     i_prop    (X,Y, public,     map,                    samplers) \
@@ -531,6 +533,7 @@ typedef struct _Material* Material;
     i_array   (X,Y, intern,     VkDescriptorSet, 2,     descriptor_sets) \
     i_method  (X,Y, public,     none, draw,             handle) \
     i_method  (X,Y, public,     none, bind_resources) \
+    i_method  (X,Y, public,     none, reassemble) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
 declare_class(pipeline)
@@ -574,5 +577,10 @@ declare_class(model)
     i_prop    (X,Y, public, f32,    density) \
     i_prop    (X,Y, public, f32,    pressure)
 declare_class(particle)
+
+#define model_viewer_schema(X,Y,...) \
+    i_prop    (X,Y, public,   model,   model) \
+    i_prop    (X,Y, public,   hook,    on_render)
+declare_class_3(model_viewer, element, ion)
 
 #endif

@@ -1678,25 +1678,18 @@ void pipeline_bind_resources(pipeline p) {
         uniform_count + sampler_binds, descriptor_writes, 0, null);
 }
 
-void pipeline_init(pipeline p) {
-    target r   = p->r;
-    gpu vbo    = p->vbo, compute = p->memory;
-    p->vbo     = vbo;
-    p->memory  = compute;
-    
+void pipeline_reassemble(pipeline p) {
     //if (p->memory) sync(p->memory);
+    trinity t   = p->t;
+    window  w   = p->w;
+    target  r   = p->r;
+    gpu     vbo = p->vbo;
     verify(vbo, "no vbo or memory provided to form a compute or graphical pipeline");
+
     i32     vertex_size  = vbo->vertex_size;
     i32     vertex_count = vbo->vertex_count;
     i32     index_size   = vbo->index_size;
     i32     index_count  = vbo->index_count;
-    trinity t            = p->t;
-    window  w            = p->w;
-
-    Basic basic = p->s;
-    mat4f* addr = &basic->proj;
-
-    bind_resources(p);
     
     // Pipeline Layout (Bindings and Layouts)
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
@@ -1888,6 +1881,13 @@ void pipeline_init(pipeline p) {
     }
 }
 
+void pipeline_init(pipeline p) {
+    p->vbo     = hold(p->vbo);
+    p->memory  = hold(p->memory);
+    
+    bind_resources(p);
+    reassemble(p);
+}
 
 void pipeline_dealloc(pipeline p) {
     trinity t = p->t;
@@ -1898,7 +1898,10 @@ void pipeline_dealloc(pipeline p) {
 
 void pipeline_draw(pipeline p, handle f) {
     if (!p->resources)
-        bind_resources(p);
+        bind_resources(p); // this uses no resources from anything 'assembled'
+
+    if (shader_reload(p->s, &p->shader_reloads))
+        reassemble(p);
 
     each (p->resources, gpu, g)
         if (g->tx)
@@ -2531,7 +2534,7 @@ i32 app_run(app a) {
         animate(a->ux);
         
         // clear canvases
-        clear       (a->compose,  string("#00f"));
+        clear       (a->compose,  string("#000"));
         clear       (a->colorize, string("#000"));
         clear       (a->overlay,  string("#0000")); // alpha clear
         
@@ -2650,29 +2653,19 @@ void uniforms_init(uniforms a) {
     }
 }
 
-void shader_init(shader s) {
-    trinity t = s->t;
-    if (!t) return; // for mock data and testing
-
-    // generate .spv for shader resources
-    string spv_file;
-    bool found = false;
-    
-    s->frag = f(string, "shaders/%o.frag", s->name);
-    s->vert = f(string, "shaders/%o.vert", s->name);
-    s->comp = f(string, "shaders/%o.comp", s->name);
-
-    if (!s->name) {
-        AType type = isa(s);
-        verify(type != typeid(shader), "base shader usage requires a shader name");
-        s->name = string(type->name);
+bool shader_reload(shader s, ARef _reloads) {
+    i32* reloads = (i32*)_reloads;
+    if (reloads && *reloads < s->reloads) {
+        *reloads = s->reloads;
+        return true;
     }
-    char cwd[255]; // PATH_MAX is system-defined maximum path length
-
-    getcwd(cwd, sizeof(cwd));
+    trinity t = s->t;
     string names[3] = {
         s->frag, s->vert,  s->comp
     };
+
+    bool found = false;
+    bool recompiled = false;
     VkShaderModule* values[3] = {
         &s->vk_frag, &s->vk_vert,  &s->vk_comp
     };
@@ -2682,7 +2675,7 @@ void shader_init(shader s) {
 
         path input = f(path, "%o", name);
         if (!name || !file_exists("%o", input)) continue;
-        spv_file = f(string, "%o.spv", name);
+        string spv_file = f(string, "%o.spv", name);
         found = true;
 
         // Check if the .spv file already exists and is up to date
@@ -2709,6 +2702,10 @@ void shader_init(shader s) {
                 print("shader compilation failed for: %o", name);
                 exit(1);
             }
+            recompiled = true;
+        } else {
+            if (*(values[i]))
+                continue;
         }
 
         // Load SPIR-V binary
@@ -2750,7 +2747,25 @@ void shader_init(shader s) {
         *(values[i]) = module;
         free(spirv);
     }
+    if (recompiled && reloads) *reloads = ++s->reloads;
     verify(found, "shader not found: %o", s->name);
+    return recompiled;
+}
+
+void shader_init(shader s) {
+    trinity t = s->t;
+    if (!t) return; // for mock data and testing
+
+    s->frag = f(string, "shaders/%o.frag", s->name);
+    s->vert = f(string, "shaders/%o.vert", s->name);
+    s->comp = f(string, "shaders/%o.comp", s->name);
+
+    if (!s->name) {
+        AType type = isa(s);
+        verify(type != typeid(shader), "base shader usage requires a shader name");
+        s->name = string(type->name);
+    }
+    shader_reload(s, null);
 }
 
 void shader_dealloc(shader s) {
@@ -3187,6 +3202,8 @@ define_class(buffer,        A)
 define_class(command,       A)
 define_class(uniforms,      A) 
 define_class(IBL,           A)
+
+define_class(model_viewer,  element)
 
 define_class(draw_state,    A)
 define_class(canvas,        A)

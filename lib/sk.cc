@@ -510,19 +510,17 @@ string sk_ellipsis(sk a, string text, rect r, ARef r_tm) {
 
 SVG SVG_with_path(SVG a, path uri) {
     fault("svg not implemented because skia doesnt export SkDOM and who knows why");
-    /*
     SkStream* stream = new SkFILEStream((symbol)uri->chars);
     a->svg_dom = (handle)new sk_sp<SkSVGDOM>(SkSVGDOM::MakeFromStream(*stream));
     SkSize size = (*(sk_sp<SkSVGDOM>*)a->svg_dom)->containerSize();
     a->w = size.fWidth;
     a->h = size.fHeight;
-    delete stream;*/
+    delete stream;
     return a;
 }
 
 
 void SVG_render(SVG a, SkCanvas *sk, int w, int h) {
-    /*
     if (w == -1) w = a->w;
     if (h == -1) h = a->h;
     if (a->rw != w || a->rh != h) {
@@ -531,11 +529,11 @@ void SVG_render(SVG a, SkCanvas *sk, int w, int h) {
         (*(sk_sp<SkSVGDOM>*)a->svg_dom)->setContainerSize(
             SkSize::Make(a->rw, a->rh));
     }
-    (*(sk_sp<SkSVGDOM>*)a->svg_dom)->render(sk);*/
+    (*(sk_sp<SkSVGDOM>*)a->svg_dom)->render(sk);
 }
 
 void SVG_dealloc(SVG a) {
-    ///delete (sk_sp<SkSVGDOM>*)a->svg_dom;
+    delete (sk_sp<SkSVGDOM>*)a->svg_dom;
 }
 
 define_class(SVG, A)
