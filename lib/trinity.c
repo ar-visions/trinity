@@ -875,9 +875,6 @@ texture trinity_environment(
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
 
     w->list = a(r_conv);
-
-    return null;
-
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -1057,15 +1054,17 @@ none gpu_sync(gpu a, window w) {
             a->tx = environment(
                 t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
         else
-            a->tx = texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color);
+            a->tx = texture(
+                t, t, sampler, a->sampler,
+                surface, img ? img->surface : Surface_color);
     }
 }
 
 none gpu_init(gpu a) {
     if (a->vertex_size)
-        a->vertex_data = A_alloc(typeid(i8), a->vertex_size * a->vertex_count, false);
+        a->vertex_data = A_alloc(typeid(i8), a->vertex_size * a->vertex_count);
     if (a->index_size)
-        a->index_data  = A_alloc(typeid(i8), a->index_size  * a->index_count,  false);
+        a->index_data  = A_alloc(typeid(i8), a->index_size  * a->index_count);
 }
 
 none gpu_dealloc(gpu a) {
@@ -1296,10 +1295,9 @@ none texture_init(texture a) {
                 .layerCount     = a->layer_count
             }
         };
-        verify(
-            vkCreateImageView(t->device, &viewInfo,
-                NULL, &a->vk_image_view) == VK_SUCCESS, 
-            "Failed to create VkImageView");
+        VkResult res = vkCreateImageView(t->device, &viewInfo,
+                NULL, &a->vk_image_view);
+        verify(res == VK_SUCCESS, "Failed to create VkImageView");
     }
 
     if (!a->vk_sampler) {
@@ -1322,10 +1320,9 @@ none texture_init(texture a) {
             .compareOp               = VK_COMPARE_OP_ALWAYS,
             .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
         };
-        verify(
-            vkCreateSampler(t->device, &samplerInfo,
-                NULL, &a->vk_sampler) == VK_SUCCESS, 
-            "Failed to create VkSampler");
+        VkResult r = vkCreateSampler(t->device, &samplerInfo,
+                NULL, &a->vk_sampler);
+        verify(r == VK_SUCCESS, "Failed to create VkSampler");
     }
 }
 
@@ -1407,7 +1404,7 @@ void model_finish(model m, target r) {
         static Model quad;
         if (!gltf_quad) gltf_quad = f(path, "models/uv-quad2.gltf");
         if (!quad)      quad      = read(gltf_quad, typeid(Model));
-        m->id = quad;
+        m->id = hold(quad);
     }
     
     if (m->nodes) {
@@ -2628,7 +2625,7 @@ void uniforms_init(uniforms a) {
     }
     
     a->u_buffers = array(4);
-    a->u_memory = A_alloc(typeid(u8), total_uniform, false);
+    a->u_memory = A_alloc(typeid(u8), total_uniform);
     u8*     src = a->u_memory;
     for (item i = types->first; i; i = i->next) {
         AType ty = i->value;

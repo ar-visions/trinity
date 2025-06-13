@@ -8,7 +8,7 @@ int main(int argc, char *argv[]) {
 /*  A_start();
 
     /// vector allocation of particles (just 256 for now)
-    VertexBuffer parts = ( A_alloc(typeid(particle), n_parts, true); /// use VBO here
+    VertexBuffer parts = ( A_alloc(typeid(particle), n_parts); /// use VBO here
     int sp = (int)sqrt((f64)n_parts);
     for (int x = 0; x < sp; x++) for (int y = 0; y < sp; y++) {
         int index = y * sp + x;
