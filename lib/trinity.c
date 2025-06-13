@@ -87,11 +87,6 @@ void transition_image_layout(
     barrier.srcAccessMask = src->access;
     barrier.dstAccessMask = dst->access;
 
-    static int test2 = 0;
-    test2++;
-    if (test2 == 58) {
-        test2 = test2;
-    }
     vkCmdPipelineBarrier(
         cmd->vk, src->stage, dst->stage, 0, 0, null, 0, null, 1, &barrier);
     submit(cmd);
@@ -195,10 +190,10 @@ void target_update(target r) {
         if (r->target)
             resize(r->target, r->width, r->height);
         else
-            r->target = hold(texture(t, t,
+            r->target = texture(t, t,
                 width,        r->width,
                 height,       r->height,
-                format,       Pixel_rgba8));
+                format,       Pixel_rgba8);
     }
     
     /// providing w always supplements t, width and height, layers/mips default to 1
@@ -467,25 +462,25 @@ void window_resize(window w, i32 width, i32 height) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
             target top     = w->last_target; //last(w->list);
-            w->swap_model  = hold(model(w, w, samplers, map_of("color", top, null)));
+            w->swap_model  = model(w, w, samplers, map_of("color", top, null));
         }
 
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, null);
         if (!w->vk_swap_images)
              w->vk_swap_images = malloc(w->swap_image_count * sizeof(VkImage));
-        if (!w->swap_renders) w->swap_renders = hold(array(alloc, w->swap_image_count));
+        if (!w->swap_renders) w->swap_renders = array(alloc, w->swap_image_count);
         
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
             drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = hold(target(w, w,
+            w->swap_renders->elements[i] = target(w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
-                models,         a(w->swap_model)));
+                models,         a(w->swap_model));
         }
         w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
@@ -592,10 +587,6 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     model = mat4f_rotate(&model, &n->rotation);
     
     /// override blender's terrible quad
-    if (vertex_count == 4 && vertex_size != size) {
-        int test2 = 2;
-        test2 += 2;
-    }
     if (vertex_count == 4 && vertex_size == size) {
         vertex_model* vert0 = &((vertex_model*)vdata)[0];
         vertex_model* vert1 = &((vertex_model*)vdata)[1];
@@ -739,7 +730,6 @@ none create_mipmaps(
                     },
                     VK_FILTER_LINEAR);
                 submit(cmd);
-                drop(cmd);
                 transition_image_layout(t, vk_image,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, i, 1, f, 1, false);
@@ -780,7 +770,7 @@ texture trinity_environment(
     Env    e        = Env    (t, t, name, string("env"));
     map    samplers = map_of ("color", clone, null);
     model  m_env    = model  (w, w, id, data, s, e, samplers, samplers);
-    target r_env    = target (w, w, models, a(m_env));
+    target r_env    = target (w, w, width, size, height, size, models, a(m_env));
     
     e->proj         = mat4f_perspective (radians(90.0f), 1.0f, 0.1f, 10.0f);
 
@@ -833,9 +823,9 @@ texture trinity_environment(
     command cmd = command(t, t);
     target final = null;
     
-    w->list = hold(a(r_env));
+    w->list = a(r_env);
 
-    for (int f = 0; f < 6; f++) { 
+    for (int f = 0; f < 6; f++) {
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         //
         draw(w);
@@ -862,6 +852,7 @@ texture trinity_environment(
     }
 
     create_mipmaps(t, vk_image[0], size, size, mip_levels, 6);
+    return null;
 
     texture cube = texture(
         t, t, vk_image, vk_image[0], surface, Surface_environment,
@@ -876,14 +867,16 @@ texture trinity_environment(
     model  m_conv  = model(
         t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  r_conv = target(
-        t, t, w, w, models, a(m_conv)); // model_finish is called on this list
+        t, t, w, w, width, size, height, size, models, a(m_conv)); // model_finish is called on this list
 
     vec4f v = vec4f(r_axis.x, r_axis.y, r_axis.z, radians(90.0f));
     quatf q = quatf(&v);
     conv_shader->env = mat4f_ident();
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
 
-    w->list = hold(a(r_conv));
+    w->list = a(r_conv);
+
+    return null;
 
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
@@ -1035,17 +1028,17 @@ none gpu_sync(gpu a, window w) {
     /// vbo/ibo only need maintenance upon init, less we want to transfer out
     if (a->vertex_size && !a->vertex) {
         bool comp = a->compute;
-        a->vertex = hold(buffer(t, t, size, a->vertex_size * a->vertex_count, 
+        a->vertex = buffer(t, t, size, a->vertex_size * a->vertex_count, 
             u_storage, comp, u_vertex, !comp, u_dst, !comp, u_shader, !comp,
             m_host_visible, true, m_host_coherent, true,
-            data, a->vertex_data));
+            data, a->vertex_data);
         
         if (a->index_size)
-            a->index = hold(buffer(
+            a->index = buffer(
                 t, t, size, a->index_size * a->index_count,
                 u_index, true, u_dst, true, u_shader, true,
                 m_host_visible, true, m_host_coherent, true,
-                data, a->index_data));
+                data, a->index_data);
     }
 
     if (a->sampler && !a->tx) {
@@ -1061,10 +1054,10 @@ none gpu_sync(gpu a, window w) {
         else if (img && img->user)
             a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
-            a->tx = hold(environment(
-                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f)));
+            a->tx = environment(
+                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
         else
-            a->tx = hold(texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color));
+            a->tx = texture(t, t, sampler, a->sampler, surface, img ? img->surface : Surface_color);
     }
 }
 
@@ -1394,12 +1387,12 @@ path path_with_cstr(path, cstr);
 void model_finish(model m, target r) {
     trinity t    = m->t;
     m->r         = r;
-    m->pipelines = hold(array(alloc, 16));
+    m->pipelines = array(alloc, 16);
 
     if (!m->samplers) m->samplers = map(hsize, 32);
 
     if (!m->s) {
-        UVQuad q = m->s  = UVQuad  (t, m->t, name, string("uv-quad")); // as of right now, this is simplifying the inputs, and should be called UVScreen if anything
+        UVQuad q = m->s  = UVQuad(t, m->t, name, string("uv-quad")); // as of right now, this is simplifying the inputs, and should be called UVScreen if anything
         q->model = mat4f_ident();
         vec3f eye = vec3f(0.0f, 0.0f, 2.0f);
         vec3f center = vec3f(0.0f, 0.0f, 0.0f);
@@ -1414,23 +1407,16 @@ void model_finish(model m, target r) {
         static Model quad;
         if (!gltf_quad) gltf_quad = f(path, "models/uv-quad2.gltf");
         if (!quad)      quad      = read(gltf_quad, typeid(Model));
-        m->id = hold(quad);
+        m->id = quad;
     }
-
+    
     if (m->nodes) {
         each (m->nodes, gltf_node, n)
             each (n->parts, gltf_part, p)
                 model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
     } else {
         each (m->id->nodes, Node, n) {
-            bool has_mesh = n->mesh > 0;
-            if (!has_mesh)
-                each (n->fields, string, s) {
-                    if (cmp(s, "mesh") == 0) {
-                        has_mesh = true;
-                        break;
-                    }
-                }
+            bool has_mesh = AF_query_name(n, "mesh"); // n->mesh > 0;
             if (has_mesh) {
                 Mesh mesh = get(m->id->meshes, n->mesh);
                 each (mesh->primitives, Primitive, prim)
@@ -1543,7 +1529,7 @@ void pipeline_bind_resources(pipeline p) {
     int                          sampler_counts   [32];
     VkWriteDescriptorSet         descriptor_writes[32];
 
-    p->resources = hold(array(alloc, 32));
+    p->resources = array(alloc, 32);
     if (p->vbo) {
         sync(p->vbo, p->w);
         push(p->resources, p->vbo);
@@ -1552,7 +1538,7 @@ void pipeline_bind_resources(pipeline p) {
     VkShaderStageFlags stage_flags = VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;
 
     // populate bind layout for uniforms
-    p->shader_uniforms = hold(uniforms(t, t, s, p->s)); // no need to have this in 'gpu' magic container
+    p->shader_uniforms = uniforms(t, t, s, p->s); // no need to have this in 'gpu' magic container
 
     each (p->shader_uniforms->u_buffers, buffer, b) {
         uniform_bindings[uniform_count] = (VkDescriptorSetLayoutBinding) {
@@ -1588,6 +1574,7 @@ void pipeline_bind_resources(pipeline p) {
             //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
             //verify(resf, "unhandled gpu resource for type: %s", enum_type->name);
             array all = Surface_resources(enum_type, enum_value, p); // based on enum types, we may switch here
+            
             verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
                 "unexpected len(samplers) for value on attrib");
             each(all, gpu, res) {
@@ -1597,8 +1584,8 @@ void pipeline_bind_resources(pipeline p) {
                 sync(res, p->w);
                 push(p->resources, res);
                 image_infos[total_samplers++] = (VkDescriptorImageInfo) {
-                    .sampler     = res->tx->vk_sampler,
-                    .imageView   = res->tx->vk_image_view, 
+                    .sampler     = 0, //res->tx->vk_sampler,
+                    .imageView   = 0, // res->tx->vk_image_view, 
                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                 };
             }
@@ -1612,6 +1599,8 @@ void pipeline_bind_resources(pipeline p) {
         }
         shader_schema = shader_schema->parent_type;
     }
+
+    return;
 
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -2266,13 +2255,13 @@ void app_update_canvas(app a) {
         resize(a->colorize, width, height);
         resize(a->overlay,  width, height);
     } else {
-        a->compose = hold(sk(
+        a->compose = sk(
             t, a->t, format, Pixel_rgba8,
-            width, width, height, height));
-        a->colorize = hold(sk(t, t, format, Pixel_rgba8,
-            width, width, height, height));
-        a->overlay = hold(sk(t, t, format, Pixel_rgba8,
-            width, width, height, height));
+            width, width, height, height);
+        a->colorize = sk(t, t, format, Pixel_rgba8,
+            width, width, height, height);
+        a->overlay = sk(t, t, format, Pixel_rgba8,
+            width, width, height, height);
     }
 
     clear       (a->compose, string("#00f"));
@@ -2364,10 +2353,10 @@ void app_init(app a) {
         models, a(a->m_view));
 
     //w->list = a(r_background, r_blur_v, r_blur, r_view);
-    w->list = hold(a(
+    w->list = a(
         a->r_background, a->r_reduce,  a->r_reduce0, a->r_reduce1, a->r_blur_v, a->r_blur,
         a->r_reduce2,    a->r_reduce3, a->r_frost_v, a->r_frost,
-        a->r_view));
+        a->r_view);
     w->last_target = a->r_view;
 }
 
@@ -2425,11 +2414,11 @@ static void app_draw(app a, element e) {
     drop(e->_border_bounds);
     drop(e->_child_bounds);
     drop(e->_clip_bounds);
-    e->_bounds        = hold(rectangle_offset(e->area,        rel));
-    e->_text_bounds   = hold(rectangle_offset(e->text_area,   e->_bounds));
-    e->_border_bounds = hold(rectangle_offset(e->border_area, e->_bounds));
-    e->_child_bounds  = hold(rectangle_offset(e->child_area,  e->_bounds));
-    e->_clip_bounds   = hold(rectangle_offset(e->clip_area,   e->_bounds));
+    e->_bounds        = rectangle_offset(e->area,        rel);
+    e->_text_bounds   = rectangle_offset(e->text_area,   e->_bounds);
+    e->_border_bounds = rectangle_offset(e->border_area, e->_bounds);
+    e->_child_bounds  = rectangle_offset(e->child_area,  e->_bounds);
+    e->_clip_bounds   = rectangle_offset(e->clip_area,   e->_bounds);
 
     if (e->fill_color) {
         sk cv = canvas[e->fill_canvas];
@@ -2550,7 +2539,6 @@ i32 app_run(app a) {
         output_mode (a->colorize, true);
 
         draw(w);
-        auto_free();
 
         int after = A_alloc_count();
         printf("after: %i\n", after);
@@ -3165,7 +3153,7 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = hold(font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf")));
+    ds->font         = font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf"));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;

@@ -80,7 +80,7 @@ font sk_font_init(font f) {
     font_resources_refs++;
 
     if (!font_resources) {
-         font_resources = hold(map(unmanaged, true));
+         font_resources = map(unmanaged, true);
          verify(font_resources_refs == 1, "font resources out of sync");
     }
     f->res = map_get(font_resources, (object)f->uri);
@@ -345,10 +345,7 @@ none sk_save(sk a) {
 none sk_set_font(sk a, font f) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
-    if (ds->font != f) {
-        drop((object)ds->font);
-        ds->font = (font)hold((object)f);
-    }
+    ds->font = f;
 }
 
 #undef translate
@@ -509,18 +506,21 @@ string sk_ellipsis(sk a, string text, rect r, ARef r_tm) {
 
 
 SVG SVG_with_path(SVG a, path uri) {
-    fault("svg not implemented because skia doesnt export SkDOM and who knows why");
+    fault("svg not implemented");
+    /*
     SkStream* stream = new SkFILEStream((symbol)uri->chars);
     a->svg_dom = (handle)new sk_sp<SkSVGDOM>(SkSVGDOM::MakeFromStream(*stream));
     SkSize size = (*(sk_sp<SkSVGDOM>*)a->svg_dom)->containerSize();
     a->w = size.fWidth;
     a->h = size.fHeight;
     delete stream;
+    */
     return a;
 }
 
 
 void SVG_render(SVG a, SkCanvas *sk, int w, int h) {
+    /*
     if (w == -1) w = a->w;
     if (h == -1) h = a->h;
     if (a->rw != w || a->rh != h) {
@@ -530,10 +530,11 @@ void SVG_render(SVG a, SkCanvas *sk, int w, int h) {
             SkSize::Make(a->rw, a->rh));
     }
     (*(sk_sp<SkSVGDOM>*)a->svg_dom)->render(sk);
+    */
 }
 
 void SVG_dealloc(SVG a) {
-    delete (sk_sp<SkSVGDOM>*)a->svg_dom;
+    //delete (sk_sp<SkSVGDOM>*)a->svg_dom;
 }
 
 define_class(SVG, A)
