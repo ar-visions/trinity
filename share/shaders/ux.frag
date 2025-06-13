@@ -34,5 +34,5 @@ void main() {
 
     vec3 colorized = mix(g0, g1, compose.g);
     vec4 base_out = vec4(colorized, colorize.a);
-    fragColor     = vec4(1.0); //mix(base_out, overlay, overlay.a);
+    fragColor     = mix(base_out, overlay, overlay.a);
 }

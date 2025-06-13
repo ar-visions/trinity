@@ -1581,8 +1581,8 @@ void pipeline_bind_resources(pipeline p) {
                 sync(res, p->w);
                 push(p->resources, res);
                 image_infos[total_samplers++] = (VkDescriptorImageInfo) {
-                    .sampler     = 0, //res->tx->vk_sampler,
-                    .imageView   = 0, // res->tx->vk_image_view, 
+                    .sampler     = res->tx->vk_sampler,
+                    .imageView   = res->tx->vk_image_view, 
                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                 };
             }
@@ -1596,8 +1596,6 @@ void pipeline_bind_resources(pipeline p) {
         }
         shader_schema = shader_schema->parent_type;
     }
-
-    return;
 
     vkCreateDescriptorSetLayout(p->t->device, &(VkDescriptorSetLayoutCreateInfo) {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
