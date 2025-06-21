@@ -90,11 +90,12 @@ void transition_image_layout(
     vkCmdPipelineBarrier(
         cmd->vk, src->stage, dst->stage, 0, 0, null, 0, null, 1, &barrier);
     submit(cmd);
-    //drop(cmd);
+    drop(cmd);
 }
 
 void texture_transition(texture tx, i32 new_layout) {
     if (tx->vk_layout != new_layout) {
+        A info = head(tx);
         transition_image_layout(tx->t, tx->vk_image, tx->vk_layout, new_layout,
             0, tx->mip_levels, 0, tx->layer_count, tx->vk_format == VK_FORMAT_D32_SFLOAT);
         tx->vk_layout = new_layout;
@@ -157,16 +158,6 @@ VkInstance vk_create() {
     return instance;
 }
 
-static void handle_glfw_key(
-    GLFWwindow *glfw_window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_R && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    }
-    if (action == GLFW_PRESS && (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN)) {
-        window w = glfwGetWindowUserPointer(glfw_window);
-        w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
-    }
-}
-
 void model_rebind_model(model m) {
     if (m->pipelines)
         each (m->pipelines, pipeline, p)
@@ -190,10 +181,10 @@ void target_update(target r) {
         if (r->target)
             resize(r->target, r->width, r->height);
         else
-            r->target = texture(t, t,
+            r->target = hold(texture(t, t,
                 width,        r->width,
                 height,       r->height,
-                format,       Pixel_rgba8);
+                format,       Pixel_rgba8));
     }
     
     /// providing w always supplements t, width and height, layers/mips default to 1
@@ -201,11 +192,11 @@ void target_update(target r) {
         resize(r->color, r->width, r->height);
         resize(r->depth, r->width, r->height);
     } else {
-        r->color = texture(w, w, width, r->width, height, r->height,
+        r->color = hold(texture(w, w, width, r->width, height, r->height,
             vk_format, w->surface_format.format, swap, !backbuffer,
-            surface, Surface_color, vk_image, r->vk_swap_image);
-        r->depth = texture(w, w, width, r->width, height, r->height,
-            vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer);
+            surface, Surface_color, vk_image, r->vk_swap_image));
+        r->depth = hold(texture(w, w, width, r->width, height, r->height,
+            vk_format, VK_FORMAT_D32_SFLOAT,     swap, !backbuffer));
     }
  
     if (!backbuffer) {
@@ -233,6 +224,8 @@ void target_update(target r) {
 }
 
 void target_init(target r) {
+    hold(r);
+    A info = head(r);
     bool backbuffer = !r->vk_swap_image;
     if (!r->t) r->t = r->w->t;
     window  w = r->w;
@@ -345,6 +338,7 @@ void target_init(target r) {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         }, null, &r->vk_fence);
+    print("target init fence = %p", r->vk_fence);
     verify(result == VK_SUCCESS, "failed to create fence");
 
 
@@ -356,6 +350,7 @@ void target_init(target r) {
 }
 
 void target_dealloc(target r) {
+    A r_head = head(r);
     trinity t = r->t;
     window  w = r->w;
 
@@ -462,25 +457,25 @@ void window_resize(window w, i32 width, i32 height) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
             target top     = w->last_target; //last(w->list);
-            w->swap_model  = model(w, w, samplers, map_of("color", top, null));
+            w->swap_model  = hold(model(w, w, samplers, map_of("color", top, null)));
         }
 
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, null);
         if (!w->vk_swap_images)
              w->vk_swap_images = malloc(w->swap_image_count * sizeof(VkImage));
-        if (!w->swap_renders) w->swap_renders = array(alloc, w->swap_image_count);
+        if (!w->swap_renders) w->swap_renders = hold(array(alloc, w->swap_image_count));
         
         vkGetSwapchainImagesKHR(
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
             drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = target(w, w,
+            w->swap_renders->elements[i] = hold(target(w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
-                models,         a(w->swap_model));
+                models,         a(w->swap_model)));
         }
         w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
@@ -499,119 +494,123 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     Model      mdl          = m->id;
     trinity    t            = m->t;
     target     r            = m->r;
-    string     name         = prim->name ? prim->name : string("default");
-    i64        indices      = prim->indices;
-    Accessor   ai           = get(mdl->accessors, indices);
-    i64        mat_id       = prim->material;
-    AType      itype        = Accessor_member_type(ai);
-    BufferView iview        = get(mdl->bufferViews, ai->bufferView);
-    Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
-    Material   material     = mdl->materials ?
-        get(mdl->materials, mat_id) : null;
-    int        index        = 0;
-    int        vertex_size  = 0;
-    int        vertex_count = 0;
-    int        member_count = 0;
-    int        index_size   = itype->size;
-    int        index_count  = iview->byteLength / itype->size;
+    gpu        vbo          = null;
+    mat4f      model        = mat4f_ident();
+    Material   material     = null;
 
-    /// initialize vertex members data
-    vertex_member_t* members = calloc(16, sizeof(vertex_member_t));
-    memset(members, 0, sizeof(vertex_member_t));
+    if (n) { // if constructing with gltf node
+        /// initialize vertex members data
+        vertex_member_t* members = calloc(16, sizeof(vertex_member_t));
+        memset(members, 0, sizeof(vertex_member_t));
 
-    // Process attributes properly with accessor stride and offset
-    pairs (prim->attributes, i) {
-        string   name     = (string)i->key;
-        AType    vtype    = isa(i->value);
-        i64      ac_index = *(i64*)i->value;
-        Accessor ac       = get(mdl->accessors, ac_index);
-        BufferView bv     = get(mdl->bufferViews, ac->bufferView);
-        Buffer     b      = get(mdl->buffers, bv->buffer);
+        string     name         = (prim && prim->name) ? prim->name : string("default");
+        i64        indices      = prim->indices;
+        Accessor   ai           = get(mdl->accessors, indices);
+        i64        mat_id       = prim->material;
+        AType      itype        = Accessor_member_type(ai);
+        BufferView iview        = get(mdl->bufferViews, ai->bufferView);
+        Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
+        
+        material = mdl->materials ? get(mdl->materials, mat_id) : null;
+        int        index        = 0;
+        int        vertex_size  = 0;
+        int        vertex_count = 0;
+        int        member_count = 0;
+        int        index_size   = itype->size;
+        int        index_count  = iview->byteLength / itype->size;
+        // Process attributes properly with accessor stride and offset
+        pairs (prim->attributes, i) {
+            string   name     = (string)i->key;
+            AType    vtype    = isa(i->value);
+            i64      ac_index = *(i64*)i->value;
+            Accessor ac       = get(mdl->accessors, ac_index);
+            BufferView bv     = get(mdl->bufferViews, ac->bufferView);
+            Buffer     b      = get(mdl->buffers, bv->buffer);
 
-        members[member_count].type   = Accessor_member_type(ac);
-        members[member_count].ac     = ac;
-        members[member_count].size   = members[member_count].type->size;
-        members[member_count].offset = vertex_size;
+            members[member_count].type   = Accessor_member_type(ac);
+            members[member_count].ac     = ac;
+            members[member_count].size   = members[member_count].type->size;
+            members[member_count].offset = vertex_size;
 
-        vertex_size += members[member_count].type->size;
-        verify(ac->count, "count not set on accessor");
-        verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
-        vertex_count = ac->count;
-        member_count++;
-    }
-
-    /// allocate for GPU resource
-    gpu vbo = gpu(t, t,
-        name,         copy_cstr(name->chars),
-        members,      members,
-        member_count, member_count,
-        vertex_size,  vertex_size,
-        vertex_count, vertex_count,
-        index_size,   index_size,
-        index_count,  index_count);
-
-    /// fetch data handles
-    i8 *vdata = vbo->vertex_data;
-    i8 *idata = vbo->index_data;
-
-    /// Write VBO data properly with per-attribute striding
-    for (int k = 0; k < member_count; k++) {
-        vertex_member_t* mem = &members[k];
-        BufferView bv     = get(mdl->bufferViews, mem->ac->bufferView);
-        Buffer     b      = get(mdl->buffers, bv->buffer);
-        i8*        src    = &((i8*)data(b->data))[bv->byteOffset];
-        int        stride = mem->ac->stride;
-
-        for (int j = 0; j < vertex_count; j++) {
-            i8* dst  = &vdata[j * vertex_size + mem->offset]; // vertex at j plus our member offset
-            i8* src0 = &src[j * stride]; /// source is the same field over and over
-            memcpy(dst, src0, mem->size); /// copy this vertex field only
+            vertex_size += members[member_count].type->size;
+            verify(ac->count, "count not set on accessor");
+            verify(!vertex_count || ac->count == vertex_count, "invalid vbo data");
+            vertex_count = ac->count;
+            member_count++;
         }
-    }
 
-    typedef struct _vertex_model {
-        vec3f pos;
-        //vec3f normal;
-        vec2f uv;
-    } vertex_model;
+        /// allocate for GPU resource
+        vbo = gpu(t, t,
+            name,         copy_cstr(name->chars),
+            members,      members,
+            member_count, member_count,
+            vertex_size,  vertex_size,
+            vertex_count, vertex_count,
+            index_size,   index_size,
+            index_count,  index_count);
 
-    int size = sizeof(vertex_model);
+        /// fetch data handles
+        i8 *vdata = vbo->vertex_data;
+        i8 *idata = vbo->index_data;
 
-    /// write IBO data (todo: use reference)
-    i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
-    memcpy(idata, i_src, iview->byteLength);
-    mat4f model = mat4f_ident();
-    model = mat4f_translate(&model, &n->translation);
-    if (n->scale.x != 0 || n->scale.y != 0 || n->scale.z != 0)
-        model = mat4f_scale(&model, &n->scale);
-    model = mat4f_rotate(&model, &n->rotation);
-    
-    /// override blender's terrible quad
-    if (vertex_count == 4 && vertex_size == size) {
-        vertex_model* vert0 = &((vertex_model*)vdata)[0];
-        vertex_model* vert1 = &((vertex_model*)vdata)[1];
-        vertex_model* vert2 = &((vertex_model*)vdata)[2];
-        vertex_model* vert3 = &((vertex_model*)vdata)[3];
+        /// Write VBO data properly with per-attribute striding
+        for (int k = 0; k < member_count; k++) {
+            vertex_member_t* mem = &members[k];
+            BufferView bv     = get(mdl->bufferViews, mem->ac->bufferView);
+            Buffer     b      = get(mdl->buffers, bv->buffer);
+            i8*        src    = &((i8*)data(b->data))[bv->byteOffset];
+            int        stride = mem->ac->stride;
+
+            for (int j = 0; j < vertex_count; j++) {
+                i8* dst  = &vdata[j * vertex_size + mem->offset]; // vertex at j plus our member offset
+                i8* src0 = &src[j * stride]; /// source is the same field over and over
+                memcpy(dst, src0, mem->size); /// copy this vertex field only
+            }
+        }
+
+        typedef struct _vertex_model {
+            vec3f pos;
+            //vec3f normal;
+            vec2f uv;
+        } vertex_model;
+
+        int size = sizeof(vertex_model);
+
+        /// write IBO data (todo: use reference)
+        i8* i_src = &((i8*)data(ibuffer->data))[iview->byteOffset];
+        memcpy(idata, i_src, iview->byteLength);
+        model = mat4f_translate(&model, &n->translation);
+        if (n->scale.x != 0 || n->scale.y != 0 || n->scale.z != 0)
+            model = mat4f_scale(&model, &n->scale);
+        model = mat4f_rotate(&model, &n->rotation);
         
-        
-        u16* ibo = (u32*)idata;
-        /// les rewrite this quad to something that makes sense for VK_FRONT_FACE_CLOCKWISE
-        vert0->pos = vec3f( -1.0f, -1.0f, 0.0f ); // bottom-left
-        vert1->pos = vec3f(  1.0f, -1.0f, 0.0f ); // bottom-right
-        vert2->pos = vec3f(  1.0f,  1.0f, 0.0f ); // top-right
-        vert3->pos = vec3f( -1.0f,  1.0f, 0.0f ); // top-left
+        /// override blender's terrible quad
+        if (vertex_count == 4 && vertex_size == size) {
+            vertex_model* vert0 = &((vertex_model*)vdata)[0];
+            vertex_model* vert1 = &((vertex_model*)vdata)[1];
+            vertex_model* vert2 = &((vertex_model*)vdata)[2];
+            vertex_model* vert3 = &((vertex_model*)vdata)[3];
+            
+            
+            u16* ibo = (u32*)idata;
+            /// les rewrite this quad to something that makes sense for VK_FRONT_FACE_CLOCKWISE
+            vert0->pos = vec3f( -1.0f, -1.0f, 0.0f ); // bottom-left
+            vert1->pos = vec3f(  1.0f, -1.0f, 0.0f ); // bottom-right
+            vert2->pos = vec3f(  1.0f,  1.0f, 0.0f ); // top-right
+            vert3->pos = vec3f( -1.0f,  1.0f, 0.0f ); // top-left
 
-        vert0->uv = vec2f( 0.0f, 0.0f );
-        vert1->uv = vec2f( 1.0f, 0.0f );
-        vert2->uv = vec2f( 1.0f, 1.0f );
-        vert3->uv = vec2f( 0.0f, 1.0f );
+            vert0->uv = vec2f( 0.0f, 0.0f );
+            vert1->uv = vec2f( 1.0f, 0.0f );
+            vert2->uv = vec2f( 1.0f, 1.0f );
+            vert3->uv = vec2f( 0.0f, 1.0f );
 
-        ibo[0] = 0;
-        ibo[1] = 1;
-        ibo[2] = 2;
-        ibo[3] = 0;
-        ibo[4] = 2;
-        ibo[5] = 3;
+            ibo[0] = 0;
+            ibo[1] = 1;
+            ibo[2] = 2;
+            ibo[3] = 0;
+            ibo[4] = 2;
+            ibo[5] = 3;
+        }
     }
 
     /// pipeline processes samplers, and creates placeholders
@@ -822,8 +821,7 @@ texture trinity_environment(
 
     command cmd = command(t, t);
     target final = null;
-    
-    w->list = a(r_env);
+    w->list = hold(a(r_env));
 
     for (int f = 0; f < 6; f++) {
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
@@ -874,7 +872,8 @@ texture trinity_environment(
     conv_shader->env = mat4f_ident();
     conv_shader->env = mat4f_rotate(&conv_shader->env, &q);
 
-    w->list = a(r_conv);
+    drop(w->list);
+    w->list = hold(a(r_conv));
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -1025,17 +1024,17 @@ none gpu_sync(gpu a, window w) {
     /// vbo/ibo only need maintenance upon init, less we want to transfer out
     if (a->vertex_size && !a->vertex) {
         bool comp = a->compute;
-        a->vertex = buffer(t, t, size, a->vertex_size * a->vertex_count, 
+        a->vertex = hold(buffer(t, t, size, a->vertex_size * a->vertex_count, 
             u_storage, comp, u_vertex, !comp, u_dst, !comp, u_shader, !comp,
             m_host_visible, true, m_host_coherent, true,
-            data, a->vertex_data);
+            data, a->vertex_data));
         
         if (a->index_size)
-            a->index = buffer(
+            a->index = hold(buffer(
                 t, t, size, a->index_size * a->index_count,
                 u_index, true, u_dst, true, u_shader, true,
                 m_host_visible, true, m_host_coherent, true,
-                data, a->index_data);
+                data, a->index_data));
     }
 
     if (a->sampler && !a->tx) {
@@ -1051,12 +1050,12 @@ none gpu_sync(gpu a, window w) {
         else if (img && img->user)
             a->tx = hold((texture)img->user);
         else if (img && img->surface == Surface_environment)
-            a->tx = environment(
-                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f));
+            a->tx = hold(environment(
+                t, img, (vec3f) { 0.0f, 1.0f, 0.0f }, radians(90.0f)));
         else
-            a->tx = texture(
+            a->tx = hold(texture(
                 t, t, sampler, a->sampler,
-                surface, img ? img->surface : Surface_color);
+                surface, img ? img->surface : Surface_color));
     }
 }
 
@@ -1169,6 +1168,7 @@ none pipeline_rebind(pipeline p) {
 none texture_init(texture a) {
     trinity t         = a->w ? a->w->t : a->t;
     a->t              = t;
+    verify(t, "trinity not specified");
     image   img       = instanceof(a->sampler, image);
     int     ansio     = 4;
     i32     sampler_size = 0;
@@ -1269,6 +1269,8 @@ none texture_init(texture a) {
                 .imageExtent = { a->width, a->height, 1 }
             });
             submit(cmd);
+            vkDeviceWaitIdle(t->device);
+            drop(stagingBuffer);
             create_mipmaps(t, a->vk_image, a->width, a->height, a->mip_levels, a->layer_count);
             a->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
@@ -1384,11 +1386,13 @@ path path_with_cstr(path, cstr);
 void model_finish(model m, target r) {
     trinity t    = m->t;
     m->r         = r;
-    m->pipelines = array(alloc, 16);
+    m->pipelines = hold(array(alloc, 16));
 
-    if (!m->samplers) m->samplers = map(hsize, 32);
+    bool is_clear = !r->models || len(r->models) == 0;
 
-    if (!m->s) {
+    if (!m->samplers) m->samplers = hold(map(hsize, 32));
+    
+    if (!m->s && !is_clear) {
         UVQuad q = m->s  = UVQuad(t, m->t, name, string("uv-quad")); // as of right now, this is simplifying the inputs, and should be called UVScreen if anything
         q->model = mat4f_ident();
         vec3f eye = vec3f(0.0f, 0.0f, 2.0f);
@@ -1399,19 +1403,22 @@ void model_finish(model m, target r) {
     }
 
     /// use standard quad if no model; its a nice assumption because its hip to be square
-    if (!m->id) {
+    if (!m->id && !is_clear) {
         static path  gltf_quad;
         static Model quad;
-        if (!gltf_quad) gltf_quad = f(path, "models/uv-quad2.gltf");
-        if (!quad)      quad      = read(gltf_quad, typeid(Model));
+        if (!gltf_quad) gltf_quad = hold(f(path, "models/uv-quad2.gltf"));
+        if (!quad)      quad      = hold(read(gltf_quad, typeid(Model)));
         m->id = hold(quad);
     }
     
-    if (m->nodes) {
+    if (is_clear) {
+        /// support modelless; clear-color only here
+        model_init_pipeline(m, null, null, null);
+    } else if (m->nodes) {
         each (m->nodes, gltf_node, n)
             each (n->parts, gltf_part, p)
                 model_init_pipeline(m, n->id, p->id, p->s ? p->s : m->s);
-    } else {
+    } else if (m->id) {
         each (m->id->nodes, Node, n) {
             bool has_mesh = AF_query_name(n, "mesh"); // n->mesh > 0;
             if (has_mesh) {
@@ -1448,10 +1455,11 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
         if (evalue == surface_value) {
             verify(tx || instanceof(img, image), "expected texture or image");
             res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler,
-                (object)(tx ? (object)tx : (object)img));
+                (object)(tx ? (object)hold(tx) : (object)hold(img)));
             push(result, res);
         }
     }
+    return result;
 
     /// create resource fragment based on the texture type
     pbrMetallicRoughness pbr_default = pbr_defaults();
@@ -1463,7 +1471,7 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
         rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
         rgbaf f_color  = rgbaf(0.0f, 1.0f, 1.0f, 1.0f);
-        shape single = shape_new(1, 0);
+        shape single = hold(shape_new(1, 0));
         switch (surface_value) {
             case Surface_normal:
                 res = gpu(t, t, name, "normal", sampler,
@@ -1526,7 +1534,7 @@ void pipeline_bind_resources(pipeline p) {
     int                          sampler_counts   [32];
     VkWriteDescriptorSet         descriptor_writes[32];
 
-    p->resources = array(alloc, 32);
+    p->resources = hold(array(alloc, 32));
     if (p->vbo) {
         sync(p->vbo, p->w);
         push(p->resources, p->vbo);
@@ -1657,7 +1665,7 @@ void pipeline_bind_resources(pipeline p) {
         };
         i_image += sampler_bindings[i].descriptorCount;
     }
-
+    int test2 = 2;
     vkUpdateDescriptorSets(p->t->device,
         uniform_count + sampler_binds, descriptor_writes, 0, null);
 }
@@ -1869,7 +1877,7 @@ void pipeline_init(pipeline p) {
     p->vbo     = hold(p->vbo);
     p->memory  = hold(p->memory);
     
-    bind_resources(p);
+    bind_resources(p); // extra hold here
     reassemble(p);
 }
 
@@ -1911,9 +1919,19 @@ void pipeline_draw(pipeline p, handle f) {
         vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vertex->vk_buffer, offsets);
 
         if (p->vbo->index) {
+            static int test = 0;
+            test++;
+            VkBuffer vk = p->vbo->index->vk_buffer;
+            if (vk == (VkBuffer)0x4c000000004c) {
+                test = test;
+            }
             vkCmdBindIndexBuffer(frame, p->vbo->index->vk_buffer, 0,
                 gpu_index_type(p->vbo));
+
             vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
+            if (test == 15) {
+                test = test;
+            }
         } else
             vkCmdDraw(frame, p->vbo->vertex_count, 1, 0, 0);
     }
@@ -1999,21 +2017,77 @@ void trinity_finish(trinity t, window w) {
     }
 }
 
+
+
+static void handle_glfw_key(
+    GLFWwindow *glfw_window, int key, int scan_code, int action, int mods) {
+    
+    window w = glfwGetWindowUserPointer(glfw_window);
+
+    if (action == GLFW_PRESS && (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN)) {
+        w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
+    }
+
+    w->ev->key.unicode   = key;
+    w->ev->key.scan_code = scan_code;
+    w->ev->key.state     = action == GLFW_PRESS ? Button_press : Button_release;
+    w->ev->key.meta      = (mods & GLFW_MOD_SUPER) != 0;
+    w->ev->key.shift     = (mods & GLFW_MOD_SHIFT) != 0;
+    w->ev->key.alt       = (mods & GLFW_MOD_ALT)   != 0;
+}
+
+static void handle_glfw_scroll(GLFWwindow* win, f64 x, f64 y) {
+    window w = glfwGetWindowUserPointer(win);
+    verify(w->ev->mouse.wheel_delta.y == 0, "unexpected wheel state");
+    w->ev->mouse.wheel_delta.y = y;
+}
+
+static void handle_glfw_mouse(GLFWwindow* win, int id, int action, int mods) {
+    window w = glfwGetWindowUserPointer(win);
+
+    if (id == GLFW_MOUSE_BUTTON_LEFT)
+        w->ev->mouse.left = (action == GLFW_PRESS) ? Button_press : Button_release;
+    if (id == GLFW_MOUSE_BUTTON_RIGHT)
+        w->ev->mouse.right = (action ==GLFW_PRESS) ? Button_press : Button_release;
+    
+}
+
+static void handle_glfw_char(GLFWwindow* win, u32 code_point) {
+    window w = glfwGetWindowUserPointer(win);
+    verify(!w->ev->key.text, "unexpected text state");
+    w->ev->key.text = hold(string((i32)code_point));
+}
+
+static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
+    window w = glfwGetWindowUserPointer(win);
+    w->ev->mouse.pos.x = x;
+    w->ev->mouse.pos.y = y;
+}
+
 void window_init(window w) {
     trinity t = w->t;
 
-    //print("this is from window");
     if (!w->list) w->list = array(alloc, 32);
     VkResult result;
 
-    // Initialize GLFW window with Vulkan compatibility
+    if (!w->width) {
+        w->width  = 1200;
+        w->height = 1200;
+    }
+
+    w->ev = event();
+
     if (!w->backbuffer) {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         w->window = glfwCreateWindow(w->width, w->height,
             w->title ? cstring(w->title) : "trinity", null, null);
         verify(w->window, "Failed to create GLFW window");
-        glfwSetWindowUserPointer(w->window, (void *)w);
-        glfwSetKeyCallback(w->window, handle_glfw_key);
+        
+        glfwSetWindowUserPointer      (w->window, (void *)w);
+        glfwSetKeyCallback            (w->window, handle_glfw_key);
+        glfwSetMouseButtonCallback    (w->window, handle_glfw_mouse);
+        glfwSetCursorPosCallback      (w->window, handle_glfw_cursor);
+        glfwSetCharCallback           (w->window, handle_glfw_char);
         glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
 
         // Create Vulkan surface
@@ -2114,6 +2188,13 @@ void target_draw(target r) {
         .offset             = {0, 0},
         .extent             = { r->width, r->height }
     });
+    if (r->id == 22) {
+        int test2 = 2;
+        test2 += 2;
+    } else {
+        int test4 = 2;
+        test4 += 2;
+    }
     vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) { 
         .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass         = r->vk_render_pass,  // Pre-configured render pass
@@ -2129,7 +2210,7 @@ void target_draw(target r) {
                 r->clear_color.y,
                 r->clear_color.z,
                 r->clear_color.w }} },
-            { .depthStencil = { .depth   =   1.0f, .stencil = 0 } }
+            { .depthStencil = { .depth = 1.0f, .stencil = 0 } }
         }
     }, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -2159,11 +2240,19 @@ void target_draw(target r) {
             &w->semaphore_frame->vk_render_finished_semaphore : null
     };
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
+    int test = 0;
+    test++;
 }
 
 void target_sync_fence(target r) {
+    static int test = 0;
+    test++;
+    if (test == 25) {
+        test = test;
+    }
+    print("target fence = %p", r->vk_fence);
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
-    verify(result == VK_SUCCESS, "fence wait failed");
+    verify(result == VK_SUCCESS, "fence wait failed: %i", test);
 }
 
 none window_draw(window w) {
@@ -2272,7 +2361,7 @@ void app_update_canvas(app a) {
     output_mode (a->overlay, true);
 }
 
-void app_init(app a) {
+void app_initialize(app a) {
     window   w = a->w;
     a->t = w->t;
 
@@ -2286,11 +2375,12 @@ void app_init(app a) {
 
     app_update_canvas(a);
 
-    //a->r_background = hold(r_background);
     a->m_reduce  = model (w, w, samplers, map_of(
         "color", a->r_background->color, null));
+    
     a->r_reduce  = target(
         w, w, wscale, 1.0f, models, a(a->m_reduce));
+    A info = head(a->r_reduce);
 
     a->m_reduce0 = model (
         w, w, samplers, map_of("color", a->r_reduce->color, null));
@@ -2347,12 +2437,12 @@ void app_init(app a) {
     a->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
         models, a(a->m_view));
 
-    //w->list = a(r_background, r_blur_v, r_blur, r_view);
-    w->list = a(
+    w->list = hold(a(
         a->r_background, a->r_reduce,  a->r_reduce0, a->r_reduce1, a->r_blur_v, a->r_blur,
         a->r_reduce2,    a->r_reduce3, a->r_frost_v, a->r_frost,
-        a->r_view);
-    w->last_target = a->r_view;
+        a->r_view));
+    //w->list = hold(a(a->r_background));
+    w->last_target = hold(a->r_view);
 }
 
 void app_dealloc(app a) {
@@ -2409,11 +2499,12 @@ static void app_draw(app a, element e) {
     drop(e->_border_bounds);
     drop(e->_child_bounds);
     drop(e->_clip_bounds);
-    e->_bounds        = rectangle_offset(e->area,        rel);
-    e->_text_bounds   = rectangle_offset(e->text_area,   e->_bounds);
-    e->_border_bounds = rectangle_offset(e->border_area, e->_bounds);
-    e->_child_bounds  = rectangle_offset(e->child_area,  e->_bounds);
-    e->_clip_bounds   = rectangle_offset(e->clip_area,   e->_bounds);
+    A area_h = head(e->area);
+    e->_bounds        = hold(rectangle_offset(e->area,        rel));
+    e->_text_bounds   = hold(rectangle_offset(e->text_area,   e->_bounds));
+    e->_border_bounds = hold(rectangle_offset(e->border_area, e->_bounds));
+    e->_child_bounds  = hold(rectangle_offset(e->child_area,  e->_bounds));
+    e->_clip_bounds   = hold(rectangle_offset(e->clip_area,   e->_bounds));
 
     if (e->fill_color) {
         sk cv = canvas[e->fill_canvas];
@@ -2493,8 +2584,58 @@ i32 app_run(app a) {
     window w = a->w;
     resize(w, w->extent.width, w->extent.height);
 
-    int next_second = epoch_millis() / 1000;
-    int frames = 0;
+    callback interface   = bind(a, a, true, typeid(map), null, "interface");
+    callback background  = bind(a, a, true, null,        null, "background");
+    int      next_second = epoch_millis() / 1000;
+    int      frames      = 0;
+
+    while (!glfwWindowShouldClose(w->window)) {
+        clear(w->ev);
+        glfwPollEvents();
+        if (next_second != epoch_millis() / 1000) {
+            next_second  = epoch_millis() / 1000;
+            print("fps: %i", frames);
+            frames = 0;
+        }
+        frames++;
+
+
+        background(a, null);
+        map elements = interface(a, null);
+        update_all(a->ux, elements);
+        drop(elements);
+        
+        element root_element = a->ux->root;
+        verify(instanceof(root_element, element), "e is not an element");
+    
+        if (!a->compose || (a->compose->width  != w->width || 
+                            a->compose->height != w->height))
+            app_update_canvas(a);
+        
+        animate(a->ux);
+        
+        // clear canvases
+        clear       (a->compose,  string("#000"));
+        clear       (a->colorize, string("#000"));
+        clear       (a->overlay,  string("#0000")); // alpha clear
+        
+        // draw app ux
+        app_draw    (a, a->ux->root);
+        
+        // sync canvases (the elements should not perform sync)
+        sync        (a->compose); // this errors.
+        sync        (a->colorize);
+        sync        (a->overlay);
+        output_mode (a->compose,  true);
+        output_mode (a->overlay,  true);
+        output_mode (a->colorize, true);
+
+        draw(w);
+        recycle();
+        int after = A_alloc_count();
+        printf("after: %i\n", after);
+    }
+
     while (!glfwWindowShouldClose(w->window)) {
         glfwPollEvents();
         if (next_second != epoch_millis() / 1000) {
@@ -2504,10 +2645,11 @@ i32 app_run(app a) {
         }
         frames++;
 
-        a->on_background(a->arg);
-        map elements = a->on_interface(a);
+        background(a, null);
+        map elements = interface(a, null);
         update_all(a->ux, elements);
- 
+        drop(elements);
+
         element root_element = a->ux->root;
         verify(instanceof(root_element, element), "e is not an element");
     
@@ -2534,6 +2676,8 @@ i32 app_run(app a) {
         output_mode (a->colorize, true);
 
         draw(w);
+
+        recycle(); // stray ref:0's are recycled/freed
 
         int after = A_alloc_count();
         printf("after: %i\n", after);
@@ -3004,6 +3148,7 @@ none buffer_unmap(buffer b) {
 }
 
 none buffer_dealloc(buffer a) {
+    A info = head(a);
     vkDestroyBuffer(a->t->device, a->vk_buffer, null);
     vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
@@ -3148,7 +3293,7 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf"));
+    ds->font         = hold(font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf")));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;

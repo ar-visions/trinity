@@ -66,7 +66,7 @@ static map font_resources;
 static int font_resources_refs;
 
 none sk_font_dealloc(font f) {
-    if (--font_resources_refs == 0) {
+    if (--font_resources_refs == -2) {
         pairs(font_resources, i) {
             SkFont* f = (SkFont*)i->value;
             delete f; // this should release SkTypeface, an sk_sp used wit SkFont?
@@ -80,7 +80,7 @@ font sk_font_init(font f) {
     font_resources_refs++;
 
     if (!font_resources) {
-         font_resources = map(unmanaged, true);
+         font_resources = hold(map(unmanaged, true));
          verify(font_resources_refs == 1, "font resources out of sync");
     }
     f->res = map_get(font_resources, (object)f->uri);
@@ -159,20 +159,21 @@ none sk_resize(sk a, i32 w, i32 h) {
 
 none sk_init(sk a) {
     trinity t = a->t;
+
     a->skia = (Skia*)skia_init_vk(
         t->instance,
         t->physical_device,
         t->device,
         t->queue,
         t->queue_family_index, VK_API_VERSION_1_2);
-    
+
     verify(a->width > 0 && a->height > 0, "sk requires width and height");
     if (!a->tx) {
         texture tx = texture(t, a->t, width, a->width, height, a->height, 
             surface, Surface_color,
             format, Pixel_rgba8,
             linear, true, mip_levels, 1, layer_count, 1);
-        a->tx = (texture)A_hold((object)tx);
+        a->tx = (texture)A_hold((A)tx);
     }
     
     GrVkImageInfo info       = {};
@@ -331,7 +332,11 @@ none sk_save(sk a) {
     draw_state ds;
     if (len(a->state)) {
         draw_state prev = (draw_state)last(a->state);
+        font f = prev->font;
+        A header = A_header((object)f);
         ds = (draw_state)copy(prev);
+
+        font_resources_refs++; // easier doing this than making drop/hold a set of poly functions
     } else {
         ds = draw_state();
         set_default(ds);
@@ -665,15 +670,23 @@ none sk_prepare(sk a) {
 
 none sk_sync(sk a) {
     GrDirectContext* direct_ctx = a->skia->ctx.get();
-    //transition(a->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     direct_ctx->flush();
-    if (!a->once) {
+    static int test = 0;
+    test++;
+    /*if (!a->once) {
         a->once = true;
         transition(a->tx, (i32)VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     } else {
         transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
+    }*/
+    a->tx->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED; // set a phony previous state
+    //transition(a->tx, VK_IMAGE_LAYOUT_UNDEFINED);
+    transition(a->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkDeviceWaitIdle(a->tx->t->device);   
     direct_ctx->submit();
+    test++;
 }
 
 none sk_output_mode(sk a, bool output) {
