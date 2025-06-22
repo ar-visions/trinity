@@ -195,7 +195,7 @@ declare_class_2(UVQuad, shader)
     enum_value(E,T,Y, overlay,      5)
 declare_enum(UXSurface)
 
-#define UXQuad_schema(X,Y,...) \
+#define UXCompose_schema(X,Y,...) \
     i_prop   (X,Y, public,     mat4f,         model) \
     i_prop   (X,Y, public,     mat4f,         view) \
     i_prop   (X,Y, public,     mat4f,         proj) \
@@ -208,7 +208,16 @@ declare_enum(UXSurface)
     i_attr   (X,Y, UXSurface,    colorize,   1, rgba8) \
     i_attr   (X,Y, UXSurface,    overlay,    1, rgba8) \
     i_override(X,Y, method, init)
-declare_class_2(UXQuad, shader)
+declare_class_2(UXCompose, shader)
+
+#define UXSimple_schema(X,Y,...) \
+    i_prop   (X,Y, public,     mat4f,         model) \
+    i_prop   (X,Y, public,     mat4f,         view) \
+    i_prop   (X,Y, public,     mat4f,         proj) \
+    i_attr   (X,Y, UXSurface,    background, 1, rgba8) \
+    i_attr   (X,Y, UXSurface,    overlay,    1, rgba8) \
+    i_override(X,Y, method, init)
+declare_class_2(UXSimple, shader)
 
 /// when created with a mere window reference, it will create a texture the size of the window
 /// the last render in list will draw to swap-image; trinity works simply

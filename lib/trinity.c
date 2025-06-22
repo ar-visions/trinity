@@ -918,7 +918,7 @@ void window_initialize(window w) {
         w->m_frost   = model  (w, w, s, bl, samplers, map_of("color", w->r_frost_v->color, null));
         w->r_frost   = target (w, w, wscale, 1.0f, models, a(w->m_frost));
 
-        w->m_view    = model  (w, w, s, UXQuad(t, t, name, string("ux")),
+        w->m_view    = model  (w, w, s, UXCompose(t, t, name, string("ux")),
             samplers, map_of(
                 "background", w->r_background->color,
                 "frost",      w->r_frost->color,
@@ -930,9 +930,16 @@ void window_initialize(window w) {
         w->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
             models, a(w->m_view));
 
-        UXQuad  ux_shader = w->m_view->s;
+        UXCompose  ux_shader = w->m_view->s;
         ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
         ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
+    } else {
+        w->m_view = model  (w, w, s, SimpleQuad(t, t, name, string("simple")),
+            samplers, map_of(
+                "background", w->r_background->color,
+                "overlay",    w->overlay->tx, null));
+        w->r_view = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
+            models, a(w->m_view));
     }
     
     if (w->blur) {
@@ -3289,7 +3296,8 @@ define_class(shader,    A)
 define_class(BlurV,     shader)
 define_class(Blur,      shader)
 define_class(UVQuad,    shader)
-define_class(UXQuad,    shader)
+define_class(UXCompose, shader)
+define_class(UXSimple,  shader)
 define_class(PBR,       shader)
 define_class(Env,       shader)
 define_class(Convolve,  shader)
