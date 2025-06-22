@@ -155,6 +155,7 @@ none sk_resize(sk a, i32 w, i32 h) {
     resize(a->tx, w, h);
     sk_dealloc(a);
     sk_init(a);
+    A_hold_members((object)a);
 }
 
 none sk_init(sk a) {
@@ -670,23 +671,14 @@ none sk_prepare(sk a) {
 
 none sk_sync(sk a) {
     GrDirectContext* direct_ctx = a->skia->ctx.get();
-
-    transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     direct_ctx->flush();
-    static int test = 0;
-    test++;
     /*if (!a->once) {
         a->once = true;
         transition(a->tx, (i32)VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     } else {
         transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }*/
-    a->tx->vk_layout = VK_IMAGE_LAYOUT_UNDEFINED; // set a phony previous state
-    //transition(a->tx, VK_IMAGE_LAYOUT_UNDEFINED);
-    transition(a->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    vkDeviceWaitIdle(a->tx->t->device);   
     direct_ctx->submit();
-    test++;
 }
 
 none sk_output_mode(sk a, bool output) {

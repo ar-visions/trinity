@@ -8,6 +8,41 @@ const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 u32 vk_version = VK_API_VERSION_1_2;
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+trinity_log(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT types,
+    const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
+    void* userData);
+
+static void set_queue_index(trinity t, window w) {
+    uint32_t queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(t->physical_device, &queue_family_count, null);
+    verify(queue_family_count > 0, "failed to find queue families");
+
+    VkQueueFamilyProperties* queue_families = calloc(
+        queue_family_count, sizeof(VkQueueFamilyProperties));
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        t->physical_device, &queue_family_count, queue_families);
+    bool found = false;
+    if (!w->surface) {
+        t->queue_family_index = 0; // works for testing
+        found = true;
+    } else
+    for (uint32_t i = 0; i < queue_family_count; i++) {
+        VkBool32 present_support = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(
+            t->physical_device, i, w->surface, &present_support);
+        if (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && present_support) {
+            t->queue_family_index = i;  // Select queue that supports both graphics and presentation
+            found = true;
+            break;
+        }
+    }
+    free(queue_families);
+    verify(found, "failed to find a suitable graphics and presentation queue family");
+}
+
 u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
     VkPhysicalDeviceMemoryProperties props;
     vkGetPhysicalDeviceMemoryProperties(t->physical_device, &props);
@@ -156,6 +191,159 @@ VkInstance vk_create() {
     
     free(extensions);
     return instance;
+}
+
+
+void trinity_init(trinity t) {
+    verify(glfwInit(), "glfw init");
+    int wsize2 = sizeof(struct _window);
+    int bsize2 = sizeof(struct _Basic);
+    if (!glfwVulkanSupported()) {
+        fault("glfw does not support vulkan");
+        glfwTerminate();
+        return;
+    }
+
+    t->instance = vk_create();
+    verify(t->instance, "vk instance failure");
+
+    // enumerate physical devices (adapter in WebGPU)
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(t->instance, &deviceCount, null);
+    verify(deviceCount > 0, "failed to find GPUs with Vulkan support");
+
+    VkPhysicalDevice physical_devices[deviceCount];
+    vkEnumeratePhysicalDevices(t->instance, &deviceCount, physical_devices);
+    t->physical_device = physical_devices[0]; // Choose the first device or implement selection logic
+
+    // Check for device extensions
+    uint32_t extension_count = 0;
+    vkEnumerateDeviceExtensionProperties(t->physical_device, null, &extension_count, null);
+    verify(extension_count > 0, "failed to find device extensions");
+
+    VkExtensionProperties extensions[extension_count];
+    vkEnumerateDeviceExtensionProperties(t->physical_device, null, &extension_count, extensions);
+    
+    // Check for required extensions
+    bool swapchain_supported = false;
+
+    symbol device_extensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
+    int total_extension_count = sizeof(device_extensions) / sizeof(device_extensions[0]);
+    
+    // Track which RT extensions are found
+    bool found_extensions[total_extension_count];
+    memset(found_extensions, 0, sizeof(found_extensions));
+    
+    // Check which extensions are available
+    bool pr = getenv("VERBOSE") != null;
+    for (uint32_t i = 0; i < extension_count; i++) {
+        if (pr) print("[supported] device extension: %s", extensions[i].extensionName);
+        if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
+            swapchain_supported = true;
+        
+        // Check for RT extensions
+        for (int j = 0; j < total_extension_count; j++) {
+            if (strcmp(extensions[i].extensionName, device_extensions[j]) == 0) {
+                found_extensions[j] = true;
+                break;
+            }
+        }
+    }
+
+    verify(swapchain_supported, "VK_KHR_swapchain extension is not supported by the physical device");
+    
+    VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {};
+    bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+    bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
+
+    VkPhysicalDeviceFeatures2 features2 = {};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &bufferDeviceAddressFeatures;
+
+    //t->msaa_samples = max_sample_count(t->physical_device);
+    vkGetPhysicalDeviceFeatures2(t->physical_device, &features2); // Fetch the features from the physical device
+
+    // Prepare device extensions
+    float    queuePriority = 1.0f;
+    VkResult result = vkCreateDevice(t->physical_device, &(VkDeviceCreateInfo) {
+            .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+            .pNext                      = &features2,
+            .queueCreateInfoCount       = 1,
+            .pQueueCreateInfos          = &(VkDeviceQueueCreateInfo) {
+                .sType                  = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                .queueFamilyIndex       = 0, // Replace with actual graphics queue family index
+                .queueCount             = 1,
+                .pQueuePriorities       = &queuePriority,
+            },
+            .enabledExtensionCount      = 1,
+            .ppEnabledExtensionNames    = device_extensions,
+        }, null, &t->device);
+    verify(result == VK_SUCCESS, "cannot create logical device");
+    t->queue_family_index = -1;
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+trinity_log(
+    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    VkDebugUtilsMessageTypeFlagsEXT types,
+    const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
+    void* userData) {
+    print("[vulkan] %s", callbackData->pMessage);
+    return VK_FALSE;
+}
+
+
+void trinity_finish(trinity t, window w) {
+    VkResult result;
+    /// this is done once for device, not once per window; however we must have a surface for it
+    if (t->queue_family_index == -1) {
+        set_queue_index(t, w);
+        vkGetDeviceQueue(t->device, t->queue_family_index, 0, &t->queue);
+        verify(t->queue, "Failed to retrieve graphics queue");
+
+        result = _vkCreateDebugUtilsMessengerEXT(t->instance, &(VkDebugUtilsMessengerCreateInfoEXT) {
+                .sType              = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                .messageSeverity    = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                .messageType        = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT     |
+                                      VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT  |
+                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                .pfnUserCallback    = trinity_log,
+                .pUserData          = t
+            }, null, &t->debug);
+        verify(result == VK_SUCCESS, "debug messenger");
+
+        /// buffer management for pipeline, without management (it does not drop/hold this external data; not A-type)
+        t->device_memory = hold(map(unmanaged, true));
+      //t->buffers       = map(unmanaged, true); -- decentralized buffer management
+        //t->skia          = skia_init_vk(
+        //    t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
+    
+        VkCommandPoolCreateInfo pool_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .queueFamilyIndex = t->queue_family_index,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        };
+        result = vkCreateCommandPool(t->device, &pool_info, null, &t->command_pool);
+        verify(result == VK_SUCCESS, "failed to create command pool");
+    }
+}
+
+void trinity_dealloc(trinity t) {
+    vkDeviceWaitIdle(t->device);
+    pairs(t->device_memory, i) {
+        VkBuffer      buffer  = (VkBuffer)      i->key;
+        VkDeviceMemory memory = (VkDeviceMemory)i->value;
+        vkDestroyBuffer(t->device, buffer, null);
+        vkFreeMemory   (t->device, memory, null);
+    }
+
+    vkDestroyDevice(t->device, null);
+    vkDestroyInstance(t->instance, null);
+    glfwTerminate();
 }
 
 void model_rebind_model(model m) {
@@ -383,6 +571,46 @@ void UXQuad_init(UVQuad q) {
     q->proj      = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
 }
 
+
+void window_update_canvas(window a) {
+    window  w      = a;
+    trinity t      = w->t;
+    int     width  = w->width;
+    int     height = w->height;
+
+    a->t = w->t;
+
+    if (a->compose) {
+        resize(a->compose,  width, height);
+        resize(a->colorize, width, height);
+        resize(a->overlay,  width, height);
+    } else {
+        a->compose = hold(sk(
+            t, a->t, format, Pixel_rgba8,
+            width, width, height, height));
+        a->colorize = hold(sk(t, t, format, Pixel_rgba8,
+            width, width, height, height));
+        a->overlay = hold(sk(t, t, format, Pixel_rgba8,
+            width, width, height, height));
+
+        A info = head(a->overlay->state);
+        int test = 2;
+        test += 2;
+    }
+
+    clear       (a->compose, string("#00f"));
+    sync        (a->compose);
+    output_mode (a->compose, true);
+
+    clear       (a->colorize, string("#000"));
+    sync        (a->colorize);
+    output_mode (a->colorize, true);
+
+    clear       (a->overlay, string("#0000"));
+    sync        (a->overlay);
+    output_mode (a->overlay, true);
+}
+
 void window_resize(window w, i32 width, i32 height) {
     trinity t        = w->t;
 
@@ -481,6 +709,30 @@ void window_resize(window w, i32 width, i32 height) {
         w->semaphore_frame = first(w->swap_renders);
         w->swap_render_current = w->swap_renders->elements[0];
     }
+
+    update_canvas(w);
+}
+
+image window_cast_image(window w) {
+    trinity t = w->t;
+    int     color_size = w->format == Pixel_rgbaf32 ? 16 : 4;
+    int     image_size = w->width * w->height * color_size;
+    buffer  b = buffer(t, t, size, image_size,
+        u_dst, true, m_host_visible, true, m_host_coherent, true);
+    transfer(b, w);
+    void* data = mmap(b);
+    image result = image(
+        width,      w->width,
+        height,     w->height,
+        format,     w->format,
+        surface,    Surface_color);
+    memcpy(data(result), data, image_size);
+    unmap(b);
+    return result;
+}
+
+target window_final_target(window w) {
+    return last(w->list);
 }
 
 static void handle_glfw_framebuffer_size(
@@ -488,6 +740,214 @@ static void handle_glfw_framebuffer_size(
     if (width == 0 && height == 0) return; // Minimized window, no resize needed
     window w = glfwGetWindowUserPointer(glfw_window);
     resize(w, width, height);
+}
+
+static void handle_glfw_key(
+    GLFWwindow *glfw_window, int key, int scan_code, int action, int mods) {
+    
+    window w = glfwGetWindowUserPointer(glfw_window);
+
+    if (action == GLFW_PRESS && (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN)) {
+        w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
+    }
+
+    w->ev->key.unicode   = key;
+    w->ev->key.scan_code = scan_code;
+    w->ev->key.state     = action == GLFW_PRESS ? Button_press : Button_release;
+    w->ev->key.meta      = (mods & GLFW_MOD_SUPER) != 0;
+    w->ev->key.shift     = (mods & GLFW_MOD_SHIFT) != 0;
+    w->ev->key.alt       = (mods & GLFW_MOD_ALT)   != 0;
+}
+
+static void handle_glfw_scroll(GLFWwindow* win, f64 x, f64 y) {
+    window w = glfwGetWindowUserPointer(win);
+    verify(w->ev->mouse.wheel_delta.y == 0, "unexpected wheel state");
+    w->ev->mouse.wheel_delta.y = y;
+}
+
+static void handle_glfw_mouse(GLFWwindow* win, int id, int action, int mods) {
+    window w = glfwGetWindowUserPointer(win);
+
+    if (id == GLFW_MOUSE_BUTTON_LEFT)
+        w->ev->mouse.left = (action == GLFW_PRESS) ? Button_press : Button_release;
+    if (id == GLFW_MOUSE_BUTTON_RIGHT)
+        w->ev->mouse.right = (action ==GLFW_PRESS) ? Button_press : Button_release;
+    
+}
+
+static void handle_glfw_char(GLFWwindow* win, u32 code_point) {
+    window w = glfwGetWindowUserPointer(win);
+    verify(!w->ev->key.text, "unexpected text state");
+    w->ev->key.text = hold(string((i32)code_point));
+}
+
+static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
+    window w = glfwGetWindowUserPointer(win);
+    w->ev->mouse.pos.x = x;
+    w->ev->mouse.pos.y = y;
+}
+
+void window_init(window w) {
+    trinity t = w->t;
+
+    if (!w->list) w->list = hold(array(alloc, 32));
+    VkResult result;
+
+    if (!w->width) {
+        w->width  = 1200;
+        w->height = 1200;
+    }
+
+    w->ev = hold(event());
+
+    if (!w->backbuffer) {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        w->window = glfwCreateWindow(w->width, w->height,
+            w->title ? cstring(w->title) : "trinity", null, null);
+        verify(w->window, "Failed to create GLFW window");
+        
+        glfwSetWindowUserPointer      (w->window, (void *)w);
+        glfwSetKeyCallback            (w->window, handle_glfw_key);
+        glfwSetMouseButtonCallback    (w->window, handle_glfw_mouse);
+        glfwSetCursorPosCallback      (w->window, handle_glfw_cursor);
+        glfwSetCharCallback           (w->window, handle_glfw_char);
+        glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
+
+        // Create Vulkan surface
+        result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
+        verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
+    }
+
+    trinity_finish(t, w);
+
+    if (!w->backbuffer) {
+        // Query surface capabilities
+        w->surface_caps = calloc(1, sizeof(VkSurfaceCapabilitiesKHR));
+        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+            t->physical_device, w->surface, w->surface_caps);
+        verify(result == VK_SUCCESS, "Failed to query surface capabilities");
+
+        // Query supported surface formats
+        uint32_t format_count = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(
+            t->physical_device, w->surface, &format_count, null);
+        verify(format_count > 0, "No surface formats found");
+
+        VkSurfaceFormatKHR* formats = malloc(format_count * sizeof(VkSurfaceFormatKHR));
+        vkGetPhysicalDeviceSurfaceFormatsKHR(
+            t->physical_device, w->surface, &format_count, formats);
+
+        // Choose a surface format
+        w->surface_format = formats[0];  // Default to the first format
+        for (uint32_t i = 0; i < format_count; ++i) {
+            if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
+                VkSurfaceFormatKHR* f = &formats[i];
+                w->surface_format = formats[i];
+                //break;
+            }
+        }
+        free(formats);
+
+        // Query supported present modes
+        uint32_t present_mode_count = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(
+            t->physical_device, w->surface, &present_mode_count, null);
+        verify(present_mode_count > 0, "No present modes found");
+
+        VkPresentModeKHR* present_modes = malloc(present_mode_count * sizeof(VkPresentModeKHR));
+        vkGetPhysicalDeviceSurfacePresentModesKHR(
+            t->physical_device, w->surface, &present_mode_count, present_modes);
+
+        // Choose a present mode
+        w->present_mode = VK_PRESENT_MODE_FIFO_KHR;  // Default to FIFO (V-Sync)
+        for (uint32_t i = 0; i < present_mode_count; ++i) {
+            int m = present_modes[i];
+            if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+                w->present_mode = VK_PRESENT_MODE_MAILBOX_KHR;  // Prefer Mailbox (low latency)
+                break;
+            }
+        }
+        free(present_modes);
+        // Configure swapchain extent
+        int width, height;
+        glfwGetWindowSize(w->window, &width, &height);
+        w->extent.width              = (uint32_t)width;
+        w->extent.height             = (uint32_t)height;
+    } else {
+        w->surface_format.format     = w->format == Pixel_rgbaf32 ?
+            VK_FORMAT_R32G32B32A32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        w->surface_format.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        w->extent.width              = w->width;
+        w->extent.height             = w->height;
+    }
+}
+
+// this method must be separate from init due to an apps requirement to define a r_background
+void window_initialize(window w) {
+    update_canvas(w);
+    trinity t = w->t;
+    if (w->blur) {
+        w->m_reduce  = model (w, w, samplers, map_of("color", w->r_background->color, null));
+        w->r_reduce  = target(w, w, wscale, 1.0f, models, a(w->m_reduce));
+
+        w->m_reduce0 = model (w, w, samplers, map_of("color", w->r_reduce->color, null));
+        w->r_reduce0 = target(w, w, wscale, 0.5f, models, a(w->m_reduce0));
+        
+        w->m_reduce1 = model (w, w, samplers, map_of("color", w->r_reduce0->color, null));
+        w->r_reduce1 = target(w, w, wscale, 0.25f, models, a(w->m_reduce1));
+
+        BlurV   fbv  = BlurV  (t, t, name, string("blur-v"), reduction_scale, 4.0f);
+        w->m_blur_v  = model  (w, w, s, fbv, samplers, map_of("color", w->r_reduce1->color, null));
+        w->r_blur_v  = target (w, w, wscale, 1.0, models, a(w->m_blur_v));
+        
+        Blur    fbl  = Blur   (t, t, name, string("blur"), reduction_scale, 4.0f);
+        w->m_blur    = model  (w, w, s, fbl, samplers, map_of("color", w->r_blur_v->color, null));
+        w->r_blur    = target (w, w, wscale, 1.0, models, a(w->m_blur));
+
+        w->m_reduce2 = model (w, w, samplers, map_of("color", w->r_reduce1->color, null));
+        w->r_reduce2 = target(w, w, wscale, 1.0f / 8.0f, models, a(w->m_reduce2));
+
+        w->m_reduce3 = model  (w, w, samplers, map_of("color", w->r_reduce2->color, null));
+        w->r_reduce3 = target (w, w, wscale, 1.0f / 16.0f, models, a(w->m_reduce3));
+
+        BlurV   bv   = BlurV  (t, t, name, string("blur-v"), reduction_scale, 16.0f);
+        w->m_frost_v = model  (w, w, s, bv, samplers, map_of("color", w->r_reduce3->color, null));
+        w->r_frost_v = target (w, w, wscale, 1.0f, models, a(w->m_frost_v));
+
+        Blur    bl   = Blur   (t, t, name, string("blur"), reduction_scale, 16.0f);
+        w->m_frost   = model  (w, w, s, bl, samplers, map_of("color", w->r_frost_v->color, null));
+        w->r_frost   = target (w, w, wscale, 1.0f, models, a(w->m_frost));
+
+        w->m_view    = model  (w, w, s, UXQuad(t, t, name, string("ux")),
+            samplers, map_of(
+                "background", w->r_background->color,
+                "frost",      w->r_frost->color,
+                "blur",       w->r_blur->color,
+                "compose",    w->compose->tx,
+                "colorize",   w->colorize->tx,
+                "overlay",    w->overlay->tx, null));
+
+        w->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
+            models, a(w->m_view));
+
+        UXQuad  ux_shader = w->m_view->s;
+        ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
+        ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
+    }
+    
+    if (w->blur) {
+        w->list = hold(a(
+            w->r_background, w->r_reduce,  w->r_reduce0, w->r_reduce1, w->r_blur_v, w->r_blur,
+            w->r_reduce2,    w->r_reduce3, w->r_frost_v, w->r_frost,
+            w->r_view));
+    } else {
+        w->list = hold(a(
+            w->r_background, w->r_view));
+    }
+
+    //w->list = hold(a(w->r_background));
+    w->last_target = hold(w->r_view);
+    w->ux = hold(composer(app, w->app));
 }
 
 void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
@@ -637,23 +1097,6 @@ void Env_init(Env e) {
     mat4f_set_identity(&e->view);
 }
 
-image window_cast_image(window w) {
-    trinity t = w->t;
-    int     color_size = w->format == Pixel_rgbaf32 ? 16 : 4;
-    int     image_size = w->width * w->height * color_size;
-    buffer  b = buffer(t, t, size, image_size,
-        u_dst, true, m_host_visible, true, m_host_coherent, true);
-    transfer(b, w);
-    void* data = mmap(b);
-    image result = image(
-        width,      w->width,
-        height,     w->height,
-        format,     w->format,
-        surface,    Surface_color);
-    memcpy(data(result), data, image_size);
-    unmap(b);
-    return result;
-}
 
 none command_init(command a) {
     trinity t = a->t;
@@ -1158,6 +1601,7 @@ none texture_resize(texture a, i32 w, i32 h) {
     vkDeviceWaitIdle(a->t->device);
     texture_dealloc(a);
     texture_init(a);
+    A_hold_members(a);
 }
 
 none pipeline_rebind(pipeline p) {
@@ -1232,7 +1676,7 @@ none texture_init(texture a) {
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
         }, null, &a->vk_image) == VK_SUCCESS,
             "Failed to create VkImage");
-
+        
         // Allocate memory and bind
         VkMemoryRequirements memReqs;
         vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
@@ -1459,8 +1903,6 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
             push(result, res);
         }
     }
-    return result;
-
     /// create resource fragment based on the texture type
     pbrMetallicRoughness pbr_default = pbr_defaults();
     pbrMetallicRoughness pbr = p->material ? p->material->pbr : pbr_default;
@@ -1543,7 +1985,7 @@ void pipeline_bind_resources(pipeline p) {
     VkShaderStageFlags stage_flags = VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT;
 
     // populate bind layout for uniforms
-    p->shader_uniforms = uniforms(t, t, s, p->s); // no need to have this in 'gpu' magic container
+    p->shader_uniforms = hold(uniforms(t, t, s, p->s)); // no need to have this in 'gpu' magic container
 
     each (p->shader_uniforms->u_buffers, buffer, b) {
         uniform_bindings[uniform_count] = (VkDescriptorSetLayoutBinding) {
@@ -1665,7 +2107,6 @@ void pipeline_bind_resources(pipeline p) {
         };
         i_image += sampler_bindings[i].descriptorCount;
     }
-    int test2 = 2;
     vkUpdateDescriptorSets(p->t->device,
         uniform_count + sampler_binds, descriptor_writes, 0, null);
 }
@@ -1919,245 +2360,15 @@ void pipeline_draw(pipeline p, handle f) {
         vkCmdBindVertexBuffers(frame, 0, 1, &p->vbo->vertex->vk_buffer, offsets);
 
         if (p->vbo->index) {
-            static int test = 0;
-            test++;
-            VkBuffer vk = p->vbo->index->vk_buffer;
-            if (vk == (VkBuffer)0x4c000000004c) {
-                test = test;
-            }
             vkCmdBindIndexBuffer(frame, p->vbo->index->vk_buffer, 0,
                 gpu_index_type(p->vbo));
 
             vkCmdDrawIndexed(frame, p->vbo->index_count, 1, 0, 0, 0);
-            if (test == 15) {
-                test = test;
-            }
         } else
             vkCmdDraw(frame, p->vbo->vertex_count, 1, 0, 0);
     }
 }
 
-target window_final_target(window w) {
-    return last(w->list);
-}
-
-
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-trinity_log(
-    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    VkDebugUtilsMessageTypeFlagsEXT types,
-    const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
-    void* userData) {
-    print("[vulkan] %s", callbackData->pMessage);
-    return VK_FALSE;
-}
-
-static void set_queue_index(trinity t, window w) {
-    uint32_t queue_family_count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(t->physical_device, &queue_family_count, null);
-    verify(queue_family_count > 0, "failed to find queue families");
-
-    VkQueueFamilyProperties* queue_families = calloc(
-        queue_family_count, sizeof(VkQueueFamilyProperties));
-    vkGetPhysicalDeviceQueueFamilyProperties(
-        t->physical_device, &queue_family_count, queue_families);
-    bool found = false;
-    if (!w->surface) {
-        t->queue_family_index = 0; // works for testing
-        found = true;
-    } else
-    for (uint32_t i = 0; i < queue_family_count; i++) {
-        VkBool32 present_support = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(
-            t->physical_device, i, w->surface, &present_support);
-        if (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && present_support) {
-            t->queue_family_index = i;  // Select queue that supports both graphics and presentation
-            found = true;
-            break;
-        }
-    }
-    free(queue_families);
-    verify(found, "failed to find a suitable graphics and presentation queue family");
-}
-
-void trinity_finish(trinity t, window w) {
-    VkResult result;
-    /// this is done once for device, not once per window; however we must have a surface for it
-    if (t->queue_family_index == -1) {
-        set_queue_index(t, w);
-        vkGetDeviceQueue(t->device, t->queue_family_index, 0, &t->queue);
-        verify(t->queue, "Failed to retrieve graphics queue");
-
-        result = _vkCreateDebugUtilsMessengerEXT(t->instance, &(VkDebugUtilsMessengerCreateInfoEXT) {
-                .sType              = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                .messageSeverity    = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                .messageType        = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT     |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT  |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback    = trinity_log,
-                .pUserData          = t
-            }, null, &t->debug);
-        verify(result == VK_SUCCESS, "debug messenger");
-
-        /// buffer management for pipeline, without management (it does not drop/hold this external data; not A-type)
-        t->device_memory = map(unmanaged, true);
-      //t->buffers       = map(unmanaged, true); -- decentralized buffer management
-        //t->skia          = skia_init_vk(
-        //    t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
-    
-        VkCommandPoolCreateInfo pool_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .queueFamilyIndex = t->queue_family_index,
-            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        };
-        result = vkCreateCommandPool(t->device, &pool_info, null, &t->command_pool);
-        verify(result == VK_SUCCESS, "failed to create command pool");
-    }
-}
-
-
-
-static void handle_glfw_key(
-    GLFWwindow *glfw_window, int key, int scan_code, int action, int mods) {
-    
-    window w = glfwGetWindowUserPointer(glfw_window);
-
-    if (action == GLFW_PRESS && (key == GLFW_KEY_UP || key == GLFW_KEY_DOWN)) {
-        w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
-    }
-
-    w->ev->key.unicode   = key;
-    w->ev->key.scan_code = scan_code;
-    w->ev->key.state     = action == GLFW_PRESS ? Button_press : Button_release;
-    w->ev->key.meta      = (mods & GLFW_MOD_SUPER) != 0;
-    w->ev->key.shift     = (mods & GLFW_MOD_SHIFT) != 0;
-    w->ev->key.alt       = (mods & GLFW_MOD_ALT)   != 0;
-}
-
-static void handle_glfw_scroll(GLFWwindow* win, f64 x, f64 y) {
-    window w = glfwGetWindowUserPointer(win);
-    verify(w->ev->mouse.wheel_delta.y == 0, "unexpected wheel state");
-    w->ev->mouse.wheel_delta.y = y;
-}
-
-static void handle_glfw_mouse(GLFWwindow* win, int id, int action, int mods) {
-    window w = glfwGetWindowUserPointer(win);
-
-    if (id == GLFW_MOUSE_BUTTON_LEFT)
-        w->ev->mouse.left = (action == GLFW_PRESS) ? Button_press : Button_release;
-    if (id == GLFW_MOUSE_BUTTON_RIGHT)
-        w->ev->mouse.right = (action ==GLFW_PRESS) ? Button_press : Button_release;
-    
-}
-
-static void handle_glfw_char(GLFWwindow* win, u32 code_point) {
-    window w = glfwGetWindowUserPointer(win);
-    verify(!w->ev->key.text, "unexpected text state");
-    w->ev->key.text = hold(string((i32)code_point));
-}
-
-static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
-    window w = glfwGetWindowUserPointer(win);
-    w->ev->mouse.pos.x = x;
-    w->ev->mouse.pos.y = y;
-}
-
-void window_init(window w) {
-    trinity t = w->t;
-
-    if (!w->list) w->list = array(alloc, 32);
-    VkResult result;
-
-    if (!w->width) {
-        w->width  = 1200;
-        w->height = 1200;
-    }
-
-    w->ev = event();
-
-    if (!w->backbuffer) {
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        w->window = glfwCreateWindow(w->width, w->height,
-            w->title ? cstring(w->title) : "trinity", null, null);
-        verify(w->window, "Failed to create GLFW window");
-        
-        glfwSetWindowUserPointer      (w->window, (void *)w);
-        glfwSetKeyCallback            (w->window, handle_glfw_key);
-        glfwSetMouseButtonCallback    (w->window, handle_glfw_mouse);
-        glfwSetCursorPosCallback      (w->window, handle_glfw_cursor);
-        glfwSetCharCallback           (w->window, handle_glfw_char);
-        glfwSetFramebufferSizeCallback(w->window, handle_glfw_framebuffer_size);
-
-        // Create Vulkan surface
-        result = glfwCreateWindowSurface(t->instance, w->window, null, &w->surface);
-        verify(result == VK_SUCCESS, "Failed to create Vulkan surface");
-    }
-
-    trinity_finish(t, w);
-
-    if (!w->backbuffer) {
-        // Query surface capabilities
-        w->surface_caps = calloc(1, sizeof(VkSurfaceCapabilitiesKHR));
-        result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-            t->physical_device, w->surface, w->surface_caps);
-        verify(result == VK_SUCCESS, "Failed to query surface capabilities");
-
-        // Query supported surface formats
-        uint32_t format_count = 0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(
-            t->physical_device, w->surface, &format_count, null);
-        verify(format_count > 0, "No surface formats found");
-
-        VkSurfaceFormatKHR* formats = malloc(format_count * sizeof(VkSurfaceFormatKHR));
-        vkGetPhysicalDeviceSurfaceFormatsKHR(
-            t->physical_device, w->surface, &format_count, formats);
-
-        // Choose a surface format
-        w->surface_format = formats[0];  // Default to the first format
-        for (uint32_t i = 0; i < format_count; ++i) {
-            if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM) {
-                VkSurfaceFormatKHR* f = &formats[i];
-                w->surface_format = formats[i];
-                //break;
-            }
-        }
-        free(formats);
-
-        // Query supported present modes
-        uint32_t present_mode_count = 0;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(
-            t->physical_device, w->surface, &present_mode_count, null);
-        verify(present_mode_count > 0, "No present modes found");
-
-        VkPresentModeKHR* present_modes = malloc(present_mode_count * sizeof(VkPresentModeKHR));
-        vkGetPhysicalDeviceSurfacePresentModesKHR(
-            t->physical_device, w->surface, &present_mode_count, present_modes);
-
-        // Choose a present mode
-        w->present_mode = VK_PRESENT_MODE_FIFO_KHR;  // Default to FIFO (V-Sync)
-        for (uint32_t i = 0; i < present_mode_count; ++i) {
-            int m = present_modes[i];
-            if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
-                w->present_mode = VK_PRESENT_MODE_MAILBOX_KHR;  // Prefer Mailbox (low latency)
-                break;
-            }
-        }
-        free(present_modes);
-        // Configure swapchain extent
-        int width, height;
-        glfwGetWindowSize(w->window, &width, &height);
-        w->extent.width              = (uint32_t)width;
-        w->extent.height             = (uint32_t)height;
-    } else {
-        w->surface_format.format     = w->format == Pixel_rgbaf32 ?
-            VK_FORMAT_R32G32B32A32_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
-        w->surface_format.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-        w->extent.width              = w->width;
-        w->extent.height             = w->height;
-    }
-}
 
 void target_draw(target r) {
     trinity  t = r->w->t;
@@ -2188,13 +2399,6 @@ void target_draw(target r) {
         .offset             = {0, 0},
         .extent             = { r->width, r->height }
     });
-    if (r->id == 22) {
-        int test2 = 2;
-        test2 += 2;
-    } else {
-        int test4 = 2;
-        test4 += 2;
-    }
     vkCmdBeginRenderPass(frame, &(VkRenderPassBeginInfo) { 
         .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass         = r->vk_render_pass,  // Pre-configured render pass
@@ -2240,19 +2444,12 @@ void target_draw(target r) {
             &w->semaphore_frame->vk_render_finished_semaphore : null
     };
     vkQueueSubmit(t->queue, 1, &submitInfo, r->vk_fence);
-    int test = 0;
-    test++;
 }
 
 void target_sync_fence(target r) {
-    static int test = 0;
-    test++;
-    if (test == 25) {
-        test = test;
-    }
     print("target fence = %p", r->vk_fence);
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
-    verify(result == VK_SUCCESS, "fence wait failed: %i", test);
+    verify(result == VK_SUCCESS, "fence wait failed");
 }
 
 none window_draw(window w) {
@@ -2262,7 +2459,7 @@ none window_draw(window w) {
     each (w->list, target, r) {
         draw(r);
         sync_fence(r);
-        w->last_target = r;
+        //w->last_target = r;
     }
 
     /// acquire swap image
@@ -2309,7 +2506,7 @@ none window_draw(window w) {
                 verify(result == VK_SUCCESS, "present");
                 sync_fence(w->swap_render_current);
             }
-            w->last_target = w->swap_render_current;
+            //w->last_target = w->swap_render_current;
         }
     }
 }
@@ -2323,126 +2520,10 @@ void window_dealloc(window w) {
     }
 }
 
-void app_update_canvas(app a) {
-    window  w = a->w;
-    trinity t = w->t;
-    int     width       = w->width;
-    int     height      = w->height;
-    float   stroke_size = 2;
-    float   roundness   = 16;
-    float   margin      = 8;
-
-    a->t = w->t;
-
-    if (a->compose) {
-        resize(a->compose,  width, height);
-        resize(a->colorize, width, height);
-        resize(a->overlay,  width, height);
-    } else {
-        a->compose = sk(
-            t, a->t, format, Pixel_rgba8,
-            width, width, height, height);
-        a->colorize = sk(t, t, format, Pixel_rgba8,
-            width, width, height, height);
-        a->overlay = sk(t, t, format, Pixel_rgba8,
-            width, width, height, height);
-    }
-
-    clear       (a->compose, string("#00f"));
-    sync        (a->compose);
-    output_mode (a->compose, true);
-
-    clear       (a->colorize, string("#000"));
-    sync        (a->colorize);
-    output_mode (a->colorize, true);
-
-    clear       (a->overlay, string("#0000"));
-    sync        (a->overlay);
-    output_mode (a->overlay, true);
-}
-
-void app_initialize(app a) {
-    window   w = a->w;
-    a->t = w->t;
-
-    trinity  t = a->t;
-    a->ux = composer(app, a);
-    int width  = w->width;
-    int height = w->height;
-    float stroke_size = 2;
-    float roundness   = 16;
-    float margin      = 8;
-
-    app_update_canvas(a);
-
-    a->m_reduce  = model (w, w, samplers, map_of(
-        "color", a->r_background->color, null));
-    
-    a->r_reduce  = target(
-        w, w, wscale, 1.0f, models, a(a->m_reduce));
-    A info = head(a->r_reduce);
-
-    a->m_reduce0 = model (
-        w, w, samplers, map_of("color", a->r_reduce->color, null));
-    a->r_reduce0 = target(
-        w, w, wscale, 0.5f, models, a(a->m_reduce0));
-    
-    a->m_reduce1 = model (
-        w, w, samplers, map_of("color", a->r_reduce0->color, null));
-    a->r_reduce1 = target(
-        w, w, wscale, 0.25f, models, a(a->m_reduce1));
-
-    BlurV   fbv          = BlurV  (t, t, name, string("blur-v"));
-    fbv->reduction_scale = 4.0f;
-    a->m_blur_v    = model  (
-        w, w, s, fbv, samplers, map_of("color", a->r_reduce1->color, null));
-    a->r_blur_v    = target (
-        w, w, wscale, 1.0, models, a(a->m_blur_v));
-    
-    Blur    fbl          = Blur   (t, t, name, string("blur"));
-    fbl->reduction_scale = 4.0f;
-    a->m_blur      = model  (
-        w, w, s, fbl, samplers, map_of("color", a->r_blur_v->color, null));
-    a->r_blur      = target (
-        w, w, wscale, 1.0, models, a(a->m_blur));
-
-    a->m_reduce2 = model (w, w, samplers, map_of("color", a->r_reduce1->color, null));
-    a->r_reduce2 = target(w, w, wscale, 1.0f / 8.0f, models, a(a->m_reduce2));
-
-    a->m_reduce3 = model (w, w, samplers, map_of("color", a->r_reduce2->color, null));
-    a->r_reduce3 = target(w, w, wscale, 1.0f / 16.0f, models, a(a->m_reduce3));
-
-    BlurV   bv        = BlurV  (t, t, name, string("blur-v"));
-    bv->reduction_scale = 16.0f;
-    a->m_frost_v  = model  (w, w, s, bv, samplers, map_of("color", a->r_reduce3->color, null));
-    a->r_frost_v  = target (w, w, wscale, 1.0f, models, a(a->m_frost_v));
-
-    Blur    bl        = Blur   (t, t, name, string("blur"));
-    bl->reduction_scale = 16.0f;
-    a->m_frost    = model  (w, w, s, bl, samplers, map_of("color", a->r_frost_v->color, null));
-    a->r_frost    = target (w, w, wscale, 1.0f, models, a(a->m_frost));
-    
-    a->m_view    = model  (w, w, s, UXQuad(t, t, name, string("ux")),
-        samplers, map_of(
-            "background", a->r_background->color,
-            "frost",      a->r_frost->color,
-            "blur",       a->r_blur->color,
-            "compose",    a->compose->tx,
-            "colorize",   a->colorize->tx,
-            "overlay",    a->overlay->tx, null));
-    UXQuad  ux_shader = a->m_view->s;
-    ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
-    ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
-
-    a->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
-        models, a(a->m_view));
-
-    w->list = hold(a(
-        a->r_background, a->r_reduce,  a->r_reduce0, a->r_reduce1, a->r_blur_v, a->r_blur,
-        a->r_reduce2,    a->r_reduce3, a->r_frost_v, a->r_frost,
-        a->r_view));
-    //w->list = hold(a(a->r_background));
-    w->last_target = hold(a->r_view);
+void app_init(app a) {
+    window w = a->w;
+    a->t     = hold(trinity());
+    a->style = style((object)a);
 }
 
 void app_dealloc(app a) {
@@ -2450,15 +2531,18 @@ void app_dealloc(app a) {
 
 /// todo:
 /// orbiter: the ide is the os
-/// orbiter: windows are for widgets:
+/// orbiter: windows are for desktop widgets:
 ///     free-floating windows are for overlaying over your desktop, the base app effectively
 
 static rect rectangle_offset(region area, rect rel) {
-    if (!area) area = region(0.0f);
-    return rectangle(area, rel);
+    region reg = null;
+    if (!area) reg = area = region(0.0f);
+    rect r = rectangle(area, rel);
+    if (reg) drop(reg);
+    return r;
 }
 
-static sk sk_canvas(app a, Canvas ct) {
+static sk sk_canvas(window a, Canvas ct) {
     switch (ct) {
         default:
         case Canvas_overlay:  return a->overlay;
@@ -2467,15 +2551,23 @@ static sk sk_canvas(app a, Canvas ct) {
     }
 }
 
-/// recursive draw function
-/// This is the app_draw function that updates the canvases and paints the UI state
-static void app_draw(app a, element e) {
-    window  w           = a->w; // todo: we need to have a bounds/content on element
+void window_draw_element(window a, element e) {
+    window  w           = a;
     int     width       = w->width;
     int     height      = w->height;
 
     verify(instanceof(e, element), "e is not an element");
+    A info = head(a->overlay->state);
 
+    hold(a->overlay);
+
+    if (len(a->overlay->state) == 0) {
+        int test = 0;
+        test++;
+    } else {
+        int test = 0;
+        test++;
+    }
     sk canvas[3] = { a->overlay, a->compose, a->colorize };
     for (int i = 0; i < 3; i++) {
         sk cv = canvas[i];
@@ -2571,7 +2663,7 @@ static void app_draw(app a, element e) {
     pairs(e->elements, i) {
         string  id = i->key;
         element ee = i->value;
-        app_draw(a, ee);
+        draw_element(a, ee);
     }
 
     for (int i = 0; i < 3; i++) {
@@ -2581,11 +2673,17 @@ static void app_draw(app a, element e) {
 }
 
 i32 app_run(app a) {
-    window w = a->w;
-    resize(w, w->extent.width, w->extent.height);
+    window   w  = a->w;
+    composer ux = w->ux;
 
-    callback interface   = bind(a, a, true, typeid(map), null, "interface");
-    callback background  = bind(a, a, true, null,        null, "background");
+    recycle();
+
+    resize(w, w->extent.width, w->extent.height);
+    ux->style = hold(a->style);
+    ux->app   = a;
+
+    callback interface   = bind(a, a, true, typeid(map), typeid(window), "interface");
+    callback background  = bind(a, a, true, null,        typeid(window), "background");
     int      next_second = epoch_millis() / 1000;
     int      frames      = 0;
 
@@ -2599,89 +2697,76 @@ i32 app_run(app a) {
         }
         frames++;
 
-
-        background(a, null);
-        map elements = interface(a, null);
-        update_all(a->ux, elements);
+        background(a, a->w);
+        map elements = interface(a, a->w);
+        update_all(ux, elements);
         drop(elements);
         
-        element root_element = a->ux->root;
+        element root_element = ux->root;
         verify(instanceof(root_element, element), "e is not an element");
     
-        if (!a->compose || (a->compose->width  != w->width || 
-                            a->compose->height != w->height))
-            app_update_canvas(a);
-        
-        animate(a->ux);
+        // handle updates to canvas size
+        animate(ux);
         
         // clear canvases
-        clear       (a->compose,  string("#000"));
-        clear       (a->colorize, string("#000"));
-        clear       (a->overlay,  string("#0000")); // alpha clear
+        clear       (w->compose,  string("#000"));
+        clear       (w->colorize, string("#000"));
+        clear       (w->overlay,  string("#0000")); // alpha clear
         
         // draw app ux
-        app_draw    (a, a->ux->root);
+        draw_element(w, ux->root);
         
+        w->compose->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        w->colorize->tx->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        w->overlay->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        transition  (w->compose->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        transition  (w->colorize->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        transition  (w->overlay->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
         // sync canvases (the elements should not perform sync)
-        sync        (a->compose); // this errors.
-        sync        (a->colorize);
-        sync        (a->overlay);
-        output_mode (a->compose,  true);
-        output_mode (a->overlay,  true);
-        output_mode (a->colorize, true);
+        sync        (w->overlay);
+        sync        (w->colorize);
+        sync        (w->compose); // this errors.
+
+        output_mode (w->compose,  true);
+        output_mode (w->overlay,  true);
+        output_mode (w->colorize, true);
 
         draw(w);
+
+        static int cycles = 0;
+        cycles++;
+        if (cycles == 32) {
+            num types_len = 0;
+            A_f** types = A_types(&types_len);
+
+            /// iterate through types
+            for (num i = 0; i < types_len; i++) {
+                A_f* type = types[i];
+                af_recycler* af = type->af;
+                if (af && af->af_count) {
+                    for (int i = 0; i <= af->af_count; i++) {
+                        A a = af->af[i];
+                        if (a && a->refs == 0) {
+                            A_free(&a[1]);
+                        } else if (a) {
+                            print("keeping %s (%s:%i)", type->name, a->source, a->line);
+                        }
+                    }
+                    af->af_count = 0;
+                }
+            }
+        } else
         recycle();
-        int after = A_alloc_count();
-        printf("after: %i\n", after);
-    }
-
-    while (!glfwWindowShouldClose(w->window)) {
-        glfwPollEvents();
-        if (next_second != epoch_millis() / 1000) {
-            next_second  = epoch_millis() / 1000;
-            print("fps: %i", frames);
-            frames = 0;
+        if (cycles == 31) {
+            int test = 0;
+            test++;
         }
-        frames++;
-
-        background(a, null);
-        map elements = interface(a, null);
-        update_all(a->ux, elements);
-        drop(elements);
-
-        element root_element = a->ux->root;
-        verify(instanceof(root_element, element), "e is not an element");
-    
-        if (!a->compose || (a->compose->width  != w->width || 
-                            a->compose->height != w->height))
-            app_update_canvas(a);
-        
-        animate(a->ux);
-        
-        // clear canvases
-        clear       (a->compose,  string("#000"));
-        clear       (a->colorize, string("#000"));
-        clear       (a->overlay,  string("#0000")); // alpha clear
-        
-        // draw app ux
-        app_draw    (a, a->ux->root);
-        
-        // sync canvases (the elements should not perform sync)
-        sync        (a->compose);
-        sync        (a->colorize);
-        sync        (a->overlay);
-        output_mode (a->compose,  true);
-        output_mode (a->overlay,  true);
-        output_mode (a->colorize, true);
-
-        draw(w);
-
-        recycle(); // stray ref:0's are recycled/freed
-
         int after = A_alloc_count();
         printf("after: %i\n", after);
     }
+
     return 0;
 }
 
@@ -2902,110 +2987,6 @@ void shader_dealloc(shader s) {
     vkDestroyShaderModule(t->device, s->vk_comp, null);
 }
 
-
-void trinity_init(trinity t) {
-    verify(glfwInit(), "glfw init");
-    int wsize2 = sizeof(struct _window);
-    int bsize2 = sizeof(struct _Basic);
-    if (!glfwVulkanSupported()) {
-        fault("glfw does not support vulkan");
-        glfwTerminate();
-        return;
-    }
-
-    t->instance = vk_create();
-    verify(t->instance, "vk instance failure");
-
-    // enumerate physical devices (adapter in WebGPU)
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(t->instance, &deviceCount, null);
-    verify(deviceCount > 0, "failed to find GPUs with Vulkan support");
-
-    VkPhysicalDevice physical_devices[deviceCount];
-    vkEnumeratePhysicalDevices(t->instance, &deviceCount, physical_devices);
-    t->physical_device = physical_devices[0]; // Choose the first device or implement selection logic
-
-    // Check for device extensions
-    uint32_t extension_count = 0;
-    vkEnumerateDeviceExtensionProperties(t->physical_device, null, &extension_count, null);
-    verify(extension_count > 0, "failed to find device extensions");
-
-    VkExtensionProperties extensions[extension_count];
-    vkEnumerateDeviceExtensionProperties(t->physical_device, null, &extension_count, extensions);
-    
-    // Check for required extensions
-    bool swapchain_supported = false;
-
-    symbol device_extensions[] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-    int total_extension_count = sizeof(device_extensions) / sizeof(device_extensions[0]);
-    
-    // Track which RT extensions are found
-    bool found_extensions[total_extension_count];
-    memset(found_extensions, 0, sizeof(found_extensions));
-    
-    // Check which extensions are available
-    bool pr = getenv("VERBOSE") != null;
-    for (uint32_t i = 0; i < extension_count; i++) {
-        if (pr) print("[supported] device extension: %s", extensions[i].extensionName);
-        if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
-            swapchain_supported = true;
-        
-        // Check for RT extensions
-        for (int j = 0; j < total_extension_count; j++) {
-            if (strcmp(extensions[i].extensionName, device_extensions[j]) == 0) {
-                found_extensions[j] = true;
-                break;
-            }
-        }
-    }
-
-    verify(swapchain_supported, "VK_KHR_swapchain extension is not supported by the physical device");
-    
-    VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = {};
-    bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
-    bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
-
-    VkPhysicalDeviceFeatures2 features2 = {};
-    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2.pNext = &bufferDeviceAddressFeatures;
-
-    //t->msaa_samples = max_sample_count(t->physical_device);
-    vkGetPhysicalDeviceFeatures2(t->physical_device, &features2); // Fetch the features from the physical device
-
-    // Prepare device extensions
-    float    queuePriority = 1.0f;
-    VkResult result = vkCreateDevice(t->physical_device, &(VkDeviceCreateInfo) {
-            .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            .pNext                      = &features2,
-            .queueCreateInfoCount       = 1,
-            .pQueueCreateInfos          = &(VkDeviceQueueCreateInfo) {
-                .sType                  = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                .queueFamilyIndex       = 0, // Replace with actual graphics queue family index
-                .queueCount             = 1,
-                .pQueuePriorities       = &queuePriority,
-            },
-            .enabledExtensionCount      = 1,
-            .ppEnabledExtensionNames    = device_extensions,
-        }, null, &t->device);
-    verify(result == VK_SUCCESS, "cannot create logical device");
-    t->queue_family_index = -1;
-}
-
-void trinity_dealloc(trinity t) {
-    vkDeviceWaitIdle(t->device);
-    pairs(t->device_memory, i) {
-        VkBuffer      buffer  = (VkBuffer)      i->key;
-        VkDeviceMemory memory = (VkDeviceMemory)i->value;
-        vkDestroyBuffer(t->device, buffer, null);
-        vkFreeMemory   (t->device, memory, null);
-    }
-
-    vkDestroyDevice(t->device, null);
-    vkDestroyInstance(t->instance, null);
-    glfwTerminate();
-}
 
 none buffer_init(buffer b) {
     trinity                 t     = b->t;

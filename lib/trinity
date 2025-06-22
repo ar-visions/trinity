@@ -248,36 +248,12 @@ forward(window)
 #define app_schema(X,Y,...) \
     i_prop    (X,Y, public,     window,        w) \
     i_prop    (X,Y, public,     trinity,       t) \
-    i_prop    (X,Y, public,     composer,      ux) \
+    i_prop    (X,Y, public,     style,         style) \
     i_prop    (X,Y, opaque,     object,        arg) \
-    i_prop    (X,Y, public,     sk,            compose) \
-    i_prop    (X,Y, public,     sk,            colorize) \
-    i_prop    (X,Y, public,     sk,            overlay) \
     i_prop    (X,Y, public,     hook,          on_interface) \
     i_prop    (X,Y, public,     hook,          on_background) \
-    i_prop    (X,Y, public,     target,        r_background) \
-    i_prop    (X,Y, public,     model,         m_reduce) \
-    i_prop    (X,Y, public,     target,        r_reduce) \
-    i_prop    (X,Y, public,     model,         m_reduce0) \
-    i_prop    (X,Y, public,     target,        r_reduce0) \
-    i_prop    (X,Y, public,     model,         m_reduce1) \
-    i_prop    (X,Y, public,     target,        r_reduce1) \
-    i_prop    (X,Y, public,     model,         m_reduce2) \
-    i_prop    (X,Y, public,     target,        r_reduce2) \
-    i_prop    (X,Y, public,     model,         m_reduce3) \
-    i_prop    (X,Y, public,     target,        r_reduce3) \
-    i_prop    (X,Y, public,     model,         m_blur_v) \
-    i_prop    (X,Y, public,     target,        r_blur_v) \
-    i_prop    (X,Y, public,     model,         m_blur) \
-    i_prop    (X,Y, public,     target,        r_blur) \
-    i_prop    (X,Y, public,     model,         m_frost_v) \
-    i_prop    (X,Y, public,     target,        r_frost_v) \
-    i_prop    (X,Y, public,     model,         m_frost) \
-    i_prop    (X,Y, public,     target,        r_frost) \
-    i_prop    (X,Y, public,     model,         m_view) \
-    i_prop    (X,Y, public,     target,        r_view) \
     i_method  (X,Y, public,     i32,           run) \
-    i_method  (X,Y, public,     none,          initialize) \
+    i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
 declare_class(app)
 
@@ -287,6 +263,7 @@ declare_class(app)
     i_prop    (X,Y, required,   trinity,        t) \
     i_prop    (X,Y, opaque,     ARef,           wndproc) \
     i_prop    (X,Y, opaque,     ARef,           wndproc_arg) \
+    i_prop    (X,Y, public,     composer,       ux) \
     i_prop    (X,Y, public,     array,          list) \
     i_prop    (X,Y, intern,     array,          swap_renders) \
     i_prop    (X,Y, intern,     model,          swap_model) \
@@ -302,21 +279,50 @@ declare_class(app)
     i_prop    (X,Y, intern,     target,         semaphore_frame) \
     i_prop    (X,Y, intern,     u32,            swap_image_count) \
     i_prop    (X,Y, intern,     u32,            swap_image_current) \
-    i_prop    (X,Y, intern,     bool,           resized) \
     i_prop    (X,Y, required,   u32,            width) \
     i_prop    (X,Y, required,   u32,            height) \
     i_prop    (X,Y, intern,     event,          ev) \
+    i_prop    (X,Y, public,     app,            app) \
+    i_prop    (X,Y, public,     sk,             compose) \
+    i_prop    (X,Y, public,     sk,             colorize) \
+    i_prop    (X,Y, public,     sk,             overlay) \
     i_prop    (X,Y, public,     Pixel,          format) \
     i_prop    (X,Y, public,     string,         title) \
     i_prop    (X,Y, public,     f32,            debug_value) \
-    i_prop    (X,Y, public,     bool,           backbuffer) \
     i_prop    (X,Y, public,     i32,            current_swap_index) \
     i_prop    (X,Y, public,     hook,           on_render) \
     i_prop    (X,Y, public,     hook,           on_background) \
+    i_prop    (X,Y, public,     bool,           blur) \
+    i_prop    (X,Y, intern,     bool,           resized) \
+    i_prop    (X,Y, public,     bool,           backbuffer) \
+    i_prop    (X,Y, opaque,     target,         last_target) \
+    i_prop    (X,Y, public,     target,         r_background) \
+    i_prop    (X,Y, public,     model,          m_reduce) \
+    i_prop    (X,Y, public,     target,         r_reduce) \
+    i_prop    (X,Y, public,     model,          m_reduce0) \
+    i_prop    (X,Y, public,     target,         r_reduce0) \
+    i_prop    (X,Y, public,     model,          m_reduce1) \
+    i_prop    (X,Y, public,     target,         r_reduce1) \
+    i_prop    (X,Y, public,     model,          m_reduce2) \
+    i_prop    (X,Y, public,     target,         r_reduce2) \
+    i_prop    (X,Y, public,     model,          m_reduce3) \
+    i_prop    (X,Y, public,     target,         r_reduce3) \
+    i_prop    (X,Y, public,     model,          m_blur_v) \
+    i_prop    (X,Y, public,     target,         r_blur_v) \
+    i_prop    (X,Y, public,     model,          m_blur) \
+    i_prop    (X,Y, public,     target,         r_blur) \
+    i_prop    (X,Y, public,     model,          m_frost_v) \
+    i_prop    (X,Y, public,     target,         r_frost_v) \
+    i_prop    (X,Y, public,     model,          m_frost) \
+    i_prop    (X,Y, public,     target,         r_frost) \
+    i_prop    (X,Y, public,     model,          m_view) \
+    i_prop    (X,Y, public,     target,         r_view) \
+    i_method  (X,Y, public,     none,           initialize) \
+    i_method  (X,Y, public,     none,           update_canvas) \
     i_method  (X,Y, public,     none,           resize, i32, i32) \
     i_method  (X,Y, public,     target,         final_target) \
     i_method  (X,Y, public,     none,           draw) \
-    i_prop    (X,Y, opaque,     target,         last_target) \
+    i_method  (X,Y, public,     none,           draw_element, element) \
     i_cast    (X,Y, public,     image) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
