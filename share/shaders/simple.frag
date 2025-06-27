@@ -7,5 +7,5 @@ void main() {
     vec4 background = texture(tx_background, v_uv);
     vec4 overlay    = texture(tx_overlay, v_uv);
     vec3 colorized  = mix(background.xyz, overlay.xyz, overlay.a);
-    fragColor       = mix(colorized, 1.0);
+    fragColor       = vec4(colorized, 1.0);
 }

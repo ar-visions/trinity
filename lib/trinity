@@ -253,7 +253,7 @@ declare_class(target)
 
 forward(sk)
 forward(window)
-
+ 
 #define app_schema(X,Y,...) \
     i_prop    (X,Y, public,     window,        w) \
     i_prop    (X,Y, public,     trinity,       t) \
@@ -270,6 +270,7 @@ declare_class(app)
 #define window_schema(X,Y,...) \
     i_prop    (X,Y, intern,     handle,         window) \
     i_prop    (X,Y, required,   trinity,        t) \
+    i_prop    (X,Y, public,     vec2f,          mouse) \
     i_prop    (X,Y, opaque,     ARef,           wndproc) \
     i_prop    (X,Y, opaque,     ARef,           wndproc_arg) \
     i_prop    (X,Y, public,     composer,       ux) \
@@ -423,7 +424,7 @@ declare_struct(text_metrics)
     i_method  (X,Y, public,   none,    draw_svg,         SVG,   rect, alignment, vec2f) \
     i_method  (X,Y, public,   none,    draw_image,       image, rect, alignment, vec2f) \
     i_method  (X,Y, public,   text_metrics, measure,    string) \
-    i_method  (X,Y, public,   rect,         draw_text,       string, rect, alignment, vec2f, bool) \
+    i_method  (X,Y, public,   rect,         draw_text,       string, rect, vec2f, vec2f, bool) \
     i_method  (X,Y, public,   none,    move_to,     f32, f32) \
     i_method  (X,Y, public,   none,    line_to,     f32, f32) \
     i_method  (X,Y, public,   none,    arc_to,      f32, f32, f32, f32, f32) \

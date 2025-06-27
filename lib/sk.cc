@@ -40,6 +40,7 @@
 #include <gpu/ganesh/SkSurfaceGanesh.h>
 #include <gpu/vk/GrVkBackendContext.h>
 #include <gpu/vk/VulkanExtensions.h>
+#include <ports/SkFontMgr_fontconfig.h>
 //#include <assert.h>
 
 extern "C" {
@@ -87,7 +88,7 @@ font sk_font_init(font f) {
     if (!f->res) {
         static sk_sp<SkFontMgr> fm;
         if (!fm)
-             fm = SkFontMgr::RefEmpty();
+             fm = SkFontMgr_New_FontConfig(nullptr);
         f->tf = (handle)new sk_sp<SkTypeface>();
         *(sk_sp<SkTypeface>*)f->tf = fm->makeFromFile(f->uri->chars);
         //auto t = SkTypeface::MakeFromFile(f->uri->chars);
@@ -129,10 +130,7 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     };
 
     Skia* sk = new Skia();
-    
     sk_sp<GrDirectContext> ctx = GrDirectContexts::MakeVulkan(grc);
-    GrDirectContext* ctx1 = ctx.get();
-
     sk->ctx = GrDirectContexts::MakeVulkan(grc);
     
     assert(sk->ctx, "could not obtain GrVulkanContext");
@@ -302,7 +300,7 @@ none sk_draw_stroke_preserve(sk a) {
     SkPaint    paint;
     paint.setStyle(SkPaint::kStroke_Style);
     if (ds->blur_radius > 0.0f)
-        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
+        paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, 2.0f));
 
     paint.setStrokeCap(sk_cap(ds->stroke_cap));
     paint.setStrokeJoin(sk_join(ds->stroke_join));
@@ -466,8 +464,9 @@ SkFont* sk_font(sk a) {
 
 text_metrics sk_measure(sk a, string text) {
     SkFontMetrics mx;
-    SkFont     *font = sk_font(a);
-    font->setSize(12);
+    draw_state    ds = (draw_state)last(a->state);
+    SkFont     *font = (SkFont*)ds->font->res;
+    font->setSize(ds->font->size);
     auto         adv = font->measureText(text->chars, text->len, SkTextEncoding::kUTF8);
     auto          lh = font->getMetrics(&mx);
 
@@ -625,13 +624,18 @@ void sk_draw_image(sk a, image img, rect r, alignment align, vec2f offset) {
 }
 
 /// the lines are most definitely just text() calls, it should be up to the user to perform multiline.
-rect sk_draw_text(sk a, string text, rect r, alignment align, vec2f offset, bool ellip) {
+rect sk_draw_text(sk a, string text, rect r, vec2f align, vec2f offset, bool ellip) {
     SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
     SkPaint    ps;
     ps.setColor(ds->fill_color);
     if (ds->opacity != 1.0f)
         ps.setAlpha(ds->opacity);
+    ps.setAntiAlias(true);
+    ps.setStyle(SkPaint::kFill_Style);
+    if (ds->blur_radius > 0.0f)
+        ps.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
+        
     SkFont    *f = sk_font(a);
     vec2f  pos   = { 0, 0 };
     string ptext = text;
@@ -645,8 +649,8 @@ rect sk_draw_text(sk a, string text, rect r, alignment align, vec2f offset, bool
     vec2f v2_a = vec2f(r->x,  r->y);
     vec2f v2_b = vec2f(r->x + r->w - tm.w, 
                        r->y + r->h - tm.h);
-    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
-    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+    pos.x = v2_a.x * (1.0f - align.x) + v2_b.x * align.x;
+    pos.y = v2_a.y * (1.0f - align.y) + v2_b.y * align.y;
 
     double skia_y_offset = (tm.descent + -tm.ascent) / 1.5;
     

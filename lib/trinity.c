@@ -7,14 +7,14 @@
 const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 u32 vk_version = VK_API_VERSION_1_2;
-
+  
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 trinity_log(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
     VkDebugUtilsMessageTypeFlagsEXT types,
     const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
     void* userData);
-
+ 
 static void set_queue_index(trinity t, window w) {
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(t->physical_device, &queue_family_count, null);
@@ -526,7 +526,6 @@ void target_init(target r) {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         }, null, &r->vk_fence);
-    print("target init fence = %p", r->vk_fence);
     verify(result == VK_SUCCESS, "failed to create fence");
 
 
@@ -562,7 +561,7 @@ void UVQuad_init(UVQuad q) {
 }
 
 
-void UXQuad_init(UVQuad q) {
+void UXSimple_init(UXSimple q) {
     q->model     = mat4f_ident();
     vec3f eye    = vec3f(0.0f, 0.0f, 2.0f);
     vec3f center = vec3f(0.0f, 0.0f, 0.0f);
@@ -570,6 +569,16 @@ void UXQuad_init(UVQuad q) {
     q->view      = mat4f_look_at(&eye, &center, &up);
     q->proj      = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
 }
+
+void UXCompose_init(UXCompose q) {
+    q->model     = mat4f_ident();
+    vec3f eye    = vec3f(0.0f, 0.0f, 2.0f);
+    vec3f center = vec3f(0.0f, 0.0f, 0.0f);
+    vec3f up     = vec3f(0.0f, 1.0f, 0.0f);
+    q->view      = mat4f_look_at(&eye, &center, &up);
+    q->proj      = mat4f_ortho(-1, +1, -1, +1, 0.1f, 10.0f);
+}
+
 
 
 void window_update_canvas(window a) {
@@ -751,40 +760,54 @@ static void handle_glfw_key(
         w->debug_value += (key == GLFW_KEY_UP) ? 1.0 : -1.0;
     }
 
+    clear(w->ev);
     w->ev->key.unicode   = key;
     w->ev->key.scan_code = scan_code;
-    w->ev->key.state     = action == GLFW_PRESS ? Button_press : Button_release;
+    w->ev->key.state     = action == GLFW_PRESS;
     w->ev->key.meta      = (mods & GLFW_MOD_SUPER) != 0;
     w->ev->key.shift     = (mods & GLFW_MOD_SHIFT) != 0;
     w->ev->key.alt       = (mods & GLFW_MOD_ALT)   != 0;
+    key_event(w->ux, w->ev);
 }
 
 static void handle_glfw_scroll(GLFWwindow* win, f64 x, f64 y) {
     window w = glfwGetWindowUserPointer(win);
-    verify(w->ev->mouse.wheel_delta.y == 0, "unexpected wheel state");
+    clear(w->ev);
+    w->ev->mouse.pos.x         = w->mouse.x;
+    w->ev->mouse.pos.y         = w->mouse.y;
     w->ev->mouse.wheel_delta.y = y;
+    wheel_event(w->ux, w->ev);
 }
 
 static void handle_glfw_mouse(GLFWwindow* win, int id, int action, int mods) {
     window w = glfwGetWindowUserPointer(win);
-
-    if (id == GLFW_MOUSE_BUTTON_LEFT)
-        w->ev->mouse.left = (action == GLFW_PRESS) ? Button_press : Button_release;
-    if (id == GLFW_MOUSE_BUTTON_RIGHT)
-        w->ev->mouse.right = (action ==GLFW_PRESS) ? Button_press : Button_release;
-    
+    clear(w->ev);
+    w->ev->mouse.pos.x  = w->mouse.x;
+    w->ev->mouse.pos.y  = w->mouse.y;
+    w->ev->mouse.button = id - GLFW_MOUSE_BUTTON_LEFT;
+    w->ev->mouse.state  = action == GLFW_PRESS;
+    if (w->ev->mouse.state)
+        press_event(w->ux, w->ev);
+    else
+        release_event(w->ux, w->ev);
 }
 
 static void handle_glfw_char(GLFWwindow* win, u32 code_point) {
     window w = glfwGetWindowUserPointer(win);
     verify(!w->ev->key.text, "unexpected text state");
+    clear(w->ev);
     w->ev->key.text = hold(string((i32)code_point));
+    text_event(w->ux, w->ev);
 }
 
 static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
     window w = glfwGetWindowUserPointer(win);
-    w->ev->mouse.pos.x = x;
-    w->ev->mouse.pos.y = y;
+    clear(w->ev);
+    w->mouse.x = x;
+    w->mouse.y = y;
+    w->ev->mouse.pos.x = w->mouse.x;
+    w->ev->mouse.pos.y = w->mouse.y;
+    move_event(w->ux, w->ev);
 }
 
 void window_init(window w) {
@@ -934,7 +957,7 @@ void window_initialize(window w) {
         ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
         ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
     } else {
-        w->m_view = model  (w, w, s, SimpleQuad(t, t, name, string("simple")),
+        w->m_view = model  (w, w, s, UXSimple(t, t, name, string("simple")),
             samplers, map_of(
                 "background", w->r_background->color,
                 "overlay",    w->overlay->tx, null));
@@ -986,6 +1009,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         int        index_size   = itype->size;
         int        index_count  = iview->byteLength / itype->size;
         // Process attributes properly with accessor stride and offset
+        A attr_obj = head(prim->attributes);
         pairs (prim->attributes, i) {
             string   name     = (string)i->key;
             AType    vtype    = isa(i->value);
@@ -2454,7 +2478,6 @@ void target_draw(target r) {
 }
 
 void target_sync_fence(target r) {
-    print("target fence = %p", r->vk_fence);
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
     verify(result == VK_SUCCESS, "fence wait failed");
 }
@@ -2568,13 +2591,6 @@ void window_draw_element(window a, element e) {
 
     hold(a->overlay);
 
-    if (len(a->overlay->state) == 0) {
-        int test = 0;
-        test++;
-    } else {
-        int test = 0;
-        test++;
-    }
     sk canvas[3] = { a->overlay, a->compose, a->colorize };
     for (int i = 0; i < 3; i++) {
         sk cv = canvas[i];
@@ -2655,16 +2671,23 @@ void window_draw_element(window a, element e) {
         rect r = rect(
             x, t->x - c->x, y, t->y - c->y,
             w, t->w,        h, t->h);
-        alignment al = f(alignment, "%f %f", e->text_align_x, e->text_align_y);
-        if (e->text_shadow_color) {
+        vec2f al = vec2f(e->text_align_x, e->text_align_y);
+        if (e->text_shadow_color && e->text_shadow_color->a > 0.0f) {
             fill_color(a->overlay, e->text_shadow_color);
             vec2f offset = vec2f(e->text_shadow_x, e->text_shadow_y);
+            blur_radius(a->overlay, 2.0);
             draw_text(a->overlay, content, r, al, offset, e->text_ellipsis);
         }
         fill_color(a->overlay, e->text_color);
         vec2f offset = vec2f(0, 0);
+        blur_radius(a->overlay, e->fill_blur);
         draw_text(a->overlay, content, r, al,
             offset, e->text_ellipsis);
+        for (int i = 0; i < 3; i++) {
+            sk cv = canvas[i];
+            restore(cv);
+        } // remove this
+        return;
     }
 
     pairs(e->elements, i) {
@@ -2683,23 +2706,23 @@ i32 app_run(app a) {
     window   w  = a->w;
     composer ux = w->ux;
 
-    recycle();
+    //recycle();
 
     resize(w, w->extent.width, w->extent.height);
     ux->style = hold(a->style);
     ux->app   = a;
 
-    callback interface   = bind(a, a, true, typeid(map), typeid(window), "interface");
-    callback background  = bind(a, a, true, null,        typeid(window), "background");
+    /// null before "interface" is for id, and if unset, we bind the type if target and binder are different
+    callback interface   = bind(a, a, true, typeid(map), typeid(window), null, "interface");
+    callback background  = bind(a, a, true, null,        typeid(window), null, "background");
     int      next_second = epoch_millis() / 1000;
     int      frames      = 0;
 
     while (!glfwWindowShouldClose(w->window)) {
-        clear(w->ev);
         glfwPollEvents();
         if (next_second != epoch_millis() / 1000) {
             next_second  = epoch_millis() / 1000;
-            print("fps: %i", frames);
+            //print("fps: %i", frames);
             frames = 0;
         }
         frames++;
@@ -2742,36 +2765,10 @@ i32 app_run(app a) {
 
         draw(w);
 
-        static int cycles = 0;
-        cycles++;
-        if (cycles == 32) {
-            num types_len = 0;
-            A_f** types = A_types(&types_len);
-
-            /// iterate through types
-            for (num i = 0; i < types_len; i++) {
-                A_f* type = types[i];
-                af_recycler* af = type->af;
-                if (af && af->af_count) {
-                    for (int i = 0; i <= af->af_count; i++) {
-                        A a = af->af[i];
-                        if (a && a->refs == 0) {
-                            A_free(&a[1]);
-                        } else if (a) {
-                            print("keeping %s (%s:%i)", type->name, a->source, a->line);
-                        }
-                    }
-                    af->af_count = 0;
-                }
-            }
-        } else
         recycle();
-        if (cycles == 31) {
-            int test = 0;
-            test++;
-        }
         int after = A_alloc_count();
-        printf("after: %i\n", after);
+        //printf("after: %i\n", after);
+        usleep(16600);
     }
 
     return 0;
@@ -3281,7 +3278,7 @@ SkColor sk_color(object any) {
 }
 
 none draw_state_set_default(draw_state ds) {
-    ds->font         = hold(font(size, 12, uri, f(path, "fonts/Avenir-Light.ttf")));
+    ds->font         = hold(font(size, 22, uri, f(path, "fonts/Sofia-Sans-Condensed.ttf")));
     ds->stroke_cap   = cap_round;
     ds->stroke_join  = join_round;
     ds->stroke_size  = 0;
