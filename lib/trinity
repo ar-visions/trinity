@@ -2,8 +2,7 @@
 #define _TRINITY_
 
 #include <A>
-#include <vec-public>
-#include <vec>
+#include <A-public>
 #include <gltf-public>
 #include <img-intern>
 #include <img>
@@ -13,26 +12,6 @@ typedef void* handle_t;
 
 skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, 
     handle_t queue, unsigned int graphics_family, unsigned int vk_version);
-
-/*
-
-A.png → Base Color
-R.png → Roughness
-M.png → Metalness
-N.png → Normal Map
-H.png → Height/Parallax
-O.png → Ambient Occlusion
-S.png → Specular
-E.png → Emission
-C.png → Clearcoat
-T.png → Transmission
-
-*/
-
-/// object("string") creates a string
-/// object(1) creates a primitive i64
-/// object(1.2f) creates a primitive f32
-/// object(1.2) creates f64
 
 typedef struct _pipeline* pipeline;
 typedef struct _gpu* gpu;
@@ -57,6 +36,430 @@ typedef struct _image*    image;
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
 declare_class(trinity)
+
+//#include <element.h>
+
+#define mouse_state_schema(X,Y,...) \
+    i_struct_prop(X,Y, vec2f,  wheel_delta) \
+    i_struct_prop(X,Y, vec2f,  pos) \
+    i_struct_prop(X,Y, i32,    button) \
+    i_struct_prop(X,Y, i32,    state)
+declare_struct(mouse_state)
+
+#define keyboard_state_schema(X,Y,...) \
+    i_struct_prop(X,Y, u32,    unicode) \
+    i_struct_prop(X,Y, u32,    scan_code) \
+    i_struct_prop(X,Y, i32,    state) \
+    i_struct_prop(X,Y, bool,   meta) \
+    i_struct_prop(X,Y, bool,   shift) \
+    i_struct_prop(X,Y, bool,   alt) \
+    i_struct_prop(X,Y, string, text)
+declare_struct(keyboard_state)
+
+forward(element)
+
+#define event_schema(X,Y,...) \
+    i_prop  (X,Y, public, element,        target) \
+    i_prop  (X,Y, public, mouse_state,    mouse) \
+    i_prop  (X,Y, public, keyboard_state, key) \
+    i_prop  (X,Y, public, bool,  prevent_default) \
+    i_prop  (X,Y, public, bool,  stop_propagation) \
+    i_method(X,Y, public, none,  prevent_default) \
+    i_method(X,Y, public, bool,  is_default) \
+    i_method(X,Y, public, bool,  should_propagate) \
+    i_method(X,Y, public, bool,  stop_propagation) \
+    i_method(X,Y, public, none,  clear)
+declare_class(event)
+
+
+#define Ease_schema(E,T,Y,...) \
+    enum_value_v(E,T,Y, linear,  0) \
+    enum_value_v(E,T,Y, quad,    1) \
+    enum_value_v(E,T,Y, cubic,   2) \
+    enum_value_v(E,T,Y, quart,   3) \
+    enum_value_v(E,T,Y, quint,   4) \
+    enum_value_v(E,T,Y, sine,    5) \
+    enum_value_v(E,T,Y, expo,    6) \
+    enum_value_v(E,T,Y, circ,    7) \
+    enum_value_v(E,T,Y, back,    8) \
+    enum_value_v(E,T,Y, elastic, 9) \
+    enum_value_v(E,T,Y, bounce,  10)
+declare_enum(Ease)
+
+#define Direction_schema(E,T,Y,...) \
+    enum_value_v(E,T,Y, in,     0) \
+    enum_value_v(E,T,Y, out,    1) \
+    enum_value_v(E,T,Y, in_out, 2) 
+declare_enum(Direction)
+
+
+#define line_info_schema(X,Y,...) \
+    i_prop(X,Y, intern,   string,                  data) \
+    i_prop(X,Y, intern,   num,                     len) \
+    i_prop(X,Y, intern,   vector,                  adv, of, f64) \
+    i_prop(X,Y, intern,   rect,                    bounds) \
+    i_prop(X,Y, intern,   rect,                    placement)
+declare_class(line_info)
+
+
+#define text_sel_schema(X,Y,...) \
+    i_prop(X,Y, intern,   num,                     column) \
+    i_prop(X,Y, intern,   num,                     row)
+declare_class(text_sel)
+
+
+#define text_schema(X,Y,...) \
+    i_prop(X,Y, intern,   array,                   lines, of, line_info) \
+    i_prop(X,Y, intern,   text,                    replace, text)
+declare_class(text)
+
+
+forward(style_block)
+forward(style_entry)
+
+#define style_schema(X,Y,...) \
+    i_prop  (X,Y, intern,   mutex,      mtx) \
+    i_prop  (X,Y, public,   array,      base,            of, style_block) \
+    i_prop  (X,Y, public,   path,       css_path) \
+    i_prop  (X,Y, intern,   i64,        mod_time) \
+    i_prop  (X,Y, public,   map,        members) \
+    i_prop  (X,Y, public,   watch,      reloader) \
+    i_prop  (X,Y, intern,   bool,       reloaded) \
+    i_prop  (X,Y, intern,   bool,       loaded) \
+    i_method(X,Y, public,   bool,       applicable, \
+        element, string, array) \
+    i_method(X,Y, public,   none,       process, \
+        string) \
+    i_method(X,Y, public,   none,       cache_members) \
+    i_method(X,Y, public,   style_entry, best_match, \
+        element, string, array) \
+    i_method(X,Y, public,   map,        compute, element) \
+    i_method(X,Y, public,   bool,       check_reload) \
+    i_ctr   (X,Y, public,   path) \
+    i_ctr   (X,Y, public,   object)
+declare_class(style)
+
+#define style_block_schema(X,Y,...) \
+    i_prop(X,Y, opaque,   style_block,             parent) \
+    i_prop(X,Y, public,   array,                   quals) \
+    i_prop(X,Y, public,   map,                     entries) \
+    i_prop(X,Y, public,   array,                   blocks) \
+    i_prop(X,Y, public,   array,                   types) \
+    i_method(X,Y, public, f32, score, element, bool) \
+    i_override(X,Y, method, init)
+declare_class(style_block)
+
+#define Duration_schema(E,T,Y,...) \
+    enum_value_v(E,T,Y, ms, 2) \
+    enum_value_v(E,T,Y, ns, 1) \
+    enum_value_v(E,T,Y, s,  3)
+declare_enum(Duration)
+
+
+
+#define xalign_schema(E,T,Y) \
+    enum_value_v(E,T,Y, undefined, 0) \
+    enum_value_v(E,T,Y, left,      1) \
+    enum_value_v(E,T,Y, middle,    2) \
+    enum_value_v(E,T,Y, right,     3) \
+    enum_value_v(E,T,Y, width,     4)
+declare_enum(xalign)
+
+
+#define yalign_schema(E,T,Y) \
+    enum_value_v(E,T,Y, undefined, 0) \
+    enum_value_v(E,T,Y, top,       1) \
+    enum_value_v(E,T,Y, middle,    2) \
+    enum_value_v(E,T,Y, bottom,    3) \
+    enum_value_v(E,T,Y, height,    4)
+declare_enum(yalign)
+
+
+#define alignment_schema(X,Y,...) \
+    i_prop  (X,Y, public, f32,  x) \
+    i_prop  (X,Y, public, f32,  y) \
+    i_prop  (X,Y, public, bool, set) \
+    i_ctr   (X,Y, public, cstr) \
+    i_ctr   (X,Y, public, string) \
+    i_ctr   (X,Y, public, vec2f) \
+    i_method(X,Y, public, alignment, mix, alignment, f32)
+declare_class(alignment)
+
+
+#define coord_schema(X,Y,...) \
+    i_prop  (X,Y, public, alignment, align) \
+    i_prop  (X,Y, public, vec2f,     offset) \
+    i_prop  (X,Y, public, xalign,    x_type) \
+    i_prop  (X,Y, public, yalign,    y_type) \
+    i_prop  (X,Y, public, bool,      x_rel) \
+    i_prop  (X,Y, public, bool,      y_rel) \
+    i_prop  (X,Y, public, bool,      x_per) \
+    i_prop  (X,Y, public, bool,      y_per) \
+    i_ctr   (X,Y, public, string) \
+    i_ctr   (X,Y, public, cstr) \
+    i_method(X,Y, public, coord, mix, coord, f32) \
+    i_method(X,Y, public, vec2f, plot, rect, vec2f, f32, f32) \
+    i_override(X,Y, cast, string) \
+    i_override(X,Y, cast,   bool)
+declare_class(coord)
+
+
+#define region_schema(X,Y,...) \
+    i_prop  (X,Y, public, coord,     tl) \
+    i_prop  (X,Y, public, coord,     br) \
+    i_prop  (X,Y, public, bool,      set) \
+    i_ctr   (X,Y, public, rect) \
+    i_ctr   (X,Y, public, f32) \
+    i_ctr   (X,Y, public, array) \
+    i_ctr   (X,Y, public, string) \
+    i_ctr   (X,Y, public, cstr) \
+    i_method(X,Y, public, rect, relative_rect, rect, f32, f32) \
+    i_method(X,Y, public, rect, rectangle, rect) \
+    i_method(X,Y, public, region, mix, region, f32) \
+    i_override(X,Y, cast, string) \
+    i_override(X,Y, cast, bool)
+declare_class(region)
+
+#define tcoord_schema(X,Y,...)
+declare_class_2(tcoord, unit, Duration)
+
+#define style_transition_schema(X,Y,...) \
+    i_prop(X,Y, public,   Ease,                    easing) \
+    i_prop(X,Y, public,   Direction,               dir) \
+    i_prop(X,Y, public,   tcoord,                  duration) \
+    i_prop(X,Y, intern,   object,                  from) \
+    i_prop(X,Y, intern,   object,                  to) \
+    i_prop(X,Y, intern,   i64,                     start) \
+    i_prop(X,Y, intern,   bool,                    invalidate) \
+    i_prop(X,Y, intern,   style_transition,        reference) \
+    i_prop(X,Y, intern,   bool,                    is_inlay) \
+    i_prop(X,Y, intern,   AType,                   type) \
+    i_prop(X,Y, intern,   object*,                 location) \
+    i_ctr     (X,Y,  public,  string) \
+    i_method  (X,Y,  public,  f64,   pos, f64) \
+    i_override(X,Y,  cast,    bool)
+declare_class(style_transition)
+
+
+#define style_entry_schema(X,Y,...) \
+    i_prop(X,Y, public,   string,                  member) \
+    i_prop(X,Y, public,   string,                  value) \
+    i_prop(X,Y, public,   style_transition,        trans) \
+    i_prop(X,Y, public,   style_block,             bl) \
+    i_prop(X,Y, public,   object,                  instance)
+declare_class(style_entry)
+
+
+#define style_qualifier_schema(X,Y,...) \
+    i_prop(X,Y, opaque,   AType,                   ty) \
+    i_prop(X,Y, public,   string,                  type) \
+    i_prop(X,Y, public,   string,                  id) \
+    i_prop(X,Y, public,   string,                  state) \
+    i_prop(X,Y, public,   string,                  oper) \
+    i_prop(X,Y, public,   string,                  value) \
+    i_prop(X,Y, opaque,   object,                  parent)
+declare_class(style_qualifier)
+
+
+#define style_selection_schema(X,Y,...) \
+    i_prop(X,Y, public,     handle,                from) \
+    i_prop(X,Y, public,     handle,                to) \
+    i_prop(X,Y, public,     i64,                   start) \
+    i_prop(X,Y, public,     i64,                   end) \
+    i_prop(X,Y, public,     style_entry,           entry)
+declare_class(style_selection)
+
+forward(element)
+forward(event)
+forward(window)
+
+#define composer_schema(X,Y,...) \
+    i_prop(X,Y,  opaque,    object,                app) \
+    i_prop(X,Y,  opaque,    window,                w) \
+    i_prop(X,Y,  opaque,    map,                   root_styles) \
+    i_prop(X,Y,  public,    element,               root) \
+    i_prop(X,Y,  public,    element,               capture) \
+    i_prop(X,Y,  public,    element,               focus) \
+    i_prop(X,Y,  public,    element,               hovered) \
+    i_prop(X,Y,  public,    element,               action_pressed) \
+    i_prop(X,Y,  public,    element,               context_pressed) \
+    i_prop(X,Y,  public,    map,                   args) \
+    i_prop(X,Y,  public,    bool,                  restyle) \
+    i_prop(X,Y,  public,    style,                 style) \
+    i_prop(X,Y,  public,    vec2f,                 mouse) \
+    i_array(X,Y, public,    i32,    16,            buttons) \
+    i_prop(X,Y,  public,    bool,                  shift) \
+    i_prop(X,Y,  public,    bool,                  alt) \
+    i_prop(X,Y,  public,    hook,                  on_render) \
+    i_method(X,Y, public,   array,  apply_args,    \
+        element, element) \
+    i_method(X,Y, public,   array,   apply_style,   \
+        element, map, array) \
+    i_method(X,Y, public,   none,   animate) \
+    i_method(X,Y, public,   none,   bind_subs, \
+        element, element) \
+    i_method(X,Y, public,   none,   update,        \
+        element, map) \
+    i_method(X,Y, public,   none,   update_all,    map) \
+    i_method(X,Y, public,   none,   invalidate) \
+    i_method(X,Y, public,   none,   remove_invalid) \
+    i_method(X,Y, public,   none,   set_capture,   element) \
+    i_method(X,Y, public,   none,   release_capture, element) \
+    i_method(X,Y, public,   none,   set_focus,     element) \
+    i_method(X,Y, public,   none,   release_focus, element) \
+    i_method(X,Y, public,   element, find_target,  element, event, element) \
+    i_method(X,Y, public,   none,   text_event,    event) \
+    i_method(X,Y, public,   none,   move_event,    event) \
+    i_method(X,Y, public,   none,   key_event,     event) \
+    i_method(X,Y, public,   none,   wheel_event,   event) \
+    i_method(X,Y, public,   none,   press_event,   event) \
+    i_method(X,Y, public,   none,   release_event, event)
+declare_class(composer)
+
+/// holds onto arg state; its useful to have to facilitate
+// effective config from user (not including style!)
+// also inline data such as structs may hold their data here
+#define arg_schema(X,Y,...) \
+    i_prop(X,Y, public,   string,                  name) \
+    i_prop(X,Y, public,   object,                  value) \
+    i_prop(X,Y, public,   i32,                     offset) \
+    i_prop(X,Y, public,   bool,                    is_inlay)
+declare_class(arg)
+
+
+#define Fill_schema(E,T,Y,...) \
+    enum_value(E,T,Y, none,       0.00f) \
+    enum_value(E,T,Y, blur,       0.50f) \
+    enum_value(E,T,Y, frost,      0.75f) \
+    enum_value(E,T,Y, solid,      1.00f)
+declare_typed_enum(Fill, f32)
+
+#define Canvas_schema(E,T,Y,...) \
+    enum_value(E,T,Y, overlay,       0) \
+    enum_value(E,T,Y, compose,       1) \
+    enum_value(E,T,Y, colorize,      2)
+declare_typed_enum(Canvas, i32)
+
+
+#define element_schema(X,Y,...) \
+    i_prop(X,Y, opaque,   composer,    ux) \
+    i_prop(X,Y, public,   object,      value) \
+    i_prop(X,Y, public,   string,      id) \
+    i_prop(X,Y, public,   i32,         mark) \
+    i_prop(X,Y, public,   map,         args) \
+    i_prop(X,Y, public,   map,         elements) \
+    i_prop(X,Y, opaque,   element,     parent) \
+    i_prop(X,Y, intern,   map,         style_avail) \
+    i_prop(X,Y, intern,   map,         selections) \
+    i_prop(X,Y, intern,   composer,    composer) \
+    i_prop(X,Y, intern,   map,         transitions) \
+    i_prop(X,Y, opaque,   bool,        restyle) \
+    i_prop(X,Y, public,   array,       tags) \
+    i_prop(X,Y, public,   bool,        ghost) \
+    i_prop(X,Y, public,   string,      group) \
+    i_prop(X,Y, public,   region,      area) \
+    i_prop(X,Y, public,   region,      text_area) \
+    i_prop(X,Y, public,   region,      border_area) \
+    i_prop(X,Y, public,   region,      clip_area) \
+    i_prop(X,Y, public,   region,      child_area) \
+    i_prop(X,Y, public,   i32,         tab_index) \
+    i_prop(X,Y, public,   vec2f,       cursor) \
+    i_prop(X,Y, public,   cap,         border_cap) \
+    i_prop(X,Y, public,   join,        border_join) \
+    i_prop(X,Y, public,   f32,         border_blur) \
+    i_prop(X,Y, public,   f32,         border_size) \
+    i_prop(X,Y, public,   bool,        border_clip) \
+    i_prop(X,Y, public,   rgba,        border_color) \
+    i_prop(X,Y, public,   f32,         text_align_x) \
+    i_prop(X,Y, public,   f32,         text_align_y) \
+    i_prop(X,Y, public,   f32,         text_scale) \
+    i_prop(X,Y, public,   rgba,        text_color) \
+    i_prop(X,Y, public,   f32,         text_shadow_x) \
+    i_prop(X,Y, public,   f32,         text_shadow_y) \
+    i_prop(X,Y, public,   rgba,        text_shadow_color) \
+    i_prop(X,Y, public,   bool,        text_ellipsis) \
+    i_prop(X,Y, public,   rgba,        fill_color) \
+    i_prop(X,Y, public,   f32,         fill_blur) \
+    i_prop(X,Y, public,   rgba,        sel_color) \
+    i_prop(X,Y, public,   rgba,        sel_background) \
+    i_prop(X,Y, public,   vec2f,       scroll) \
+    i_prop(X,Y, public,   vec2f,       text_spacing) \
+    i_prop(X,Y, public,   object,      content) \
+    i_prop(X,Y, public,   f32,         opacity) \
+    i_prop(X,Y, public,   font,        font) \
+    i_prop(X,Y, public,   text_sel,    sel_start) \
+    i_prop(X,Y, public,   text_sel,    sel_end) \
+    i_prop(X,Y, public,   f32,         border_radius_x) \
+    i_prop(X,Y, public,   f32,         border_radius_y) \
+    i_prop(X,Y, public,   f32,         fill_radius_x) \
+    i_prop(X,Y, public,   f32,         fill_radius_y) \
+    i_prop(X,Y, intern,   text,        lines) \
+    i_prop(X,Y, intern,   rect,        bounds) \
+    i_prop(X,Y, intern,   rect,        clip_bounds) \
+    i_prop(X,Y, intern,   rect,        child_bounds) \
+    i_prop(X,Y, intern,   rect,        fill_bounds) \
+    i_prop(X,Y, intern,   rect,        text_bounds) \
+    i_prop(X,Y, intern,   rect,        border_bounds) \
+    i_prop(X,Y, public,   image,       background) \
+    i_prop(X,Y, public,   bool,        captured) \
+    i_prop(X,Y, public,   bool,        selectable) \
+    i_prop(X,Y, public,   bool,        selected) \
+    i_prop(X,Y, public,   bool,        disabled) \
+    i_prop(X,Y, public,   bool,        hovered) \
+    i_prop(X,Y, public,   bool,        pressed) \
+    i_prop(X,Y, public,   bool,        focused) \
+    i_prop(X,Y, public,   subs,        action) \
+    i_prop(X,Y, public,   subs,        wheel) \
+    i_prop(X,Y, public,   subs,        context) \
+    i_prop(X,Y, public,   subs,        text) \
+    i_prop(X,Y, public,   subs,        hover) \
+    i_prop(X,Y, public,   subs,        leave) \
+    i_prop(X,Y, public,   subs,        key_down) \
+    i_prop(X,Y, public,   subs,        key_up) \
+    i_prop(X,Y, public,   subs,        press) \
+    i_prop(X,Y, public,   subs,        move) \
+    i_prop(X,Y, public,   subs,        release) \
+    i_prop(X,Y, public,   subs,        got_capture) \
+    i_prop(X,Y, public,   subs,        lost_capture) \
+    i_prop(X,Y, public,   subs,        focus) \
+    i_prop(X,Y, public,   subs,        blur) \
+    i_prop(X,Y, public,   Canvas,      border_canvas) \
+    i_prop(X,Y, public,   Canvas,      fill_canvas) \
+    i_method(X,Y, public, none,        set_capture) \
+    i_method(X,Y, public, none,        release_capture) \
+    i_method(X,Y, public, none,        set_focus) \
+    i_method(X,Y, public, none,        release_focus) \
+    i_method(X,Y, public, none,        draw,            window) \
+    i_method(X,Y, public, map,         render,          array) \
+    i_override(X,Y, method, compare)
+declare_class(element)
+
+forward(target)
+forward(model)
+
+#define scene_schema(X,Y,...) \
+    i_prop(X,Y, opaque, target, target) \
+    i_prop(X,Y, public, array,  models) \
+    i_prop(X,Y, public, f32,    render_scale) \
+    i_prop(X,Y, public, vec4f,  clear_color) \
+    i_prop(X,Y, public, subs,   update) \
+    i_override(X,Y, method, draw) \
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
+declare_class_2(scene, element)
+
+#define background_schema(X,Y,...) \
+    i_prop(X,Y, public, bool, frost) \
+    i_override(X,Y, method, init) \
+    i_override(X,Y, method, dealloc)
+declare_class_3(background, scene, element)
+
+#define pane_schema(X,Y,...)
+declare_class_2(pane, element)
+
+
+#define button_schema(X,Y,...)
+declare_class_2(button, element)
 
 #define uniforms_schema(X,Y,...) \
     i_prop    (X,Y, required,   trinity,            t) \
@@ -244,6 +647,8 @@ declare_class_2(UXSimple, shader)
     i_prop    (X,Y, intern,     VkSemaphore,            vk_render_finished_semaphore,  as, ARef) \
     i_prop    (X,Y, intern,     VkFramebuffer,          vk_framebuffer,             as, ARef) \
     i_prop    (X,Y, intern,     VkRenderPass,           vk_render_pass,             as, ARef) \
+    i_prop    (X,Y, intern,     i32,                    last_width) \
+    i_prop    (X,Y, intern,     i32,                    last_height) \
     i_method  (X,Y, public,     none,                   update) \
     i_method  (X,Y, public,     none,                   draw) \
     i_method  (X,Y, public,     none,                   sync_fence) \
@@ -256,11 +661,12 @@ forward(window)
  
 #define app_schema(X,Y,...) \
     i_prop    (X,Y, public,     window,        w) \
+    i_prop    (X,Y, public,     composer,      ux) \
     i_prop    (X,Y, public,     trinity,       t) \
     i_prop    (X,Y, public,     style,         style) \
     i_prop    (X,Y, opaque,     object,        arg) \
-    i_prop    (X,Y, public,     hook,          on_interface) \
-    i_prop    (X,Y, public,     hook,          on_background) \
+    i_prop    (X,Y, public,     callback,      on_render) \
+    i_method  (X,Y, public,     none,          initialize, window) \
     i_method  (X,Y, public,     i32,           run) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
@@ -274,6 +680,7 @@ declare_class(app)
     i_prop    (X,Y, opaque,     ARef,           wndproc) \
     i_prop    (X,Y, opaque,     ARef,           wndproc_arg) \
     i_prop    (X,Y, public,     composer,       ux) \
+    i_prop    (X,Y, public,     map,            element_targets) \
     i_prop    (X,Y, public,     array,          list) \
     i_prop    (X,Y, intern,     array,          swap_renders) \
     i_prop    (X,Y, intern,     model,          swap_model) \
@@ -300,13 +707,9 @@ declare_class(app)
     i_prop    (X,Y, public,     string,         title) \
     i_prop    (X,Y, public,     f32,            debug_value) \
     i_prop    (X,Y, public,     i32,            current_swap_index) \
-    i_prop    (X,Y, public,     hook,           on_render) \
-    i_prop    (X,Y, public,     hook,           on_background) \
-    i_prop    (X,Y, public,     bool,           blur) \
     i_prop    (X,Y, intern,     bool,           resized) \
     i_prop    (X,Y, public,     bool,           backbuffer) \
     i_prop    (X,Y, opaque,     target,         last_target) \
-    i_prop    (X,Y, public,     target,         r_background) \
     i_prop    (X,Y, public,     model,          m_reduce) \
     i_prop    (X,Y, public,     target,         r_reduce) \
     i_prop    (X,Y, public,     model,          m_reduce0) \
@@ -327,7 +730,6 @@ declare_class(app)
     i_prop    (X,Y, public,     target,         r_frost) \
     i_prop    (X,Y, public,     model,          m_view) \
     i_prop    (X,Y, public,     target,         r_view) \
-    i_method  (X,Y, public,     none,           initialize) \
     i_method  (X,Y, public,     none,           update_canvas) \
     i_method  (X,Y, public,     none,           resize, i32, i32) \
     i_method  (X,Y, public,     target,         final_target) \
@@ -358,6 +760,11 @@ declare_class(SVG)
     i_prop    (X,Y, public,   f32,     stroke_miter_limit) \
     i_prop    (X,Y, public,   f32,     stroke_dash_offset) \
     i_prop    (X,Y, public,   font,    font) \
+    i_prop    (X,Y, public,   texture, tx) \
+    i_prop    (X,Y, public,   f32,     x) \
+    i_prop    (X,Y, public,   f32,     y) \
+    i_prop    (X,Y, public,   f32,     w) \
+    i_prop    (X,Y, public,   f32,     h) \
     i_prop    (X,Y, public,   u32,     fill_color) \
     i_prop    (X,Y, public,   u32,     stroke_color) \
     i_prop    (X,Y, public,   f32,     opacity) \
@@ -391,6 +798,7 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
     i_method  (X,Y, interface, none,    output_mode,        bool) \
+    i_method  (X,Y, interface, none,    set_texture,        texture) \
     i_method  (X,Y, interface, none,    translate,          f32, f32) \
     i_method  (X,Y, interface, none,    scale,              f32) \
     i_method  (X,Y, interface, none,    clip,               rect, f32, f32) \
@@ -447,6 +855,7 @@ declare_struct(text_metrics)
     i_method  (X,Y, public,   none,    translate,          f32, f32) \
     i_method  (X,Y, public,   none,    scale,              f32) \
     i_method  (X,Y, public,   none,    clip,               rect, f32, f32) \
+    i_method  (X,Y, public,   none,    set_texture,        texture) \
     i_method  (X,Y, public,   none,    stroke_color,       object) \
     i_method  (X,Y, public,   none,    stroke_size,        f32) \
     i_method  (X,Y, public,   none,    stroke_cap,         cap) \
@@ -596,9 +1005,8 @@ declare_class(model)
     i_prop    (X,Y, public, f32,    pressure)
 declare_class(particle)
 
-#define model_viewer_schema(X,Y,...) \
-    i_prop    (X,Y, public,   model,   model) \
-    i_prop    (X,Y, public,   hook,    on_render)
-declare_class_3(model_viewer, element, ion)
+#define define_element(A0, A1, ...) \
+    define_any(A0, A1, sizeof(struct _##A0), A_TRAIT_USER_INIT, __VA_ARGS__)
+
 
 #endif

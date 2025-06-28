@@ -7,7 +7,9 @@
 const int enable_validation = 1;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 u32 vk_version = VK_API_VERSION_1_2;
-  
+
+static none app_render(app a);
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 trinity_log(
     VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -364,6 +366,11 @@ void target_update(target r) {
         fault("width / height or wscale not set on render target");
         exit(0);
     }
+    if (r->width == r->last_width && r->height == r->last_height)
+        return;
+
+    r->last_width  = r->width;
+    r->last_height = r->height;
 
     if (backbuffer) {
         if (r->target)
@@ -601,10 +608,6 @@ void window_update_canvas(window a) {
             width, width, height, height));
         a->overlay = hold(sk(t, t, format, Pixel_rgba8,
             width, width, height, height));
-
-        A info = head(a->overlay->state);
-        int test = 2;
-        test += 2;
     }
 
     clear       (a->compose, string("#00f"));
@@ -629,6 +632,16 @@ void window_resize(window w, i32 width, i32 height) {
     w->extent.width  = width;
     w->extent.height = height;
 
+    pairs (w->element_targets, i) {
+        target r = i->value;
+        update(r);
+
+        if (w->resized && r->models)
+            each (r->models, model, m)
+                rebind_model(m);
+    }
+
+    /// should be able to avoid this on first iteration
     each (w->list, target, r) {
         update(r);
 
@@ -694,6 +707,7 @@ void window_resize(window w, i32 width, i32 height) {
         if (!w->swap_model) {
             /// todo: swap_shader must have its uniforms set here
             target top     = w->last_target; //last(w->list);
+            verify(top, "last_target must be set");
             w->swap_model  = hold(model(w, w, samplers, map_of("color", top, null)));
         }
 
@@ -813,14 +827,16 @@ static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
 void window_init(window w) {
     trinity t = w->t;
 
-    if (!w->list) w->list = hold(array(alloc, 32));
+    if (!w->list) w->list = array(alloc, 32);
+    if (!w->element_targets) w->element_targets = map();
+
     VkResult result;
 
     if (!w->width) {
         w->width  = 1200;
         w->height = 1200;
     }
-
+    
     w->ev = hold(event());
 
     if (!w->backbuffer) {
@@ -905,79 +921,29 @@ void window_init(window w) {
     }
 }
 
+void app_init(app a) {
+    window w = a->w;
+    a->t     = hold(trinity());
+    a->style = style((object)a);
+    a->ux    = hold(composer(app, a));
+    a->ux->style = hold(a->style);
+
+    if (!a->on_render)
+         a->on_render = bind(a, a, true, typeid(map), typeid(window), null, "render");
+}
+
+void app_dealloc(app a) {
+}
+
 // this method must be separate from init due to an apps requirement to define a r_background
-void window_initialize(window w) {
-    update_canvas(w);
-    trinity t = w->t;
-    if (w->blur) {
-        w->m_reduce  = model (w, w, samplers, map_of("color", w->r_background->color, null));
-        w->r_reduce  = target(w, w, wscale, 1.0f, models, a(w->m_reduce));
+void app_initialize(app a, window w) {
+    a->ux->w = w;
+    w->ux    = hold(a->ux); // probably should make this opaque, too
+    update_canvas(w); // ?
+    app_render(a); // should be called before the targets update, so we have a list of targets
 
-        w->m_reduce0 = model (w, w, samplers, map_of("color", w->r_reduce->color, null));
-        w->r_reduce0 = target(w, w, wscale, 0.5f, models, a(w->m_reduce0));
-        
-        w->m_reduce1 = model (w, w, samplers, map_of("color", w->r_reduce0->color, null));
-        w->r_reduce1 = target(w, w, wscale, 0.25f, models, a(w->m_reduce1));
-
-        BlurV   fbv  = BlurV  (t, t, name, string("blur-v"), reduction_scale, 4.0f);
-        w->m_blur_v  = model  (w, w, s, fbv, samplers, map_of("color", w->r_reduce1->color, null));
-        w->r_blur_v  = target (w, w, wscale, 1.0, models, a(w->m_blur_v));
-        
-        Blur    fbl  = Blur   (t, t, name, string("blur"), reduction_scale, 4.0f);
-        w->m_blur    = model  (w, w, s, fbl, samplers, map_of("color", w->r_blur_v->color, null));
-        w->r_blur    = target (w, w, wscale, 1.0, models, a(w->m_blur));
-
-        w->m_reduce2 = model (w, w, samplers, map_of("color", w->r_reduce1->color, null));
-        w->r_reduce2 = target(w, w, wscale, 1.0f / 8.0f, models, a(w->m_reduce2));
-
-        w->m_reduce3 = model  (w, w, samplers, map_of("color", w->r_reduce2->color, null));
-        w->r_reduce3 = target (w, w, wscale, 1.0f / 16.0f, models, a(w->m_reduce3));
-
-        BlurV   bv   = BlurV  (t, t, name, string("blur-v"), reduction_scale, 16.0f);
-        w->m_frost_v = model  (w, w, s, bv, samplers, map_of("color", w->r_reduce3->color, null));
-        w->r_frost_v = target (w, w, wscale, 1.0f, models, a(w->m_frost_v));
-
-        Blur    bl   = Blur   (t, t, name, string("blur"), reduction_scale, 16.0f);
-        w->m_frost   = model  (w, w, s, bl, samplers, map_of("color", w->r_frost_v->color, null));
-        w->r_frost   = target (w, w, wscale, 1.0f, models, a(w->m_frost));
-
-        w->m_view    = model  (w, w, s, UXCompose(t, t, name, string("ux")),
-            samplers, map_of(
-                "background", w->r_background->color,
-                "frost",      w->r_frost->color,
-                "blur",       w->r_blur->color,
-                "compose",    w->compose->tx,
-                "colorize",   w->colorize->tx,
-                "overlay",    w->overlay->tx, null));
-
-        w->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
-            models, a(w->m_view));
-
-        UXCompose  ux_shader = w->m_view->s;
-        ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
-        ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
-    } else {
-        w->m_view = model  (w, w, s, UXSimple(t, t, name, string("simple")),
-            samplers, map_of(
-                "background", w->r_background->color,
-                "overlay",    w->overlay->tx, null));
-        w->r_view = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
-            models, a(w->m_view));
-    }
+    resize(w, w->extent.width, w->extent.height);
     
-    if (w->blur) {
-        w->list = hold(a(
-            w->r_background, w->r_reduce,  w->r_reduce0, w->r_reduce1, w->r_blur_v, w->r_blur,
-            w->r_reduce2,    w->r_reduce3, w->r_frost_v, w->r_frost,
-            w->r_view));
-    } else {
-        w->list = hold(a(
-            w->r_background, w->r_view));
-    }
-
-    //w->list = hold(a(w->r_background));
-    w->last_target = hold(w->r_view);
-    w->ux = hold(composer(app, w->app));
 }
 
 void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
@@ -2485,11 +2451,17 @@ void target_sync_fence(target r) {
 none window_draw(window w) {
     trinity t = w->t;
 
-    /// render background targets first
+    // render element targets first (these end up getting drawn onto canvas from their element)
+    pairs (w->element_targets, i) {
+        target r = i->value;
+        draw(r);
+        sync_fence(r);
+    }
+
+    // then background, then reduction, blur, etc, view
     each (w->list, target, r) {
         draw(r);
         sync_fence(r);
-        //w->last_target = r;
     }
 
     /// acquire swap image
@@ -2550,15 +2522,6 @@ void window_dealloc(window w) {
     }
 }
 
-void app_init(app a) {
-    window w = a->w;
-    a->t     = hold(trinity());
-    a->style = style((object)a);
-}
-
-void app_dealloc(app a) {
-}
-
 /// todo:
 /// orbiter: the ide is the os
 /// orbiter: windows are for desktop widgets:
@@ -2605,25 +2568,25 @@ void window_draw_element(window a, element e) {
     
     rect rel = e->parent ? 
         rect(x, 0, y, 0,
-             w, ((element)e->parent)->_bounds->w,
-             h, ((element)e->parent)->_bounds->h) :
+             w, ((element)e->parent)->bounds->w,
+             h, ((element)e->parent)->bounds->h) :
         rect(x, 0, y, 0, w, width, h, height); // verify this to be ion: 'root', then pane: 'main'
     
-    drop(e->_bounds);
-    drop(e->_text_bounds);
-    drop(e->_border_bounds);
-    drop(e->_child_bounds);
-    drop(e->_clip_bounds);
+    drop(e->bounds);
+    drop(e->text_bounds);
+    drop(e->border_bounds);
+    drop(e->child_bounds);
+    drop(e->clip_bounds);
     A area_h = head(e->area);
-    e->_bounds        = hold(rectangle_offset(e->area,        rel));
-    e->_text_bounds   = hold(rectangle_offset(e->text_area,   e->_bounds));
-    e->_border_bounds = hold(rectangle_offset(e->border_area, e->_bounds));
-    e->_child_bounds  = hold(rectangle_offset(e->child_area,  e->_bounds));
-    e->_clip_bounds   = hold(rectangle_offset(e->clip_area,   e->_bounds));
+    e->bounds        = hold(rectangle_offset(e->area,        rel));
+    e->text_bounds   = hold(rectangle_offset(e->text_area,   e->bounds));
+    e->border_bounds = hold(rectangle_offset(e->border_area, e->bounds));
+    e->child_bounds  = hold(rectangle_offset(e->child_area,  e->bounds));
+    e->clip_bounds   = hold(rectangle_offset(e->clip_area,   e->bounds));
 
     if (e->fill_color) {
         sk cv = canvas[e->fill_canvas];
-        rect b = e->_bounds;
+        rect b = e->bounds;
         rounded_rect_to (
             cv,
             b->x, b->y,
@@ -2639,21 +2602,21 @@ void window_draw_element(window a, element e) {
         sk cv = canvas[i];
         save(cv);
         translate(cv,
-            e->_clip_bounds->x,
-            e->_clip_bounds->y);
+            e->clip_bounds->x,
+            e->clip_bounds->y);
         rect r = rect(x, 0, y, 0,
-            w, e->_clip_bounds->w, h, e->_clip_bounds->h);
+            w, e->clip_bounds->w, h, e->clip_bounds->h);
         if (e->border_clip)
             clip(cv, r, e->border_radius_x, e->border_radius_y);
     }
 
     if (e->border_color && e->border_size > 0) {
         sk cv = canvas[e->border_canvas];
-        rect b = e->_border_bounds;
+        rect b = e->border_bounds;
         rounded_rect_to(
             cv,
-            b->x - e->_clip_bounds->x,
-            b->y - e->_clip_bounds->y,
+            b->x - e->clip_bounds->x,
+            b->y - e->clip_bounds->y,
             b->w, b->h,
             e->border_radius_x, e->border_radius_y);
         stroke_color(cv, e->border_color);
@@ -2664,10 +2627,10 @@ void window_draw_element(window a, element e) {
     }
 
     string content = instanceof(e->content, string);
-    if (content) {
+    if (content && e->text_color) {
         // we could render text onto pane as a kind of dark frost
-        rect t = e->_text_bounds;
-        rect c = e->_clip_bounds;
+        rect t = e->text_bounds;
+        rect c = e->clip_bounds;
         rect r = rect(
             x, t->x - c->x, y, t->y - c->y,
             w, t->w,        h, t->h);
@@ -2683,12 +2646,17 @@ void window_draw_element(window a, element e) {
         blur_radius(a->overlay, e->fill_blur);
         draw_text(a->overlay, content, r, al,
             offset, e->text_ellipsis);
+        
         for (int i = 0; i < 3; i++) {
             sk cv = canvas[i];
             restore(cv);
         } // remove this
         return;
     }
+
+    /// elements that wish to perform custom actions may override this method here
+    /// could be done with a 'bind' too!
+    draw(e, w);
 
     pairs(e->elements, i) {
         string  id = i->key;
@@ -2702,19 +2670,53 @@ void window_draw_element(window a, element e) {
     }
 }
 
+static none app_render(app a) {
+    window w = a->w;
+    composer ux = w->ux;
+    map elements = a->on_render(a, a->w);
+    update_all(w->ux, elements);
+
+    animate(ux);
+
+    // clear canvases
+    if (w->compose && w->colorize) {
+        clear   (w->compose,  string("#000"));
+        clear   (w->colorize, string("#000"));
+    }
+    clear(w->overlay, string("#0000")); // alpha clear
+    
+    // draw app ux
+    draw_element(w, ux->root);
+    
+    if (w->compose && w->colorize) {
+        w->compose->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        w->colorize->tx->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        transition  (w->compose->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        transition  (w->colorize->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    w->overlay->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    transition  (w->overlay->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    if (w->compose && w->colorize) {
+        // sync canvases (the elements should not perform sync)
+        sync(w->colorize);
+        sync(w->compose); // this errors.
+    }
+    sync(w->overlay);
+
+    if (w->compose && w->colorize) {
+        output_mode (w->compose,  true);
+        output_mode (w->colorize, true);
+    }
+    output_mode (w->overlay,  true);
+
+    draw(w);
+}
+
 i32 app_run(app a) {
     window   w  = a->w;
     composer ux = w->ux;
 
-    //recycle();
-
-    resize(w, w->extent.width, w->extent.height);
-    ux->style = hold(a->style);
-    ux->app   = a;
-
-    /// null before "interface" is for id, and if unset, we bind the type if target and binder are different
-    callback interface   = bind(a, a, true, typeid(map), typeid(window), null, "interface");
-    callback background  = bind(a, a, true, null,        typeid(window), null, "background");
     int      next_second = epoch_millis() / 1000;
     int      frames      = 0;
 
@@ -2726,44 +2728,7 @@ i32 app_run(app a) {
             frames = 0;
         }
         frames++;
-
-        background(a, a->w);
-        map elements = interface(a, a->w);
-        update_all(ux, elements);
-        drop(elements);
-        
-        element root_element = ux->root;
-        verify(instanceof(root_element, element), "e is not an element");
-    
-        // handle updates to canvas size
-        animate(ux);
-        
-        // clear canvases
-        clear       (w->compose,  string("#000"));
-        clear       (w->colorize, string("#000"));
-        clear       (w->overlay,  string("#0000")); // alpha clear
-        
-        // draw app ux
-        draw_element(w, ux->root);
-        
-        w->compose->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        w->colorize->tx->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        w->overlay->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        transition  (w->compose->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        transition  (w->colorize->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        transition  (w->overlay->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-        // sync canvases (the elements should not perform sync)
-        sync        (w->overlay);
-        sync        (w->colorize);
-        sync        (w->compose); // this errors.
-
-        output_mode (w->compose,  true);
-        output_mode (w->overlay,  true);
-        output_mode (w->colorize, true);
-
-        draw(w);
+        app_render(a); // we need to call this prior to app_initialize logic
 
         recycle();
         int after = A_alloc_count();
@@ -3163,6 +3128,9 @@ none canvas_arc(canvas a, f32 center_x, f32 center_y, f32 radius, f32 start_angl
 
 none canvas_blur_radius(canvas a, f32 blur) { }
 
+none canvas_set_texture(canvas a, texture tx) {
+}
+
 none canvas_draw_fill(canvas a) {
 }
 
@@ -3317,8 +3285,6 @@ define_class(command,       A)
 define_class(uniforms,      A) 
 define_class(IBL,           A)
 
-define_class(model_viewer,  element)
-
 define_class(draw_state,    A)
 define_class(canvas,        A)
 
@@ -3329,3 +3295,16 @@ define_class(particle,      A)
 
 define_enum(Surface)
 define_enum(UXSurface)
+
+
+
+define_class(tcoord, unit, Duration)
+define_enum(Ease)
+define_enum(Direction)
+define_enum(Duration)
+define_enum(xalign)
+define_enum(yalign)
+define_enum(Canvas)
+
+define_typed_enum(Fill, f32)
+

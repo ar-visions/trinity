@@ -4,6 +4,7 @@
 #define  SK_VULKAN
 #include <gpu/vk/GrVkBackendContext.h>
 #include <gpu/ganesh/vk/GrVkBackendSurface.h>
+#include <gpu/ganesh/SkImageGanesh.h>
 #include <gpu/GrBackendSurface.h>
 #include <gpu/GrDirectContext.h>
 #include <gpu/vk/VulkanExtensions.h>
@@ -220,12 +221,20 @@ none sk_line_to(sk a, f32 x, f32 y) {
 none sk_rect_to(sk a, f32 x, f32 y, f32 w, f32 h) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
+    ds->x = x;
+    ds->y = y;
+    ds->w = w;
+    ds->h = h;
     ((SkPath*)a->sk_path)->addRect(SkRect::MakeXYWH(x, y, w, h));
 }
 
 none sk_rounded_rect_to(sk a, f32 x, f32 y, f32 w, f32 h, f32 sx, f32 sy) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
+    ds->x = x;
+    ds->y = y;
+    ds->w = w;
+    ds->h = h;
     ((SkPath*)a->sk_path)->addRoundRect(SkRect::MakeXYWH(x, y, w, h), sx, sy);
 }
 
@@ -251,6 +260,12 @@ none sk_arc(sk a, f32 center_x, f32 center_y, f32 radius, f32 start_angle, f32 e
     ((SkPath*)a->sk_path)->addArc(rect, start_deg, sweep_deg);
 }
 
+none sk_set_texture(sk a, texture tx) {
+    SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
+    draw_state ds     = (draw_state)last(a->state);
+    ds->tx = tx;
+}
+
 none sk_draw_fill_preserve(sk a) {
     SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
     draw_state ds     = (draw_state)last(a->state);
@@ -260,8 +275,36 @@ none sk_draw_fill_preserve(sk a) {
     if (ds->blur_radius > 0.0f)
         paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
     paint.setColor(ds->fill_color); // assuming this exists in your draw_state
-    paint.setAntiAlias(true); 
-    sk->drawPath(*(SkPath*)a->sk_path, paint);
+    paint.setAntiAlias(true);
+
+    if (ds->tx) { // this requires a rect_to prior to the call, and does not support arbitrary path fills yet; its supported with a SkShader and requires more maintenance
+        GrDirectContext* direct_ctx = a->skia->ctx.get();
+        texture tx = ds->tx;
+
+        GrVkImageInfo vk_info = {};
+        vk_info.fImage       = tx->vk_image;
+        vk_info.fImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vk_info.fImageTiling = VK_IMAGE_TILING_OPTIMAL;
+        vk_info.fFormat      = tx->vk_format;
+        vk_info.fLevelCount  = 1;
+
+        GrBackendTexture backendTex = GrBackendTextures::MakeVk(tx->width, tx->height, vk_info);
+        
+        sk_sp<SkImage> sk_image = SkImages::BorrowTextureFrom(
+            direct_ctx,
+            backendTex,
+            kTopLeft_GrSurfaceOrigin,
+            kRGBA_8888_SkColorType,
+            kPremul_SkAlphaType,
+            nullptr
+        );
+
+        SkRect dst = SkRect::MakeXYWH(ds->x, ds->y, ds->w, ds->h);
+        SkSamplingOptions sampling;
+        sk->drawImageRect(sk_image, dst, sampling, &paint);
+
+    } else
+        sk->drawPath(*(SkPath*)a->sk_path, paint);
 }
 
 none sk_blur_radius(sk a, f32 radius) {
