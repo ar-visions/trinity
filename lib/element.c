@@ -1,4 +1,5 @@
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 #include <import>
 #include <math.h>
 
@@ -1011,6 +1012,11 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
     AType type = isa(i);
     array changed = array(alloc, 32);
 
+    if (eq(i->id, "iris")) {
+        int test2 = 2;
+        test2 += 2;
+    }
+
     while (type != typeid(A)) {
         for (int m = 0; m < type->member_count; m++) {
             type_member_t* mem = &type->members[m];
@@ -1024,7 +1030,11 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
                 int test2 = 2;
                 test2 += 2;
             }
-            if (eq(i->id, "record") && eq(prop, "fill_color")) {
+            if (eq(prop, "area")) {
+                int test2 = 2;
+                test2 += 2;
+            }
+            if (eq(i->id, "iris") && eq(prop, "fill_color")) {
                 print("fill_color being reapplied");
             }
             array entries = get(style_avail, prop);
@@ -1419,6 +1429,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
         if (instance) {
             instance->mark = 0; // instance found (pandora tomorrow...)
             if (!instance->id) {
+                A info = head(id);
                 instance->id = hold(id);
                 instance->ux = ux;
                 instance->parent = parent;
@@ -1537,10 +1548,11 @@ none scene_init(scene a) {
     verify(a->ux, "ux not set");
     window w = a->ux->w;
     if (a->render_scale == 0.0f) a->render_scale = 1.0f;
-    a->target = target (w, w,
+    a->target = hold(target (w, w,
         wscale,         a->render_scale,
         clear_color,    a->clear_color,
-        models,         a->models);
+        models,         a->models));
+    a->target->color = hold(a->target->color);
     set(w->element_targets, a->id, a->target);
     // this needs to effectively render whenever the props update; composer is to do this itself.
     //
@@ -1551,15 +1563,27 @@ none scene_init(scene a) {
     //       or be based on randoms..
 }
 
+// test drawing orbiter model in window pane
+
 none scene_draw(scene a, window w) {
     verify(a->update, "not set");
-    a->target->width  = a->bounds->w;
-    a->target->height = a->bounds->h;
-    
+    a->target->width  = a->bounds->w * a->render_scale; // verify placement of output as well as scaling quality
+    a->target->height = a->bounds->h * a->render_scale;
+    a->target->wscale = 0.0f;
+
     update(a->target);
+
+    /// it actually would be a nice thing to have subs as a primitive in silver, rather more meta declared (here first...) i_subs(X, Y, required, update)
+    /// silver as an element api would work well, since A-type works quite well.  we just need to stop shifting things around, my God its good enough.
+    /// now its just actual implementation of the best we can represent.  callback would be the name for a singleton version of this
     
-    if (a->update) invoke(a->update, a); // verify this is initialized here
-    if (isa(a) == typeid(background)) return;
+    /// load Orbiter model
+    verify(a->update, "'%o_update' sub not declared by the app", a->id);
+    if (a->update)
+        invoke(a->update, a); // verify this is initialized here
+
+    if (isa(a) == typeid(background))
+        return; // already the first target in window's target list
 
     // draw onto canvas (somehow)
     set_texture(w->overlay, a->target->color);
@@ -1570,6 +1594,8 @@ none scene_dealloc(scene a) {
     drop(a->target);
 }
 
+none sk_set_bs(texture tx);
+
 // this one calls above, because background is based on scene
 // it just does the busy work of 'implementing' the things it needs in window
 // yes, this is not so slick looking is it, but, we all have areas to improve.
@@ -1578,6 +1604,9 @@ none background_init(background a) {
     window  w = a->ux->w; // lets make this class messed up looking rather than window, ok?
     trinity t = w->t;
     if (a->frost) { // we must create the following in a 'background' object based on scene, or add a background boolean to scene
+        
+        sk_set_bs(a->target->color);
+
         w->m_reduce  = model (w, w, samplers, m("color", a->target->color));
         w->r_reduce  = target(w, w, wscale, 1.0f, models, a(w->m_reduce));
 

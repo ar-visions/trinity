@@ -9,8 +9,9 @@
 
 typedef void* skia_t;
 typedef void* handle_t;
+typedef struct _trinity* trinity;
 
-skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, 
+skia_t skia_init_vk(trinity t, handle_t vk_instance, handle_t vma_allocator, handle_t phys, handle_t device, 
     handle_t queue, unsigned int graphics_family, unsigned int vk_version);
 
 typedef struct _pipeline* pipeline;
@@ -29,9 +30,12 @@ typedef struct _image*    image;
     i_prop    (X,Y, intern,     VkQueue,             queue,           as, ARef) \
     i_prop    (X,Y, intern,     VkDebugUtilsMessengerEXT, debug,      as, ARef) \
     i_prop    (X,Y, intern,     VkCommandPool,       command_pool,    as, ARef) \
+    i_prop    (X,Y, intern,     VmaAllocator,        allocator,       as, ARef) \
     i_prop    (X,Y, public,     i32,                 queue_family_index) \
     i_prop    (X,Y, intern,     map,                 device_memory) \
     i_prop    (X,Y, public,     bool,                rt_support) \
+    i_prop    (X,Y, public,     array,               instance_exts) \
+    i_prop    (X,Y, public,     array,               device_exts) \
     i_method  (X,Y, public,     texture,             environment, image, vec3f, f32) \
     i_override(X,Y, method,     init) \
     i_override(X,Y, method,     dealloc)
@@ -554,10 +558,10 @@ typedef struct _window*   window;
     i_prop    (X,Y, public,     bool,               m_host_visible) \
     i_prop    (X,Y, public,     bool,               m_host_coherent) \
     i_prop    (X,Y, intern,     ARef,               user) \
-    i_prop    (X,Y, intern,     VkDeviceMemory,     vk_memory, as, ARef) \
+    i_prop    (X,Y, intern,     VmaAllocation,      vma_alloc, as, ARef) \
     i_prop    (X,Y, intern,     VkBuffer,           vk_buffer, as, ARef) \
     i_method  (X,Y, public,     none,               update, ARef) \
-    i_method  (X,Y, public,     none,               transfer, window) \
+    i_method  (X,Y, public,     none,               transfer, object) \
     i_method  (X,Y, public,     ARef,               mmap) \
     i_method  (X,Y, public,     none,               unmap) \
     i_override(X,Y, method,     init) \
@@ -760,7 +764,7 @@ declare_class(SVG)
     i_prop    (X,Y, public,   f32,     stroke_miter_limit) \
     i_prop    (X,Y, public,   f32,     stroke_dash_offset) \
     i_prop    (X,Y, public,   font,    font) \
-    i_prop    (X,Y, public,   texture, tx) \
+    i_prop    (X,Y, opaque,   texture, tx) \
     i_prop    (X,Y, public,   f32,     x) \
     i_prop    (X,Y, public,   f32,     y) \
     i_prop    (X,Y, public,   f32,     w) \
@@ -795,9 +799,7 @@ declare_class(draw_state)
     i_method  (X,Y, interface, none,    draw_fill_preserve) \
     i_method  (X,Y, interface, none,    draw_stroke_preserve) \
     i_method  (X,Y, interface, none,    blur_radius,        f32) \
-    i_method  (X,Y, interface, none,    sync) \
     i_method  (X,Y, interface, none,    prepare) \
-    i_method  (X,Y, interface, none,    output_mode,        bool) \
     i_method  (X,Y, interface, none,    set_texture,        texture) \
     i_method  (X,Y, interface, none,    translate,          f32, f32) \
     i_method  (X,Y, interface, none,    scale,              f32) \
@@ -849,9 +851,8 @@ declare_struct(text_metrics)
     i_method  (X,Y, public,   none,    draw_fill_preserve) \
     i_method  (X,Y, public,   none,    draw_stroke_preserve) \
     i_method  (X,Y, public,   none,    blur_radius,        f32) \
-    i_method  (X,Y, public,   none,    sync) \
+    s_method  (X,Y, public,   none,    sync) \
     i_method  (X,Y, public,   none,    prepare) \
-    i_method  (X,Y, public,   none,    output_mode, bool) \
     i_method  (X,Y, public,   none,    translate,          f32, f32) \
     i_method  (X,Y, public,   none,    scale,              f32) \
     i_method  (X,Y, public,   none,    clip,               rect, f32, f32) \
@@ -868,6 +869,7 @@ declare_struct(text_metrics)
     i_override(X,Y, method,   init,    dealloc)
 declare_class_3(sk, canvas, image)
 
+none sk_sync_all();
 
 #define command_schema(X,Y,...) \
     i_prop(X,Y, opaque, trinity, t) \
@@ -880,27 +882,28 @@ declare_class(command)
 
 
 #define texture_schema(X,Y,...) \
-    i_prop(X,Y, public,   trinity,          t) \
-    i_prop(X,Y, public,   window,           w) \
-    i_prop(X,Y, public,   Pixel,            format) \
-    i_prop(X,Y, public,   object,           sampler) \
-    i_prop(X,Y, public,   i32,              width) \
-    i_prop(X,Y, public,   i32,              height) \
-    i_prop(X,Y, public,   bool,             swap) \
-    i_prop(X,Y, public,   i32,              mip_levels) \
-    i_prop(X,Y, public,   i32,              layer_count) \
-    i_prop(X,Y, public,   Surface,          surface) \
-    i_prop(X,Y, public,   bool,             linear) \
-    i_prop(X,Y, intern,   VkImageLayout,    vk_layout,      as, i32) \
-    i_prop(X,Y, intern,   VkFormat,         vk_format,      as, i32) \
-    i_prop(X,Y, intern,   VkImage,          vk_image,       as, ARef) \
-    i_prop(X,Y, intern,   VkImageView,      vk_image_view,  as, ARef) \
-    i_prop(X,Y, intern,   VkSampler,        vk_sampler,     as, ARef) \
-    i_prop(X,Y, intern,   VkDeviceMemory,   vk_memory,      as, ARef) \
-    i_method(X,Y, public, none, resize, i32, i32) \
-    i_method(X,Y, public, none, transition, i32) \
-    i_override(X,Y, method, init) \
-    i_override(X,Y, method, dealloc)
+    i_prop    (X,Y, public,   trinity,          t) \
+    i_prop    (X,Y, public,   window,           w) \
+    i_prop    (X,Y, public,   Pixel,            format) \
+    i_prop    (X,Y, public,   object,           sampler) \
+    i_prop    (X,Y, public,   i32,              width) \
+    i_prop    (X,Y, public,   i32,              height) \
+    i_prop    (X,Y, public,   bool,             swap) \
+    i_prop    (X,Y, public,   i32,              mip_levels) \
+    i_prop    (X,Y, public,   i32,              layer_count) \
+    i_prop    (X,Y, public,   Surface,          surface) \
+    i_prop    (X,Y, public,   bool,             linear) \
+    i_prop    (X,Y, intern,   VkImageLayout,    vk_layout,      as, i32) \
+    i_prop    (X,Y, intern,   VkFormat,         vk_format,      as, i32) \
+    i_prop    (X,Y, intern,   VkImage,          vk_image,       as, ARef) \
+    i_prop    (X,Y, intern,   VkImageView,      vk_image_view,  as, ARef) \
+    i_prop    (X,Y, intern,   VkSampler,        vk_sampler,     as, ARef) \
+    i_prop    (X,Y, intern,   VmaAllocation,    vma_alloc,      as, ARef) \
+    i_method  (X,Y, public,   none,             resize,         i32, i32) \
+    i_method  (X,Y, public,   none,             transition,     i32) \
+    i_cast    (X,Y, public,   image) \
+    i_override(X,Y, method,   init) \
+    i_override(X,Y, method,   dealloc)
 declare_class(texture)
 
 typedef struct _Accessor* Accessor;
@@ -929,7 +932,7 @@ typedef struct vertex_member_t {
     i_prop(X,Y, intern,   VkImage,      vk_image,       as, ARef) \
     i_prop(X,Y, intern,   VkImageView,  vk_image_view,  as, ARef) \
     i_prop(X,Y, intern,   VkSampler,    vk_sampler,     as, ARef) \
-    i_prop(X,Y, intern,   VkDeviceMemory, vk_memory,    as, ARef) \
+    i_prop(X,Y, intern,   VmaAllocation, vma_alloc,     as, ARef) \
     i_prop(X,Y, public,   bool,         compute) \
     i_method(X,Y, public, none,         sync, window) \
     i_override(X,Y, method, init) \
@@ -941,6 +944,7 @@ typedef struct _Material* Material;
     i_prop    (X,Y, opaque,     trinity,                t) \
     i_prop    (X,Y, opaque,     window,                 w) \
     i_prop    (X,Y, required,   target,                 r) \
+    i_prop    (X,Y, required,   string,                 name) \
     i_prop    (X,Y, public,     i32,                    shader_reloads) \
     i_prop    (X,Y, public,     mat4f,                  model) \
     i_prop    (X,Y, public,     Material,               material) \

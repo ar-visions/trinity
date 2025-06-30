@@ -1,10 +1,11 @@
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 #include <GLFW/glfw3.h>
 #include <import>
 #include <sys/stat.h>
 #include <math.h>
 
-const int enable_validation = 1;
+const int enable_validation = 0;
 PFN_vkCreateDebugUtilsMessengerEXT  _vkCreateDebugUtilsMessengerEXT;
 u32 vk_version = VK_API_VERSION_1_2;
 
@@ -56,14 +57,6 @@ u32 find_memory_type(trinity t, u32 type_filter, VkMemoryPropertyFlags flags) {
 
     fault("could not find memory type");
     return UINT32_MAX;
-}
-
-VkDeviceMemory device_memory(trinity t, VkBuffer b) {
-    pairs (t->device_memory, i) {
-        if (i->key == (object)b) return (VkDeviceMemory)i->value;
-    }
-    fault("device memory not resolved");
-    return null;
 }
 
 void transition_image_layout(
@@ -139,7 +132,7 @@ void texture_transition(texture tx, i32 new_layout) {
     }
 } 
 
-void get_required_extensions(const char*** extensions, uint32_t* extension_count) {
+void get_required_extensions(trinity t, const char*** extensions, uint32_t* extension_count) {
     symbol* glfw_extensions = glfwGetRequiredInstanceExtensions(extension_count);
     symbol* result = malloc((*extension_count + 4) * sizeof(char*));
     memcpy(result, glfw_extensions, (*extension_count) * sizeof(char*));
@@ -154,17 +147,18 @@ void get_required_extensions(const char*** extensions, uint32_t* extension_count
 
     if (enable_validation) result[(*extension_count)++] = 
         VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-    if (getenv("VERBOSE")) 
-        for (int i = 0; i < *extension_count; i++)
-            print("instance extension: %s", result[i]);
 
-    *extensions = result;
+    bool verbose = getenv("VERBOSE") != null;
+    for (int i = 0; i < *extension_count; i++) {
+        push(t->instance_exts, strdup(result[i]));
+        if (verbose) print("instance extension: %s", result[i]);
+    }
 }
 
-VkInstance vk_create() {
+VkInstance vk_create(trinity t) {
     const char** extensions = null;
     u32          extension_count = 0;
-    get_required_extensions(&extensions, &extension_count);
+    get_required_extensions(t, &extensions, &extension_count);
     const char* validation_layer = enable_validation ?
         "VK_LAYER_KHRONOS_validation" : null;
 
@@ -179,25 +173,28 @@ VkInstance vk_create() {
                 .engineVersion          = VK_MAKE_VERSION(1, 0, 0),
                 .apiVersion             = vk_version,
             },
-            .enabledExtensionCount      = extension_count,
-            .ppEnabledExtensionNames    = extensions,
+            .enabledExtensionCount      = t->instance_exts->len,
+            .ppEnabledExtensionNames    = t->instance_exts->elements,
             .enabledLayerCount          = (u32)enable_validation,
             .ppEnabledLayerNames        = &validation_layer
         }, null, &instance);
 
     verify(result == VK_SUCCESS, "failed to create Vulkan instance, error: %d\n", result);
 
-    _vkCreateDebugUtilsMessengerEXT  = vkGetInstanceProcAddr(
-        instance, "vkCreateDebugUtilsMessengerEXT");
-    verify(_vkCreateDebugUtilsMessengerEXT, "cannot find vk debug function");
-    
-    free(extensions);
+    if (enable_validation) {
+        _vkCreateDebugUtilsMessengerEXT  = vkGetInstanceProcAddr(
+            instance, "vkCreateDebugUtilsMessengerEXT");
+        verify(_vkCreateDebugUtilsMessengerEXT, "cannot find vk debug function");
+    }
     return instance;
 }
 
-
 void trinity_init(trinity t) {
     verify(glfwInit(), "glfw init");
+
+    t->instance_exts = array(alloc, 128, unmanaged, true);
+    t->device_exts   = array(alloc, 128, unmanaged, true);
+    
     int wsize2 = sizeof(struct _window);
     int bsize2 = sizeof(struct _Basic);
     if (!glfwVulkanSupported()) {
@@ -206,7 +203,7 @@ void trinity_init(trinity t) {
         return;
     }
 
-    t->instance = vk_create();
+    t->instance = vk_create(t);
     verify(t->instance, "vk instance failure");
 
     // enumerate physical devices (adapter in WebGPU)
@@ -241,6 +238,7 @@ void trinity_init(trinity t) {
     // Check which extensions are available
     bool pr = getenv("VERBOSE") != null;
     for (uint32_t i = 0; i < extension_count; i++) {
+        push(t->device_exts, strdup(extensions[i].extensionName));
         if (pr) print("[supported] device extension: %s", extensions[i].extensionName);
         if (strcmp(extensions[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
             swapchain_supported = true;
@@ -284,6 +282,16 @@ void trinity_init(trinity t) {
         }, null, &t->device);
     verify(result == VK_SUCCESS, "cannot create logical device");
     t->queue_family_index = -1;
+
+    result = vmaCreateAllocator(&(VmaAllocatorCreateInfo) {
+        .physicalDevice = t->physical_device,
+        .device         = t->device,
+        .instance       = t->instance,
+        .vulkanApiVersion = vk_version,
+        .pVulkanFunctions = NULL,
+        .flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT
+    }, &t->allocator);
+    verify(result == VK_SUCCESS, "cannot create vma allocator");
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -304,26 +312,21 @@ void trinity_finish(trinity t, window w) {
         set_queue_index(t, w);
         vkGetDeviceQueue(t->device, t->queue_family_index, 0, &t->queue);
         verify(t->queue, "Failed to retrieve graphics queue");
+        if (_vkCreateDebugUtilsMessengerEXT) {
+            result = _vkCreateDebugUtilsMessengerEXT(t->instance, &(VkDebugUtilsMessengerCreateInfoEXT) {
+                    .sType              = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                    .messageSeverity    = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                    .messageType        = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT     |
+                                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT  |
+                                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                    .pfnUserCallback    = trinity_log,
+                    .pUserData          = t
+                }, null, &t->debug);
+            verify(result == VK_SUCCESS, "debug messenger");
+        }
 
-        result = _vkCreateDebugUtilsMessengerEXT(t->instance, &(VkDebugUtilsMessengerCreateInfoEXT) {
-                .sType              = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                .messageSeverity    = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                .messageType        = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT     |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT  |
-                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback    = trinity_log,
-                .pUserData          = t
-            }, null, &t->debug);
-        verify(result == VK_SUCCESS, "debug messenger");
-
-        /// buffer management for pipeline, without management (it does not drop/hold this external data; not A-type)
-        t->device_memory = hold(map(unmanaged, true));
-      //t->buffers       = map(unmanaged, true); -- decentralized buffer management
-        //t->skia          = skia_init_vk(
-        //    t->instance, t->physical_device, t->device, t->queue, t->queue_family_index, vk_version);
-    
         VkCommandPoolCreateInfo pool_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .queueFamilyIndex = t->queue_family_index,
@@ -335,13 +338,8 @@ void trinity_finish(trinity t, window w) {
 }
 
 void trinity_dealloc(trinity t) {
+    vmaDestroyAllocator(t->allocator);
     vkDeviceWaitIdle(t->device);
-    pairs(t->device_memory, i) {
-        VkBuffer      buffer  = (VkBuffer)      i->key;
-        VkDeviceMemory memory = (VkDeviceMemory)i->value;
-        vkDestroyBuffer(t->device, buffer, null);
-        vkFreeMemory   (t->device, memory, null);
-    }
 
     vkDestroyDevice(t->device, null);
     vkDestroyInstance(t->instance, null);
@@ -611,16 +609,10 @@ void window_update_canvas(window a) {
     }
 
     clear       (a->compose, string("#00f"));
-    sync        (a->compose);
-    output_mode (a->compose, true);
-
     clear       (a->colorize, string("#000"));
-    sync        (a->colorize);
-    output_mode (a->colorize, true);
-
     clear       (a->overlay, string("#0000"));
-    sync        (a->overlay);
-    output_mode (a->overlay, true);
+
+    sk_sync();
 }
 
 void window_resize(window w, i32 width, i32 height) {
@@ -1073,6 +1065,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
     /// pipeline processes samplers, and creates placeholders
     pipeline pipe = pipeline(
         t,          t,
+        name,       n ? n->name : null,
         r,          m->r,
         w,          m->w,
         s,          s,
@@ -1225,8 +1218,8 @@ texture trinity_environment(
     vec3f eye = { 0, 0, 0 };
 
     
-    VkImage vk_image[2]; /// cubes array that we return is of the number of mip levels;
-    VkDeviceMemory vk_memory[2];
+    VkImage       vk_image[2]; /// cubes array that we return is of the number of mip levels;
+    VmaAllocation vma_alloc[2];
 
     VkImageCreateInfo image_info = {
         .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -1242,27 +1235,23 @@ texture trinity_environment(
         .flags          = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
         .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
     };
+
+    VmaAllocationCreateInfo alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE
+    };
     
     for (int i = 0; i < 2; i++) {
         image_info.arrayLayers = i == 0 ? 6 : 6 * cube_count;
-        vkCreateImage(t->device, &image_info, NULL, &vk_image[i]);
-        VkMemoryRequirements memReqs;
-        vkGetImageMemoryRequirements(t->device, vk_image[i], &memReqs);
-        verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = find_memory_type(
-                t, memReqs.memoryTypeBits,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        }, null, &vk_memory[i]) == VK_SUCCESS, 
-            "Failed to allocate memory for image");
-        vkBindImageMemory(t->device, vk_image[i], vk_memory[i], 0);
+        VkResult res = vmaCreateImage(
+            t->allocator, &image_info, &alloc_info,
+            &vk_image[i], &vma_alloc[i], null);
+        verify(res == VK_SUCCESS, "could not create image with vmaCreateImage");
     }
 
     command cmd = command(t, t);
     target final = null;
     w->list = hold(a(r_env));
-
+    w->last_target = last(w->list);
     for (int f = 0; f < 6; f++) {
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         //
@@ -1290,7 +1279,6 @@ texture trinity_environment(
     }
 
     create_mipmaps(t, vk_image[0], size, size, mip_levels, 6);
-    return null;
 
     texture cube = texture(
         t, t, vk_image, vk_image[0], surface, Surface_environment,
@@ -1314,6 +1302,8 @@ texture trinity_environment(
 
     drop(w->list);
     w->list = hold(a(r_conv));
+    w->last_target = last(w->list);
+
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -1396,7 +1386,7 @@ texture trinity_environment(
     transition(final->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         
     texture convolve = texture(
-        t, t,           vk_image, vk_image[1],
+        t, t,           vk_image, vk_image[1], vma_alloc, vma_alloc[1],
         surface,        Surface_environment,
         vk_format,      w->surface_format.format,
         mip_levels,     mip_levels,
@@ -1507,7 +1497,7 @@ none gpu_init(gpu a) {
 }
 
 none gpu_dealloc(gpu a) {
-    vkFreeMemory   (a->t->device, a->vk_memory, null);
+    //vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
 define_class(gpu, A);
@@ -1657,7 +1647,13 @@ none texture_init(texture a) {
                     VK_IMAGE_USAGE_SAMPLED_BIT;
         }
         if (!a->vk_format && a->format) a->vk_format = vk_format(a->format, a->linear);
-        verify(vkCreateImage(t->device, &(VkImageCreateInfo) {
+
+        VmaAllocationCreateInfo alloc_info = {
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        };
+
+        verify(vmaCreateImage(t->allocator, &(VkImageCreateInfo) {
             .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType      = VK_IMAGE_TYPE_2D,
             .format         = a->vk_format,
@@ -1671,21 +1667,8 @@ none texture_init(texture a) {
             .usage          = usage,
             .sharingMode    = VK_SHARING_MODE_EXCLUSIVE,
             .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
-        }, null, &a->vk_image) == VK_SUCCESS,
+        }, &alloc_info, &a->vk_image, &a->vma_alloc, null) == VK_SUCCESS,
             "Failed to create VkImage");
-        
-        // Allocate memory and bind
-        VkMemoryRequirements memReqs;
-        vkGetImageMemoryRequirements(t->device, a->vk_image, &memReqs);
-        verify(vkAllocateMemory(t->device, &(VkMemoryAllocateInfo) {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = memReqs.size,
-            .memoryTypeIndex = find_memory_type(
-                t, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        }, null, &a->vk_memory) == VK_SUCCESS, 
-            "Failed to allocate memory for image");
-
-        vkBindImageMemory(t->device, a->vk_image, a->vk_memory, 0);
 
         if (sampler_size > 0) {
             //png(img, f(path, "/src/image-%o.png", e_str(Surface, img->surface)));
@@ -1769,13 +1752,68 @@ none texture_init(texture a) {
     }
 }
 
+static object image_release_buffer(image a) {
+    buffer b = a->res;
+    trinity t = b->t;
+    vmaUnmapMemory(t->allocator, b->vma_alloc);
+    vmaDestroyBuffer(t->allocator, b->vk_buffer, b->vma_alloc);
+    drop(b);
+    return null;
+}
+
+// useful to also have a channel re-order, perhaps (this way we dont have to mirror everything)
+Pixel pixel_from_format(VkFormat f, int* channels) {
+    Pixel pixel = ((f == VK_FORMAT_R8G8B8A8_UNORM ||
+                    f == VK_FORMAT_B8G8R8A8_UNORM ||
+                    f == VK_FORMAT_R8G8B8A8_SRGB  ||
+                    f == VK_FORMAT_B8G8R8A8_SRGB)       ? Pixel_rgba8 :
+                   (f == VK_FORMAT_R8G8B8_UNORM   ||
+                    f == VK_FORMAT_B8G8R8_UNORM   ||
+                    f == VK_FORMAT_R8G8B8_SRGB    ||
+                    f == VK_FORMAT_B8G8R8_SRGB)         ? Pixel_rgb8  :
+                   (f == VK_FORMAT_R8_UNORM)            ? Pixel_u8    :
+                   (f == VK_FORMAT_R32_SFLOAT)          ? Pixel_f32   :
+                   (f == VK_FORMAT_R32G32B32A32_SFLOAT) ? Pixel_rgbaf32 : 0);
+    if (channels)
+        switch (pixel) {
+            case Pixel_rgbaf32: *channels = 4; break;
+            case Pixel_rgba8:   *channels = 4; break;
+            case Pixel_rgb8:    *channels = 3; break;
+            case Pixel_f32:     *channels = 1; break;
+            case Pixel_u8:      *channels = 1; break;
+            default:            *channels = 0; break;
+        }
+    return pixel;
+}
+
+
+image texture_cast_image(texture tx) {
+    VkFormat format    = tx->vk_format;
+    int      channels  = 0;
+    Pixel    pixel     = pixel_from_format(format, &channels);
+    verify(pixel != 0, "unsupported format for texture_cast_image");
+
+    trinity  t         = tx->t;
+    buffer   b         = buffer(t, t, size, tx->width*tx->height*channels, // todo: get channel count
+        u_dst, true, m_host_visible, true, m_host_coherent, true);
+    transfer(b, tx);
+
+    return image(
+        width,       tx->width,
+        height,      tx->height,
+        format,      pixel,
+        res_bits,    mmap(b),
+        res,         hold(b),
+        res_dealloc, image_release_buffer);
+}
+
 none texture_dealloc(texture a) {
     vkDestroySampler  (a->t->device, a->vk_sampler,    null);
     vkDestroyImageView(a->t->device, a->vk_image_view, null);
-    vkDestroyImage    (a->t->device, a->vk_image,      null);
-    vkFreeMemory      (a->t->device, a->vk_memory,     null);
+    vmaDestroyImage   (a->t->allocator, a->vk_image,   a->vma_alloc);
+    //vkFreeMemory      (a->t->device, a->vk_memory,     null);
     a->vk_layout     = VK_IMAGE_LAYOUT_UNDEFINED;
-    a->vk_memory     = null;
+    a->vma_alloc     = null;
     a->vk_image      = null;
     a->vk_image_view = null;
     a->vk_sampler    = null;
@@ -2108,6 +2146,7 @@ void pipeline_bind_resources(pipeline p) {
         uniform_count + sampler_binds, descriptor_writes, 0, null);
 }
 
+
 void pipeline_reassemble(pipeline p) {
     //if (p->memory) sync(p->memory);
     trinity t   = p->t;
@@ -2152,6 +2191,7 @@ void pipeline_reassemble(pipeline p) {
                 (mem->type == typeid(vec2f)) ? VK_FORMAT_R32G32_SFLOAT       :
                 (mem->type == typeid(vec3f)) ? VK_FORMAT_R32G32B32_SFLOAT    :
                 (mem->type == typeid(vec4f)) ? VK_FORMAT_R32G32B32A32_SFLOAT : 
+                (mem->type == typeid(rgba16)) ? VK_FORMAT_R16G16B16A16_UNORM : 
                 (mem->type == typeid(rgba8)) ? VK_FORMAT_R8G8B8A8_UNORM      : 
                 (mem->type == typeid( f32 )) ? VK_FORMAT_R32_SFLOAT          :
                 (mem->type == typeid( i8  )) ? VK_FORMAT_R8_SINT             :
@@ -2289,7 +2329,7 @@ void pipeline_reassemble(pipeline p) {
             .subpass             = 0,
             .basePipelineHandle  = VK_NULL_HANDLE,
         };
-
+        print("creating pipeline for %o", p->name);
         result = vkCreateGraphicsPipelines(
             t->device, VK_NULL_HANDLE, 1, &pipeline_info, null, &p->vk_render);
         verify(result == VK_SUCCESS, "pipeline creation fail");
@@ -2584,6 +2624,11 @@ void window_draw_element(window a, element e) {
     e->child_bounds  = hold(rectangle_offset(e->child_area,  e->bounds));
     e->clip_bounds   = hold(rectangle_offset(e->clip_area,   e->bounds));
 
+    if (eq(e->id, "iris")) {
+        int test2 = 2;
+        test2 += 2;
+    }
+
     if (e->fill_color) {
         sk cv = canvas[e->fill_canvas];
         rect b = e->bounds;
@@ -2646,12 +2691,6 @@ void window_draw_element(window a, element e) {
         blur_radius(a->overlay, e->fill_blur);
         draw_text(a->overlay, content, r, al,
             offset, e->text_ellipsis);
-        
-        for (int i = 0; i < 3; i++) {
-            sk cv = canvas[i];
-            restore(cv);
-        } // remove this
-        return;
     }
 
     /// elements that wish to perform custom actions may override this method here
@@ -2688,28 +2727,7 @@ static none app_render(app a) {
     // draw app ux
     draw_element(w, ux->root);
     
-    if (w->compose && w->colorize) {
-        w->compose->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        w->colorize->tx->vk_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        transition  (w->compose->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        transition  (w->colorize->tx, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-    w->overlay->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    transition  (w->overlay->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-    if (w->compose && w->colorize) {
-        // sync canvases (the elements should not perform sync)
-        sync(w->colorize);
-        sync(w->compose); // this errors.
-    }
-    sync(w->overlay);
-
-    if (w->compose && w->colorize) {
-        output_mode (w->compose,  true);
-        output_mode (w->colorize, true);
-    }
-    output_mode (w->overlay,  true);
-
+    sk_sync();
     draw(w);
 }
 
@@ -2982,26 +3000,30 @@ none buffer_init(buffer b) {
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
 
-    VkResult result = vkCreateBuffer(t->device, &buffer_info, null, &b->vk_buffer);
-    verify(result == VK_SUCCESS, "failed to create buffer");
-
-    VkMemoryRequirements mem_requirements;
-    vkGetBufferMemoryRequirements(t->device, b->vk_buffer, &mem_requirements);
-
-    VkMemoryAllocateInfo alloc_info = {
-        .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-        .allocationSize  = mem_requirements.size,
-        .memoryTypeIndex = find_memory_type(t, mem_requirements.memoryTypeBits, props),
-        .pNext           = &(VkMemoryAllocateFlagsInfo) {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-            .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT
-        }
+    VmaAllocationCreateInfo alloc_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO
     };
 
-    result = vkAllocateMemory(t->device, &alloc_info, null, &b->vk_memory);
-    verify(result == VK_SUCCESS, "failed to allocate buffer memory");
+    if (b->m_device_local) {
+        alloc_info.preferredFlags |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    if (b->m_host_visible) {
+        alloc_info.requiredFlags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    }
+    if (b->m_host_coherent) {
+        alloc_info.requiredFlags |= VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
 
-    vkBindBufferMemory(t->device, b->vk_buffer, b->vk_memory, 0);
+    if (b->data || b->m_host_visible) {
+        alloc_info.flags =
+            VMA_ALLOCATION_CREATE_MAPPED_BIT | 
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    }
+
+    VkResult result = vmaCreateBuffer(
+        t->allocator, &buffer_info, &alloc_info,
+        &b->vk_buffer, &b->vma_alloc, null);
+    verify(result == VK_SUCCESS, "failed to create buffer");
 
     // Copy data if provided
     if (b->data) {
@@ -3011,13 +3033,18 @@ none buffer_init(buffer b) {
     }
 }
 
-void buffer_transfer(buffer b, window w) {
-    verify(w->last_target,
-        "expected render pass to be run prior to a buffer transfer from that window");
+void buffer_transfer(buffer b, object arg) { // arg can be texture or window
+    window  w  = instanceof(arg, window);
+    texture tx = instanceof(arg, texture);
 
-    VkImage  image  = w->last_target->color->vk_image;
+    verify(tx || w->last_target,
+        "expected texture or window (with render pass run prior)");
+
+    VkImage  image  = tx ? tx->vk_image : w->last_target->color->vk_image;
     trinity  t      = b->t;
     VkBuffer buffer = b->vk_buffer;
+    u32      width  = tx ? tx->width  : w->width;
+    u32      height = tx ? tx->height : w->height;
     VkCommandBuffer cmd;
 
     vkAllocateCommandBuffers(t->device, &(VkCommandBufferAllocateInfo) {
@@ -3051,6 +3078,12 @@ void buffer_transfer(buffer b, window w) {
             .layerCount     = 1
         }});
 
+    VkImageLayout prev;
+    if (tx) {
+        prev = tx->vk_layout;
+        transition(tx, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+
     vkCmdCopyImageToBuffer(
             cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1,
             &(VkBufferImageCopy) {
@@ -3064,16 +3097,18 @@ void buffer_transfer(buffer b, window w) {
                     .layerCount     = 1
                 },
                 .imageOffset = {0, 0, 0},
-                .imageExtent = {w->width, w->height, 1}});
-    
+                .imageExtent = {width, height, 1}});
+     
     vkEndCommandBuffer(cmd);
     vkQueueSubmit(t->queue, 1, &(VkSubmitInfo) {
         .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount = 1,
         .pCommandBuffers    = &cmd}, VK_NULL_HANDLE);
     vkQueueWaitIdle(t->queue);
-
     vkFreeCommandBuffers(t->device, t->command_pool, 1, &cmd);
+
+    if (tx)
+        transition(tx, prev);
 }
 
 
@@ -3087,20 +3122,20 @@ none buffer_update(buffer a, ARef data) {
 
 ARef buffer_mmap(buffer b) {
     void* mapped_memory;
-    VkResult result = vkMapMemory(b->t->device, b->vk_memory, 0, (VkDeviceSize)b->size, 0, &mapped_memory);
+    VkResult result = vmaMapMemory(b->t->allocator, b->vma_alloc, &mapped_memory);
     verify(result == VK_SUCCESS, "failed to map buffer memory");
     return mapped_memory;
 }
 
 none buffer_unmap(buffer b) {
-    verify(b->vk_memory, "expected memory");
-    vkUnmapMemory(b->t->device, b->vk_memory);
+    verify(b->vma_alloc, "expected memory");
+    vmaUnmapMemory(b->t->allocator, b->vma_alloc);
 }
 
 none buffer_dealloc(buffer a) {
     A info = head(a);
-    vkDestroyBuffer(a->t->device, a->vk_buffer, null);
-    vkFreeMemory   (a->t->device, a->vk_memory, null);
+    vmaDestroyBuffer(a->t->allocator, a->vk_buffer, a->vma_alloc);
+    //vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
 
@@ -3252,7 +3287,7 @@ none draw_state_set_default(draw_state ds) {
     ds->stroke_size  = 0;
     ds->fill_color   = sk_color((object)string("#000"));
     ds->stroke_color = sk_color((object)string("#000"));
-    ds->opacity      = 1.0f;
+    ds->opacity      = 1.0f; 
 }
 
 define_class(trinity,   A)

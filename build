@@ -9,9 +9,14 @@ import:
 	skia 	https://skia.googlesource.com/skia.git 	c6835e2d5ff641dad9347ce4c2ff79dbc29cf9aa
 		cxx="clang++"
 		cc="clang"
-		is_official_build=true
-		is_debug=false
+		extra_cflags = [ "-fvisibility=default", "-Wno-switch-default" ]
+		extra_cxxflags = [ "-D_LIBCPP_ABI_VERSION", "-D_LIBCPP_DEBUG", "-D_GLIBCXX_USE_CXX11_ABI", "-fno-inline", "-O0", "-fvisibility=default", "-Wno-switch-default" ]
+		is_official_build=false
+		is_trivial_abi=false
+		is_debug=true
 		is_component_build=true
+		skia_enable_graphite=false
+		skia_enable_ganesh=true
 		skia_pdf_subset_harfbuzz=false
 		skia_use_harfbuzz=true
 		skia_use_system_harfbuzz=false
@@ -21,16 +26,18 @@ import:
 		skia_use_libwebp_decode=false
 		skia_enable_gpu=true
 		skia_use_freetype=true
+		skia_enable_tools=false
 		skia_enable_fontmgr_custom_empty=false
 		skia_enable_fontmgr_fontconfig=true
-		> # cd .. && python3 tools/git-sync-deps
-		> # cd .. && bin/gn gen $BUILD_TYPE --args='$BUILD_CONFIG'
-		> # cd .. && ninja -C $BUILD_TYPE
-		> # rsync -a *.so $TAPESTRY/lib/
+		> cd .. && python3 tools/git-sync-deps
+		> cd .. && bin/gn gen $BUILD_TYPE --args='$BUILD_CONFIG'
+		> cd .. && ninja -C $BUILD_TYPE
+		> rsync -a *.so $TAPESTRY/lib/
 		-lskia
 		-lm
 	-I$TAPESTRY/checkout/skia
 	-I$TAPESTRY/checkout/skia/src
+	-I$TAPESTRY/checkout/skia/src/gpu/vk/vulkanmemoryallocator
 	-I$TAPESTRY/checkout/skia/include
 	-I$TAPESTRY/skia/include
 	-I$TAPESTRY/checkout/skia/modules/svg/include

@@ -1,7 +1,21 @@
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmacro-redefined"
+#pragma clang diagnostic ignored "-Wnullability-completeness" 
 #include <cstddef>
 #include <core/SkImage.h>
-
 #define  SK_VULKAN
+#define  SK_USE_VMA
+
+//#include <assert.h>
+
+#undef assert
+#define VMA_IMPLEMENTATION
+#define VMA_STATIC_VULKAN_FUNCTIONS 1
+#include <stdio.h>
+#include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
+
+
 #include <gpu/vk/GrVkBackendContext.h>
 #include <gpu/ganesh/vk/GrVkBackendSurface.h>
 #include <gpu/ganesh/SkImageGanesh.h>
@@ -42,7 +56,21 @@
 #include <gpu/vk/GrVkBackendContext.h>
 #include <gpu/vk/VulkanExtensions.h>
 #include <ports/SkFontMgr_fontconfig.h>
-//#include <assert.h>
+#include <gpu/vk/VulkanAMDMemoryAllocator.h>
+#include <gpu/vk/VulkanMemoryAllocator.h>
+#include <gpu/vk/VulkanInterface.h>
+#include <gpu/vk/VulkanMemory.h>
+#include <gpu/vk/VulkanUtilsPriv.h>
+
+
+#include <gpu/graphite/Surface_Graphite.h>
+#include <gpu/graphite/vk/VulkanGraphiteTypes.h>
+#include <gpu/graphite/vk/VulkanGraphiteUtils.h>
+#include <gpu/vk/VulkanBackendContext.h>
+#include <gpu/graphite/Recorder.h>
+#include <gpu/graphite/Context.h>
+#include <private/gpu/graphite/ContextOptionsPriv.h>
+
 
 extern "C" {
 #include <import>
@@ -58,11 +86,16 @@ extern "C" {
 //#include <skia/tools/gpu/vk/VkTestUtils.h>
 
 struct Skia {
+#if 0
+    std::unique_ptr<skgpu::graphite::Context>  ctx;
+    std::unique_ptr<skgpu::graphite::Recorder> rec;
+    sk_sp<SkSurface> surface; // optional: reuse
+#else
     sk_sp<GrDirectContext> ctx;
+#endif
 };
 
 extern "C" {
-
 
 static map font_resources;
 static int font_resources_refs;
@@ -106,13 +139,66 @@ none sk_font_initialize() {
 
 static handle_t vk_prev;
 static skia_t   sk_current;
+static trinity  t;
 
-/// initialize skia from vulkan-resources
-skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle_t queue, unsigned int graphics_family, unsigned int vk_version) {
+
+#if 0
+skia_t skia_init_vk(
+        trinity _t, handle_t vk_instance, handle_t /*vma_allocator*/, handle_t phys,
+        handle_t device, handle_t queue, unsigned int graphics_family, unsigned int /*vk_version*/) {
     if (sk_current) {
         verify(vk_instance == vk_prev, "skia_init_vk: more than one vulkan instance");
         return sk_current;
     }
+    t = _t;
+    vk_prev = vk_instance;
+
+    static skgpu::VulkanBackendContext bctx = {};
+    bctx.fInstance            = (VkInstance)vk_instance;
+    bctx.fPhysicalDevice      = (VkPhysicalDevice)phys;
+    bctx.fDevice              = (VkDevice)device;
+    bctx.fQueue               = (VkQueue)queue;
+    bctx.fGraphicsQueueIndex  = graphics_family;
+    bctx.fProtectedContext    = skgpu::Protected::kNo;
+    bctx.fGetProc             = [](const char *name, VkInstance inst, VkDevice dev) -> PFN_vkVoidFunction {
+        return dev ? vkGetDeviceProcAddr(dev, name) : vkGetInstanceProcAddr(inst, name);
+    };
+
+    // Create Graphite Context / Recorder
+    Skia* sk = new Skia();
+    //static skgpu::graphite::ContextOptions  contextOptionsb;
+    static skgpu::graphite::RecorderOptions rec_options;
+
+    static skgpu::graphite::ContextOptions     contextOptions;
+    static skgpu::graphite::ContextOptionsPriv contextOptionsPriv;
+    // Needed to make ManagedGraphiteTexture::ReleaseProc (w/in CreateProtectedSkSurface) work
+    contextOptionsPriv.fStoreContextRefInRecorder = true;
+    contextOptions.fOptionsPriv = &contextOptionsPriv;
+
+    auto ctx = skgpu::graphite::ContextFactory::MakeVulkan(bctx, contextOptions);
+    sk->ctx = std::move(ctx);
+    verify(sk->ctx, "graphite context creation failed");
+    auto rec = sk->ctx->makeRecorder(rec_options);
+    sk->rec = std::move(rec);
+    skgpu::graphite::Recorder* rec2 = sk->rec.get();
+    //delete rec2;
+    sk_current = sk;
+    sk_font_initialize();
+    return sk;
+}
+
+
+#else
+
+/// initialize skia from vulkan-resources
+skia_t skia_init_vk(
+        trinity _t, handle_t vk_instance, handle_t vma_allocator, handle_t phys,
+        handle_t device, handle_t queue, unsigned int graphics_family, unsigned int vk_version) {
+    if (sk_current) {
+        verify(vk_instance == vk_prev, "skia_init_vk: more than one vulkan instance");
+        return sk_current;
+    }
+    t = _t;
     vk_prev = vk_instance;
 
     //GrBackendFormat gr_conv = GrBackendFormat::MakeVk(VK_FORMAT_R8G8B8_SRGB);
@@ -124,14 +210,45 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
         graphics_family,
         vk_version
     };
-    grc.fMaxAPIVersion = vk_version;
-    //grc.fVkExtensions = new GrVkExtensions(); // internal needs population perhaps
+
+    grc.fProtectedContext = skgpu::Protected::kNo;
+    grc.fMaxAPIVersion    = vk_version;
     grc.fGetProc = [](const char *name, VkInstance inst, VkDevice dev) -> PFN_vkVoidFunction {
         return !dev ? vkGetInstanceProcAddr(inst, name) : vkGetDeviceProcAddr(dev, name);
     };
 
+    #undef init
+    static skgpu::VulkanExtensions extensions;
+    extensions.init(
+        grc.fGetProc,
+        (VkInstance)vk_instance,
+        (VkPhysicalDevice)phys,
+        t->instance_exts->len, (const char *const *)t->instance_exts->elements,
+        t->device_exts->len,   (const char *const *)t->device_exts->elements
+    );
+
+    grc.fVkExtensions = &extensions; // internal needs population perhaps
+    
+    sk_sp<skgpu::VulkanInterface> interface;
+    
+    interface.reset(new skgpu::VulkanInterface(
+        grc.fGetProc,        // this is vkGetInstanceProcAddr
+        grc.fInstance,       // your VkInstance
+        grc.fDevice,         // your VkDevice
+        VK_API_VERSION_1_2,  // your VkInstance version (like VK_API_VERSION_1_2)
+        VK_API_VERSION_1_2,    // your VkPhysicalDevice version (same or higher)
+        grc.fVkExtensions)); // parsed extension list
+
+
+    int ii = skgpu::VulkanAMDMemoryAllocator::Make3(1);
+    
+    sk_sp<skgpu::VulkanMemoryAllocator> skiaAllocator;
+
+    skgpu::VulkanAMDMemoryAllocator::Make2(t->allocator, &interface, (int)false, &skiaAllocator);
+
+    grc.fMemoryAllocator = skiaAllocator;
+
     Skia* sk = new Skia();
-    sk_sp<GrDirectContext> ctx = GrDirectContexts::MakeVulkan(grc);
     sk->ctx = GrDirectContexts::MakeVulkan(grc);
     
     assert(sk->ctx, "could not obtain GrVulkanContext");
@@ -141,6 +258,8 @@ skia_t skia_init_vk(handle_t vk_instance, handle_t phys, handle_t device, handle
     return sk;
 }
 
+#endif
+
 extern "C" { SkColor sk_color(object any); }
 
 extern "C" { path path_with_cstr(path a, cstr cs); }
@@ -148,20 +267,33 @@ extern "C" { path path_with_cstr(path a, cstr cs); }
 none sk_init(sk a);
 none sk_dealloc(sk a);
 
+static bool  is_realloc;
+static array canvases;
+
 none sk_resize(sk a, i32 w, i32 h) {
     a->width  = w;
     a->height = h;
+    is_realloc = true;
     resize(a->tx, w, h);
     sk_dealloc(a);
     sk_init(a);
     A_hold_members((object)a);
+    is_realloc = false;
 }
 
 none sk_init(sk a) {
+    if (!is_realloc) {
+        if (!canvases) canvases = hold(hold(array(alloc, 32)));
+    }
+
+    push(canvases, (object)a);
+
     trinity t = a->t;
 
     a->skia = (Skia*)skia_init_vk(
+        t,
         t->instance,
+        t->allocator,
         t->physical_device,
         t->device,
         t->queue,
@@ -175,7 +307,20 @@ none sk_init(sk a) {
             linear, true, mip_levels, 1, layer_count, 1);
         a->tx = (texture)A_hold((A)tx);
     }
+     
+    Skia* sk = a->skia;
+#if 0
+    SkImageInfo info = SkImageInfo::Make(
+        a->width,
+        a->height,
+        kRGBA_8888_SkColorType,
+        kPremul_SkAlphaType
+    );
+    static SkSurfaceProps props;
+    sk_sp<SkSurface> surface = skgpu::graphite::Surface::MakeGraphite(
+            sk->rec.get(), info, skgpu::Budgeted::kNo, skgpu::Mipmapped::kNo, &props);
     
+#else
     GrVkImageInfo info       = {};
     info.fImage              = (VkImage)a->tx->vk_image;
     //info.fImageLayout        = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -183,7 +328,7 @@ none sk_init(sk a) {
     info.fFormat             = VK_FORMAT_R8G8B8A8_UNORM;
     info.fLevelCount         = 1;
     info.fCurrentQueueFamily = VK_QUEUE_FAMILY_IGNORED;
-    
+
     GrBackendTexture backend_texture = GrBackendTextures::MakeVk(
         a->width, a->height, info);
     
@@ -194,6 +339,7 @@ none sk_init(sk a) {
         (const SkSurfaceProps *)null, (SkSurfaces::TextureReleaseProc)null);
     
     SkSafeRef(surface.get());
+#endif
     a->sk_surface = (ARef)surface.get();
     a->sk_canvas  = (ARef)((SkSurface*)a->sk_surface)->getCanvas();
     ((SkCanvas*)a->sk_canvas)->clear(SK_ColorWHITE); // <--- clear to black here
@@ -203,6 +349,13 @@ none sk_init(sk a) {
 }
 
 none sk_dealloc(sk a) {
+    if (!is_realloc) {
+        num i = index_of(canvases, (object)a);
+        remove(canvases, i);
+        if (len(canvases) == 0)
+            drop(canvases);
+    }
+    
     SkSafeUnref((SkSurface*)a->sk_surface);
 }
 
@@ -266,6 +419,12 @@ none sk_set_texture(sk a, texture tx) {
     ds->tx = tx;
 }
 
+static texture bs_tx;
+
+none sk_set_bs(texture tx) {
+    bs_tx = tx;
+}
+
 none sk_draw_fill_preserve(sk a) {
     SkCanvas*  sk     = (SkCanvas*)a->sk_canvas;
     draw_state ds     = (draw_state)last(a->state);
@@ -274,34 +433,50 @@ none sk_draw_fill_preserve(sk a) {
 
     if (ds->blur_radius > 0.0f)
         paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, ds->blur_radius));
-    paint.setColor(ds->fill_color); // assuming this exists in your draw_state
+    paint.setColor(ds->fill_color);
     paint.setAntiAlias(true);
 
-    if (ds->tx) { // this requires a rect_to prior to the call, and does not support arbitrary path fills yet; its supported with a SkShader and requires more maintenance
-        GrDirectContext* direct_ctx = a->skia->ctx.get();
-        texture tx = ds->tx;
+    if (ds->tx) {
 
-        GrVkImageInfo vk_info = {};
-        vk_info.fImage       = tx->vk_image;
-        vk_info.fImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        vk_info.fImageTiling = VK_IMAGE_TILING_OPTIMAL;
-        vk_info.fFormat      = tx->vk_format;
-        vk_info.fLevelCount  = 1;
+        //ds->tx = bs_tx;
 
-        GrBackendTexture backendTex = GrBackendTextures::MakeVk(tx->width, tx->height, vk_info);
+        VkDevice device = t->device;
+        int width = ds->tx->width, height = ds->tx->height;
         
-        sk_sp<SkImage> sk_image = SkImages::BorrowTextureFrom(
-            direct_ctx,
-            backendTex,
-            kTopLeft_GrSurfaceOrigin,
-            kRGBA_8888_SkColorType,
-            kPremul_SkAlphaType,
-            nullptr
-        );
+        //image img = cast(image, ds->tx);
+        //png(img, f(path, "test.png"));
 
-        SkRect dst = SkRect::MakeXYWH(ds->x, ds->y, ds->w, ds->h);
-        SkSamplingOptions sampling;
-        sk->drawImageRect(sk_image, dst, sampling, &paint);
+        static int dont_start = 0;
+        dont_start++;
+
+        if (dont_start > 10) {
+            GrDirectContext* direct_ctx = a->skia->ctx.get();
+            texture tx = ds->tx;
+
+            GrVkImageInfo vk_info = {};
+            vk_info.fImage       = tx->vk_image;
+            vk_info.fImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            vk_info.fImageTiling = VK_IMAGE_TILING_OPTIMAL;
+            vk_info.fFormat      = tx->vk_format;
+            vk_info.fLevelCount  = 1;
+
+            GrBackendTexture backendTex = GrBackendTextures::MakeVk(tx->width, tx->height, vk_info);
+            sk_sp<SkImage> sk_image = SkImages::BorrowTextureFrom(
+                direct_ctx,
+                backendTex,
+                kTopLeft_GrSurfaceOrigin,
+                kBGRA_8888_SkColorType,
+                kUnpremul_SkAlphaType,
+                SkColorSpace::MakeSRGB()
+            );
+            SkRect dst = SkRect::MakeXYWH(ds->x, ds->y, ds->w, ds->h);
+            SkSamplingOptions sampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
+
+            //paint.setColor(SK_ColorWHITE);
+            //sk->drawRect(dst, paint);
+            sk->drawImageRect(sk_image, dst, sampling, &paint);
+        }
+        sk_sync();
 
     } else
         sk->drawPath(*(SkPath*)a->sk_path, paint);
@@ -478,9 +653,6 @@ none sk_clear(sk a, object clr) {
     SkColor fill = clr ? sk_color(clr) : SK_ColorWHITE;
     sk->clear(fill);
 }
-
-
-
 
 /// ASMR AR/AI ramblings -- Work on Orbiter, an open app platform where any app may be edited
 /// -----------------
@@ -716,27 +888,33 @@ none sk_prepare(sk a) {
     
 }
 
-none sk_sync(sk a) {
-    GrDirectContext* direct_ctx = a->skia->ctx.get();
-    direct_ctx->flush();
-    /*if (!a->once) {
-        a->once = true;
-        transition(a->tx, (i32)VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    } else {
-        transition(a->tx, (i32)VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }*/
-    direct_ctx->submit();
-}
+none sk_sync() {
+    // the issue is the need to transition ALL skia canvas before a sync.
+    // that means we must gather handles to canvases intern
 
-none sk_output_mode(sk a, bool output) {
-    VkImageLayout to = output ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : 
-                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    VkImageLayout fr = output ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : 
-                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    //transition(a->tx, to);
-    transition_image_layout(a->t, (VkImage)a->tx->vk_image, fr, to,
-        0, 1, 0, 1, false);
-    a->tx->vk_layout = to;
+    int ln = len(canvases);
+    for(int i = 0; i < ln; i++) {
+        sk cv = (sk)canvases->elements[i];
+        cv->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        transition(cv->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+
+    Skia* g = (Skia*)sk_current;
+
+#if 0
+    auto recording = g->rec->snap();
+    g->ctx->insertRecording({recording.get()});
+    g->ctx->submit();
+#else
+    g->ctx->flush();
+    g->ctx->submit();
+#endif
+
+    for(int i = 0; i < ln; i++) {
+        sk cv = (sk)canvases->elements[i];
+        cv->tx->vk_layout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        transition(cv->tx, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
 }
 
 define_class(sk, canvas, A)
