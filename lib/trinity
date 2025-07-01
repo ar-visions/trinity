@@ -162,66 +162,52 @@ declare_enum(Duration)
 
 
 #define xalign_schema(E,T,Y) \
-    enum_value_v(E,T,Y, undefined, 0) \
-    enum_value_v(E,T,Y, left,      1) \
-    enum_value_v(E,T,Y, middle,    2) \
-    enum_value_v(E,T,Y, right,     3) \
-    enum_value_v(E,T,Y, width,     4)
-declare_enum(xalign)
+    enum_value(E,T,Y, undefined, 0) \
+    enum_value(E,T,Y, left,      0.0) \
+    enum_value(E,T,Y, middle,    0.5) \
+    enum_value(E,T,Y, right,     1.0) \
+    enum_value(E,T,Y, width,     2.0)
+declare_typed_enum(xalign, f32)
 
 
 #define yalign_schema(E,T,Y) \
-    enum_value_v(E,T,Y, undefined, 0) \
-    enum_value_v(E,T,Y, top,       1) \
-    enum_value_v(E,T,Y, middle,    2) \
-    enum_value_v(E,T,Y, bottom,    3) \
-    enum_value_v(E,T,Y, height,    4)
-declare_enum(yalign)
+    enum_value(E,T,Y, undefined, 0) \
+    enum_value(E,T,Y, top,       0.0) \
+    enum_value(E,T,Y, middle,    0.5) \
+    enum_value(E,T,Y, bottom,    1.0) \
+    enum_value(E,T,Y, height,    2.0)
+declare_typed_enum(yalign, f32)
 
 
-#define alignment_schema(X,Y,...) \
-    i_prop  (X,Y, public, f32,  x) \
-    i_prop  (X,Y, public, f32,  y) \
-    i_prop  (X,Y, public, bool, set) \
-    i_ctr   (X,Y, public, cstr) \
-    i_ctr   (X,Y, public, string) \
-    i_ctr   (X,Y, public, vec2f) \
-    i_method(X,Y, public, alignment, mix, alignment, f32)
-declare_class(alignment)
+#define xcoord_schema(X,Y,...) \
+    i_struct_prop(X,Y, xalign,    x_type)   \
+    i_struct_prop(X,Y, f32,       offset)   \
+    i_struct_prop(X,Y, bool,      relative) \
+    i_struct_prop(X,Y, bool,      percent)  \
+    i_struct_ctr (X,Y, string)
+declare_struct(xcoord)
 
 
-#define coord_schema(X,Y,...) \
-    i_prop  (X,Y, public, alignment, align) \
-    i_prop  (X,Y, public, vec2f,     offset) \
-    i_prop  (X,Y, public, xalign,    x_type) \
-    i_prop  (X,Y, public, yalign,    y_type) \
-    i_prop  (X,Y, public, bool,      x_rel) \
-    i_prop  (X,Y, public, bool,      y_rel) \
-    i_prop  (X,Y, public, bool,      x_per) \
-    i_prop  (X,Y, public, bool,      y_per) \
-    i_ctr   (X,Y, public, string) \
-    i_ctr   (X,Y, public, cstr) \
-    i_method(X,Y, public, coord, mix, coord, f32) \
-    i_method(X,Y, public, vec2f, plot, rect, vec2f, f32, f32) \
-    i_override(X,Y, cast, string) \
-    i_override(X,Y, cast,   bool)
-declare_class(coord)
+#define ycoord_schema(X,Y,...) \
+    i_struct_prop(X,Y, yalign,    y_type)   \
+    i_struct_prop(X,Y, f32,       offset)   \
+    i_struct_prop(X,Y, bool,      relative) \
+    i_struct_prop(X,Y, bool,      percent)  \
+    i_struct_ctr (X,Y, string)
+declare_struct(ycoord)
 
 
 #define region_schema(X,Y,...) \
-    i_prop  (X,Y, public, coord,     tl) \
-    i_prop  (X,Y, public, coord,     br) \
+    i_prop  (X,Y, public, xcoord,     l) \
+    i_prop  (X,Y, public, ycoord,     t) \
+    i_prop  (X,Y, public, xcoord,     r) \
+    i_prop  (X,Y, public, ycoord,     b) \
     i_prop  (X,Y, public, bool,      set) \
     i_ctr   (X,Y, public, rect) \
     i_ctr   (X,Y, public, f32) \
-    i_ctr   (X,Y, public, array) \
     i_ctr   (X,Y, public, string) \
-    i_ctr   (X,Y, public, cstr) \
-    i_method(X,Y, public, rect, relative_rect, rect, f32, f32) \
-    i_method(X,Y, public, rect, rectangle, rect) \
-    i_method(X,Y, public, region, mix, region, f32) \
-    i_override(X,Y, cast, string) \
-    i_override(X,Y, cast, bool)
+    i_method(X,Y, public, rect, rectangle, rect, rect) \
+    i_method(X,Y, public, region, mix, region, f32)
 declare_class(region)
 
 #define tcoord_schema(X,Y,...)
@@ -831,8 +817,8 @@ declare_struct(text_metrics)
     i_prop    (X,Y, intern,   VkImageLayout, vk_layout, as, i32) \
     i_method  (X,Y, public,   none,    save) \
     i_method  (X,Y, public,   none,    restore) \
-    i_method  (X,Y, public,   none,    draw_svg,         SVG,   rect, alignment, vec2f) \
-    i_method  (X,Y, public,   none,    draw_image,       image, rect, alignment, vec2f) \
+    i_method  (X,Y, public,   none,    draw_svg,         SVG,   rect, vec2f, vec2f) \
+    i_method  (X,Y, public,   none,    draw_image,       image, rect, vec2f, vec2f) \
     i_method  (X,Y, public,   text_metrics, measure,    string) \
     i_method  (X,Y, public,   rect,         draw_text,       string, rect, vec2f, vec2f, bool) \
     i_method  (X,Y, public,   none,    move_to,     f32, f32) \

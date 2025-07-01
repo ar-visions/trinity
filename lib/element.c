@@ -12,203 +12,104 @@ static const real c3 = c1 + 1;
 static const real c4 = (2 * PI) / 3;
 static const real c5 = (2 * PI) / 4.5;
 
-string coord_cast_string(coord a) {
-    return f(string, "%c%f%s%s %c%f%s%s",
-        e_str(xalign, a->x_type)->chars[0], a->offset.x,
-        a->x_per ? "%" : "", a->x_rel ? "+" : "",
-        e_str(yalign, a->y_type)->chars[0], a->offset.y,
-        a->y_per ? "%" : "", a->y_rel ? "+" : "");
-}
 
-coord coord_with_string(coord a, string s) {
-    array  sp = split(s, " ");
-    verify(sp, "expected unit-value token such as x-10");
-    verify(len(sp) == 2, "expected two values");
-    string sx = sp->elements[0];
-    string sy = sp->elements[1];
-    
-    /// set x/y types
-    a->x_type = e_val(xalign, sx->chars);
-    a->y_type = e_val(yalign, sy->chars);
+xcoord xcoord_with_string(string sx) {
+    string f = string(first(sx));
+    xcoord a = (xcoord) { .x_type = e_val(xalign, f->chars) };
     string sx_offset = mid(sx, 1, len(sx) - 1);
-    string sy_offset = mid(sy, 1, len(sy) - 1);
 
-    /// get numeric attributes (percentage and relative)
     if (last(sx_offset) == '%') {
         sx_offset = mid(sx_offset, 0, len(sx_offset) - 1);
-        a->x_per = true;
-    }
-    if (last(sy_offset) == '%') {
-        sy_offset = mid(sy_offset, 0, len(sy_offset) - 1);
-        a->y_per = true;
+        a.percent = 1.0f;
     }
     if (sx_offset)
         if (last(sx_offset) == '+') {
             sx_offset = mid(sx_offset, 0, len(sx_offset) - 1);
-            a->x_rel = true;
+            a.relative = 1.0f;
         }
+
+    a.offset = real_value(sx_offset);
+    return a;
+}
+
+ycoord ycoord_with_string(string sy) {
+    string f = string(first(sy));
+    ycoord a = (ycoord) { .y_type = e_val(yalign, f->chars) };
+    string sy_offset = mid(sy, 1, len(sy) - 1);
+
+    if (last(sy_offset) == '%') {
+        sy_offset = mid(sy_offset, 0, len(sy_offset) - 1);
+        a.percent = 1.0f;
+    }
     if (sy_offset)
         if (last(sy_offset) == '+') {
             sy_offset = mid(sy_offset, 0, len(sy_offset) - 1);
-            a->y_rel = true;
+            a.relative = 1.0f;
         }
 
-    /// set offset
-    a->offset = vec2f(
-        real_value(sx_offset), real_value(sy_offset));
-    
-    /// set align
-    f32 x = 0, y = 0;
-    switch (a->x_type) {
-        case xalign_left:   x = 0.0; break;
-        case xalign_middle: x = 0.5; break;
-        case xalign_right:  x = 1.0; break;
-        case xalign_width:  x = 0.0; break;
-        default: break;
-    }
-    switch (a->y_type) {
-        case yalign_top:    y = 0.0; break;
-        case yalign_middle: y = 0.5; break;
-        case yalign_bottom: y = 1.0; break;
-        case yalign_height: y = 0.0; break;
-        default: break;
-    }
-    a->align = alignment(x, x, y, y);
+    a.offset = real_value(sy_offset);
     return a;
 }
 
-coord coord_mix(coord a, coord b, f32 f) {
-    alignment   align  = mix( a->align,   b->align,  f);
-    vec2f       offset = vec2f_mix(&a->offset, &b->offset, f);
-    xalign      x_type = b->x_type;
-    yalign      y_type = b->y_type;
-    bool        x_rel  = b->x_rel;
-    bool        y_rel  = b->y_rel;
-    bool        x_per  = b->x_per;
-    bool        y_per  = b->y_per;
-    return coord(
-        align,  align,  offset, offset,
-        x_type, x_type, y_type, y_type,
-        x_rel,  x_rel,  y_rel,  y_rel,
-        x_per,  x_per,  y_per,  y_per);
+f32 f32_mix(f32 a, f32 b, f32 f) {
+    return a * (1.0f - f) + b * f;
 }
 
-vec2f coord_plot(coord a, rect r, vec2f rel, f32 void_width, f32 void_height) {
-    f32 x;
-    f32 y;
-    f32 sc_x = 1.0f - a->align->x * 2.0f;
-    f32 sc_y = 1.0f - a->align->y * 2.0f;
-    f32 ox = a->x_per ? (a->offset.x * sc_x / 100.0) * (r->w - void_width)  : a->offset.x * sc_x;
-    f32 oy = a->y_per ? (a->offset.y * sc_y / 100.0) * (r->h - void_height) : a->offset.y * sc_y;
-
-    if (a->x_type == xalign_width)
-        x = rel.x + ox;
-    else
-        x = r->x + (r->w - void_width) * a->align->x + ox;
-    
-    if (a->y_type == yalign_height)
-        y = rel.y + oy;
-    else
-        y = r->y + (r->h - void_height) * a->align->y + oy;
-
-    return vec2f(x, y);
-}
-
-coord coord_with_cstr(coord a, cstr cs) {
-    return coord_with_string(new(coord), string(cs));
-}
-
-bool coord_cast_bool(coord a) {
-    return a->x_type != xalign_undefined;
-}
-
-
-
-
-
-alignment alignment_with_vec2f(alignment a, vec2f xy) {
-    a->x = xy.x;
-    a->y = xy.y;
-    a->set = true;
-    return a;
-}
-
-alignment alignment_with_string(alignment a, string s) {
-    array  ar = split(s, " ");
-    string s0 = ar->elements[0];
-    string s1 = len(ar) > 1 ? ar->elements[1] : ar->elements[0];
-
-    if (is_numeric(s0)) {
-        a->x = real_value(s0);
-    } else {
-        xalign  xa = e_val(xalign, s0->chars);
-        switch (xa) {
-            case xalign_left:   a->x = 0.0; break;
-            case xalign_middle: a->x = 0.5; break; /// todo: needs ability to set a middle in coord/region
-            case xalign_right:  a->x = 1.0; break;
-            default: break;
-        }
+// needs a relative input for each case that is non-width
+f32 xcoord_plot(xcoord* a, f32 from, f32 to, xcoord* left_operand, f32* left_value, rect rel) {
+    f32 val = f32_mix(a->offset, a->offset * (to - from), a->percent);
+    /// if this is relative, its a sub-routine
+    if (a->x_type > xalign_right) {
+        verify(left_operand, "using width for left-operand");
+        bool is_valid = left_operand && left_value && left_operand->x_type <= xalign_right;
+        verify(is_valid, "invalid left-operand (xcoord)");
+        return *left_value + val;
     }
-
-    if (is_numeric(s1)) {
-        a->y = real_value(s1);
-    } else {
-        yalign  ya = e_val(yalign, s1->chars);
-        switch (ya) {
-            case yalign_top:    a->y = 0.0; break;
-            case yalign_middle: a->y = 0.5; break; /// todo: needs ability to set a middle in coord/region
-            case yalign_bottom: a->y = 1.0; break;
-            default: break;
-        }
+    f32 r = (rel && a->relative) ? rel->w * a->relative : 0;
+    f32 hsz = (to - from) / 2.0; // half size
+    if (a->x_type < xalign_middle) { // if we are transitioning to middle from left
+        f32 M = (a->x_type * 2.0f);
+        return from + hsz * M + val + r;
     }
-    return a;
+    // in this case, middle has offset that goes positive, transitioning to a negative for R
+    f32 R = ((a->x_type - xalign_middle) * 2.0f);
+    return from + ((hsz + val) * (1.0f - R)) + ((hsz * 2.0f - val) * R) + r;
 }
 
-alignment alignment_with_cstr(alignment a, cstr cs) {
-    return alignment_with_string(a, string(cs));
-}
-
-alignment alignment_mix(alignment a, alignment b, f32 f) {
-    vec2f v2 = vec2f(a->x * (1.0f - f) + b->x * f,
-                     a->y * (1.0f - f) + b->y * f);
-    return alignment_with_vec2f(new(alignment), v2);
-}
-
-
-
-
-
-/// good primitive for ui, implemented in basic canvas ops.
-/// regions can be constructed from rects if area is static or composed in another way
-
-string region_cast_string(region r) {
-    return f(string, "%o %o", r->tl, r->br);
+f32 ycoord_plot(ycoord* a, f32 from, f32 to, ycoord* top_operand, f32* top_value, rect rel) {
+    f32 val = f32_mix(a->offset, a->offset * (to - from), a->percent);
+    /// if this is relative, its a sub-routine
+    if (a->y_type > yalign_bottom) {
+        verify(top_operand, "using height for left-operand");
+        bool is_valid = top_operand && top_value && top_operand->y_type <= yalign_bottom;
+        verify(is_valid, "invalid top-operand (ycoord)");
+        return *top_value + val;
+    }
+    f32 r = (rel && a->relative) ? rel->h * a->relative : 0;
+    f32 hsz = (to - from) / 2.0; // half size
+    if (a->y_type < yalign_middle) { // if we are transitioning to middle from left
+        f32 M = (a->y_type * 2.0f);
+        return from + hsz * M + val + r;
+    }
+    // in this case, middle has offset that goes positive, transitioning to a negative for R (bottom)
+    f32 R = ((a->y_type - yalign_middle) * 2.0f);
+    return from + ((hsz + val) * (1.0f - R)) + ((hsz * 2.0f - val) * R) + r;
 }
 
 region region_with_f32(region reg, f32 f) {
-    reg->tl  = f(coord, "l%f t%f", f, f);
-    A info = head(reg->tl);
-    reg->br  = f(coord, "r%f b%f", f, f);
+    reg->l = (xcoord) { .x_type = xalign_left,   .offset = f };
+    reg->t = (ycoord) { .y_type = yalign_top,    .offset = f };
+    reg->r = (xcoord) { .x_type = xalign_right,  .offset = f };
+    reg->b = (ycoord) { .y_type = yalign_bottom, .offset = f };
     reg->set = true;
     return reg;
 }
 
-/// simple rect
 region region_with_rect(region reg, rect r) {
-    reg->tl  = f(coord, "l%f t%f", r->x, r->y);
-    reg->br  = f(coord, "w%f h%f", r->w, r->h);
-    reg->set = true;
-    return reg;
-}
-
-region region_with_array(region reg, array corners) {
-    verify(len(corners) >= 2, "expected 2 coord");
-    coord tl = get(corners, 0);
-    coord br = get(corners, 1);
-    verify(isa(tl) == typeid(coord), "expected coord");
-    verify(isa(br) == typeid(coord), "expected coord");
-    reg->tl  = tl;
-    reg->br  = br;
+    reg->l = (xcoord) { .x_type = xalign_left,   .offset = r->x };
+    reg->t = (ycoord) { .y_type = yalign_top,    .offset = r->y };
+    reg->r = (xcoord) { .x_type = xalign_width,  .offset = r->w };
+    reg->b = (ycoord) { .y_type = yalign_height, .offset = r->h };
     reg->set = true;
     return reg;
 }
@@ -216,20 +117,16 @@ region region_with_array(region reg, array corners) {
 region region_with_string(region reg, string s) {
     array a = split(s, " ");
     if (len(a) == 4) {
-        reg->tl    = f(coord, "%o %o", a->elements[0], a->elements[1]);
-        reg->br    = f(coord, "%o %o", a->elements[2], a->elements[3]);
+        reg->l = xcoord_with_string(a->elements[0]);
+        reg->t = ycoord_with_string(a->elements[1]);
+        reg->r = xcoord_with_string(a->elements[2]);
+        reg->b = ycoord_with_string(a->elements[3]);
+
     } else if (len(a) == 1) {
-        string f   = first(a);
-        real n     = real_value(f);
-        bool per   = last(f) == '%';
-        reg->tl    = coord(align, alignment(x, 0.0f, y, 0.0f),
-            x_type, xalign_left,
-            y_type, yalign_top,
-            x_per, per, y_per, per);
-        reg->br    = coord(align, alignment(x, 1.0f, y, 1.0f),
-            x_type, xalign_right,
-            y_type, yalign_bottom,
-            y_per, per, y_per, per);
+        reg->l = xcoord_with_string(a->elements[0]);
+        reg->t = ycoord_with_string(a->elements[0]);
+        reg->r = xcoord_with_string(a->elements[0]);
+        reg->b = ycoord_with_string(a->elements[0]);
     }
     reg->set = true;
     return reg;
@@ -239,28 +136,39 @@ region region_with_cstr(region a, cstr s) {
     return region_with_string(new(region), string(s));
 }
 
-bool region_cast_bool(region a) { return a->set; }
-
-rect region_relative_rect(region data, rect win, f32 void_width, f32 void_height) {
-    vec2f rel  = xy(win);
-    vec2f v_tl = plot(data->tl, win, rel,  void_width, void_height);
-    vec2f v_br = plot(data->br, win, v_tl, void_width, void_height);
-    rect r = rect_from_plots(v_tl, v_br);
-    r->x -= win->x;
-    r->y -= win->y;
-    return r;
+rect region_rectangle(region a, rect win, rect rel) {
+    f32 l = xcoord_plot(&a->l, win->x, win->x + win->w,  null, null, rel);
+    f32 r = xcoord_plot(&a->r, win->x, win->x + win->w, &a->l, &l,   rel);
+    f32 t = ycoord_plot(&a->t, win->y, win->y + win->h,  null, null, rel);
+    f32 b = ycoord_plot(&a->b, win->y, win->y + win->h, &a->t, &t,   rel);
+    return rect(x, l, y, t, w, r - l, h, b - t);
 }
 
-rect region_rectangle(region data, rect win) {
-    vec2f rel = vec2f(win->x, win->y);
-    return rect_from_plots(
-        plot(data->tl, win, rel, 0, 0), plot(data->br, win, rel, 0, 0));
+xcoord xcoord_mix(xcoord* a, xcoord* b, f32 f) {
+    return (xcoord) {
+        .x_type   = a->x_type   * (1.0f - f) + b->x_type   * f,
+        .offset   = a->offset   * (1.0f - f) + b->offset   * f,
+        .percent  = a->percent  * (1.0f - f) + b->percent  * f,
+        .relative = a->relative * (1.0f - f) + b->relative * f
+    };
 }
 
-region region_mix(region data, region b, f32 a) {
-    coord m_tl = mix(data->tl, b->tl, a);
-    coord m_tr = mix(data->br, b->br, a);
-    return region(a(m_tl, m_tr));
+ycoord ycoord_mix(ycoord* a, ycoord* b, f32 f) {
+    return (ycoord) {
+        .y_type   = a->y_type   * (1.0f - f) + b->y_type   * f,
+        .offset   = a->offset   * (1.0f - f) + b->offset   * f,
+        .percent  = a->percent  * (1.0f - f) + b->percent  * f,
+        .relative = a->relative * (1.0f - f) + b->relative * f
+    };
+}
+
+region region_mix(region a, region b, f32 f) {
+    region reg = region(set, true);
+    reg->l = xcoord_mix(&a->l, &b->l, f);
+    reg->t = ycoord_mix(&a->t, &b->t, f);
+    reg->r = xcoord_mix(&a->r, &b->r, f);
+    reg->b = ycoord_mix(&a->b, &b->b, f);
+    return reg;
 }
 
 bool style_qualifier_cast_bool(style_qualifier q) {
@@ -1663,10 +1571,13 @@ none background_init(background a) {
 none background_dealloc(background a) {
 }
 
-// future plan (actual app server concept on 'system')
 
-define_class(coord,             A)
-define_class(alignment,         A)
+define_struct(xcoord, f32)
+define_struct(ycoord, f32)
+
+define_typed_enum(xalign, f32)
+define_typed_enum(yalign, f32)
+
 define_class(region,            A)
 define_struct(mouse_state,       i32)
 define_struct(keyboard_state,    i32)

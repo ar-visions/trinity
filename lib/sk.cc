@@ -759,7 +759,7 @@ void SVG_dealloc(SVG a) {
 
 define_class(SVG, A)
 
-void sk_draw_svg(sk a, SVG svg, rect r, alignment align, vec2f offset) {
+void sk_draw_svg(sk a, SVG svg, rect r, vec2f align, vec2f offset) {
     SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
     
@@ -775,8 +775,8 @@ void sk_draw_svg(sk a, SVG svg, rect r, alignment align, vec2f offset) {
     vec2f v2_a = vec2f(r->x, r->y);
     vec2f v2_b = vec2f(r->x + r->w - fsz.x * scx, 
                         r->y + r->h - fsz.y * scy);
-    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
-    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+    pos.x = v2_a.x * (1.0f - align.x) + v2_b.x * align.x;
+    pos.y = v2_a.y * (1.0f - align.y) + v2_b.y * align.y;
     
     sk->save();
     sk->translate(pos.x + offset.x, pos.y + offset.y);
@@ -790,7 +790,7 @@ void sk_image_dealloc(image img) {
     delete (sk_sp<SkImage>*)img->res;
 }
 
-void sk_draw_image(sk a, image img, rect r, alignment align, vec2f offset) {
+void sk_draw_image(sk a, image img, rect r, vec2f align, vec2f offset) {
     SVG svg = (SVG)A_instanceof((object)img, typeid(SVG));
     if (svg) return sk_draw_svg(a, svg, r, align, offset);
     
@@ -816,15 +816,14 @@ void sk_draw_image(sk a, image img, rect r, alignment align, vec2f offset) {
     /// now its just of matter of scaling the little guy to fit in the box.
     f32 scx = r->w / fsz.x;
     f32 scy = r->h / fsz.y;
-
-    scx   = scy = (scy > scx) ? scx : scy;
-    /// no enums were harmed during the making of this function
+    scx     = scy = (scy > scx) ? scx : scy;
+    
     vec2f v2_a = vec2f(r->x, r->y);
     vec2f v2_b = vec2f(r->x + r->w - fsz.x * scx, 
                        r->y + r->h - fsz.y * scy);
-
-    pos.x = v2_a.x * (1.0f - align->x) + v2_b.x * align->x;
-    pos.y = v2_a.y * (1.0f - align->y) + v2_b.y * align->y;
+    
+    pos.x = v2_a.x * (1.0f - align.x) + v2_b.x * align.x;
+    pos.y = v2_a.y * (1.0f - align.y) + v2_b.y * align.y;
     
     sk->save();
     sk->translate(pos.x + offset.x, pos.y + offset.y);

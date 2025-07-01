@@ -2493,7 +2493,8 @@ void target_draw(target r) {
 
 void target_sync_fence(target r) {
     VkResult result = vkWaitForFences(r->t->device, 1, &r->vk_fence, VK_TRUE, UINT64_MAX);
-    verify(result == VK_SUCCESS, "fence wait failed");
+    if (result != VK_SUCCESS)
+        verify(result == VK_SUCCESS, "fence wait failed");
 }
 
 none window_draw(window w) {
@@ -2578,7 +2579,7 @@ void window_dealloc(window w) {
 static rect rectangle_offset(region area, rect rel) {
     region reg = null;
     if (!area) reg = area = region(0.0f);
-    rect r = rectangle(area, rel);
+    rect r = rectangle(area, rel, null);
     if (reg) drop(reg);
     return r;
 }
@@ -3347,8 +3348,7 @@ define_class(tcoord, unit, Duration)
 define_enum(Ease)
 define_enum(Direction)
 define_enum(Duration)
-define_enum(xalign)
-define_enum(yalign)
+
 define_enum(Canvas)
 
 define_typed_enum(Fill, f32)
