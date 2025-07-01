@@ -449,7 +449,7 @@ none sk_draw_fill_preserve(sk a) {
         static int dont_start = 0;
         dont_start++;
 
-        if (dont_start > 10) {
+        if (dont_start > 0) {
             GrDirectContext* direct_ctx = a->skia->ctx.get();
             texture tx = ds->tx;
 
@@ -472,7 +472,7 @@ none sk_draw_fill_preserve(sk a) {
             SkRect dst = SkRect::MakeXYWH(ds->x, ds->y, ds->w, ds->h);
             SkSamplingOptions sampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
 
-            //paint.setColor(SK_ColorWHITE);
+            paint.setColor(SK_ColorBLACK);
             //sk->drawRect(dst, paint);
             sk->drawImageRect(sk_image, dst, sampling, &paint);
         }
@@ -917,7 +917,7 @@ none sk_sync() {
     }
 }
 
-define_class(sk, canvas, A)
+define_class(sk, canvas)
 
 define_struct(text_metrics, f32)
 define_vector(text_metrics, f32, 6)

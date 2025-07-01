@@ -819,6 +819,7 @@ static void handle_glfw_cursor(GLFWwindow* win, f64 x, f64 y) {
 void window_init(window w) {
     trinity t = w->t;
 
+    if (!w->format) w->format = Pixel_rgba8;
     if (!w->list) w->list = array(alloc, 32);
     if (!w->element_targets) w->element_targets = map();
 
@@ -959,7 +960,9 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         BufferView iview        = get(mdl->bufferViews, ai->bufferView);
         Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
         
-        material = mdl->materials ? get(mdl->materials, mat_id) : null;
+        material = (mdl->materials && len(mdl->materials) > mat_id) ? 
+            get(mdl->materials, mat_id) : 
+            (mdl->materials ? first(mdl->materials) : null);
         int        index        = 0;
         int        vertex_size  = 0;
         int        vertex_count = 0;
@@ -1256,6 +1259,10 @@ texture trinity_environment(
         e->view = mat4f_look_at(&eye, &dirs[f], &ups[f]);
         //
         draw(w);
+
+        //image screenshot = cast(image, w);
+        //exr(screenshot, f(path, "env_%i.exr", f));
+
         final = w->last_target; // will need to do this after if it changes per process
         transition(final->color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         transition_image_layout(t, vk_image[0],
@@ -1289,7 +1296,7 @@ texture trinity_environment(
     /// convolve environment to create a multi-sampled cube
     Convolve conv_shader = Convolve(
         t, t, name, string("conv"), proj, e->proj);
-    map    conv_samplers = map_of("convolve", cube, null); // must allow textures to register with gpu
+    map    conv_samplers = map_of("environment", cube, null); // must allow textures to register with gpu
     model  m_conv  = model(
         t, t, w, w, id, data, s, conv_shader, samplers, conv_samplers);
     array  r_conv = target(
@@ -1303,7 +1310,7 @@ texture trinity_environment(
     drop(w->list);
     w->list = hold(a(r_conv));
     w->last_target = last(w->list);
-
+ 
     for (int a = 0; a < cube_count; a++) {
         float roughness = (float)a / (float)(mip_levels - 1);
         conv_shader->roughness_samples = vec2f(roughness, 1024.0f);
@@ -1314,7 +1321,7 @@ texture trinity_environment(
             final = w->last_target;
             draw(w);
             //image screen = cast(image, w);
-            //exr(screen, f(path, "screenshot.exr"));
+            //exr(screen, f(path, "conv_%i.exr", f));
 
             transition(final->color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
             transition_image_layout(t, vk_image[1],
@@ -1385,18 +1392,18 @@ texture trinity_environment(
 
     transition(final->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         
-    texture convolve = texture(
+    texture convolve = hold(texture(
         t, t,           vk_image, vk_image[1], vma_alloc, vma_alloc[1],
         surface,        Surface_environment,
         vk_format,      w->surface_format.format,
         mip_levels,     mip_levels,
-        layer_count,    6 * cube_count);
+        layer_count,    6 * cube_count));
 
     drop(cmd);
     drop(w);
     drop(cube);
     drop(clone);
-    img->user = convolve;
+    img->user = hold(convolve);
     return img->user;
 }
 
@@ -1834,7 +1841,7 @@ static pbrMetallicRoughness pbr_defaults() {
     static pbrMetallicRoughness pbr;
     if (!pbr) {
         pbr = pbrMetallicRoughness();
-        pbr->baseColorFactor            = vec4f(1, 1, 1, 1);
+        pbr->baseColorFactor            = vec4f(1, 0, 0, 1);
         pbr->metallicFactor             = 1.0f;
         pbr->roughnessFactor            = 1.0f;
         pbr->emissiveFactor             = vec3f(0, 0, 0);
@@ -1947,8 +1954,9 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
         rgbaf f_normal = rgbaf(0.5f, 0.5f, 1.0f, 1.0f);
         rgbaf f_zero   = rgbaf(0.0f, 0.0f, 0.0f, 0.0f);
         rgbaf f_one    = rgbaf(1.0f, 1.0f, 1.0f, 1.0f);
-        rgbaf f_color  = rgbaf(0.0f, 1.0f, 1.0f, 1.0f);
+        rgbaf f_color  = rgbaf(&pbr->baseColorFactor);
         shape single = hold(shape_new(1, 0));
+
         switch (surface_value) {
             case Surface_normal:
                 res = gpu(t, t, name, "normal", sampler,
@@ -2628,7 +2636,6 @@ void window_draw_element(window a, element e) {
         int test2 = 2;
         test2 += 2;
     }
-
     if (e->fill_color) {
         sk cv = canvas[e->fill_canvas];
         rect b = e->bounds;
@@ -2747,6 +2754,9 @@ i32 app_run(app a) {
         }
         frames++;
         app_render(a); // we need to call this prior to app_initialize logic
+
+        //image screenshot = cast(image, w);
+        //png(screenshot, f(path, "app.png"));
 
         recycle();
         int after = A_alloc_count();

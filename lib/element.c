@@ -812,10 +812,6 @@ map style_compute(style a, element n) {
             AType sname_type = isa(mem->sname);
             A sname_header = A_header(mem->sname);
             string name = mem->sname;
-            if (eq(name, "fill_color")) {
-                int test = 0;
-                test++;
-            }
             if (applicable(a, n, name, all)) {
                 set(avail, name, all);
                 all = array(alloc, 32);
@@ -1026,17 +1022,6 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
             
             A info = head(mem->sname);
             string prop    = string(mem->name);
-            if (eq(prop, "background")) {
-                int test2 = 2;
-                test2 += 2;
-            }
-            if (eq(prop, "area")) {
-                int test2 = 2;
-                test2 += 2;
-            }
-            if (eq(i->id, "iris") && eq(prop, "fill_color")) {
-                print("fill_color being reapplied");
-            }
             array entries = get(style_avail, prop);
             if (!entries)
                 continue;
