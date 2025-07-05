@@ -675,15 +675,12 @@ typedef ARef VkFence;
     i_prop    (X,Y, public,     i32,                    width) \
     i_prop    (X,Y, public,     i32,                    height) \
     i_prop    (X,Y, public,     bool,                   reduce) \
-    i_prop    (X,Y, public,     texture,                target) \
     i_prop    (X,Y, public,     array,                  models) \
-    i_prop    (X,Y, public,     ARef,                   callback) \
     i_prop    (X,Y, public,     vec4f,                  clear_color) \
     i_prop    (X,Y, public,     texture,                reduction) \
     i_prop    (X,Y, public,     texture,                color) \
     i_prop    (X,Y, public,     texture,                depth) \
     i_prop    (X,Y, intern,     model,                  reduce_model) \
-    i_prop    (X,Y, intern,     array,                  canvases) \
     i_prop    (X,Y, intern,     VkCommandBuffer,        vk_command_buffer,          as, ARef) \
     i_prop    (X,Y, intern,     VkImage,                vk_swap_image,              as, ARef) \
     i_prop    (X,Y, intern,     VkFence,                vk_fence,                   as, ARef) \

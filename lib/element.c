@@ -1572,7 +1572,7 @@ none scene_load(scene a, window w) {
             reduce,         a->render_scale == 4.0 ? true : false,
             clear_color,    a->clear_color,
             models,         a->models));
-        a->target->color = hold(a->target->color);
+        a->target->color = hold(a->target->color); // todo: fill these with a color (clear color preferred, otherwise we can transfer)
         if (a->target->reduction)
             a->target->reduction = hold(a->target->reduction);
         set(w->element_targets, a->id, a->target);
@@ -1605,7 +1605,7 @@ none scene_draw(scene a, window w) {
     array ar = a->rotate;
     array as = a->scale;
 
-    if (at || ar || as) {
+    if ((at || ar || as)) {
 
         each (a->target->models, model, m) {
             // check for invalidation here

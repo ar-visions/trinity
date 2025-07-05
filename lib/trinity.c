@@ -1082,7 +1082,7 @@ void window_init(window w) {
 }
 
 void app_init(app a) {
-    window w = a->w;
+    window w = a->w; 
     a->t     = hold(trinity());
     a->style = style((object)a);
     a->ux    = hold(composer(app, a));
@@ -1097,6 +1097,7 @@ void app_init(app a) {
         verify(file_exists("%o", a->ason_path), "app path not found: %o", a->ason_path);
     }
 }
+
 
 void app_dealloc(app a) {
 }
@@ -2820,7 +2821,7 @@ void window_draw_element(window a, element e) {
 static none app_render(app a) {
     window   w        = a->w;
     composer ux       = w->ux;
-    map      elements = null;
+    map      elements = a->ason_render;
 
     if (a->on_render)
         elements = a->on_render(a, a->w);

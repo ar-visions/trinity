@@ -4,7 +4,8 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 0) in  vec2 v_uv;
 
 void main() {
-    vec2 texel = 1.0 / vec2(textureSize(tx_color, 0));
+    vec2 tsize = textureSize(tx_color, 0);
+    vec2 texel = 1.0 / vec2(tsize);
     vec4 sum   = vec4(0.0);
     for (int dy = -1; dy <= 2; dy++)
         for (int dx = -1; dx <= 2; dx++) {
