@@ -1403,10 +1403,6 @@ none composer_bind_subs(composer ux, element instance, element parent) {
                 }
                 bind_target = ((element)bind_target)->parent;
             }
-            if (eq(mem->sname, "update")) {
-                int test2 = 2;
-                test2 += 2;
-            }
             f = bind(instance, target, false,
                     null, type == typeid(element) ? typeid(event) : null, id->chars, mem->name); // we cant check the type on the sub-classes of element binds
             if (f) {

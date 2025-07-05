@@ -2840,10 +2840,6 @@ static none app_render(app a) {
         while (t != typeid(A)) {
             for (num m = 0; m < t->member_count; m++) {
                 type_member_t* mem = &t->members[m];
-                if (eq(mem->sname, "t") || eq(mem->sname, "w")) {
-                    int test2 = 2;
-                    test2 += 2;
-                }
                 object from = A_member_object(a, mem);
                 if (!from) continue;
                 object ctx_val = get(a->app_context, mem->sname);
