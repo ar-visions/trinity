@@ -51,10 +51,6 @@ ycoord ycoord_with_string(string sy) {
     return a;
 }
 
-f32 f32_mix(f32 a, f32 b, f32 f) {
-    return a * (1.0f - f) + b * f;
-}
-
 // needs a relative input for each case that is non-width
 f32 xcoord_plot(xcoord* a, f32 from, f32 to, xcoord* left_operand, f32* left_value, rect rel) {
     f32 val = f32_mix(a->offset, a->offset * (to - from), a->percent);
@@ -95,6 +91,94 @@ f32 ycoord_plot(ycoord* a, f32 from, f32 to, ycoord* top_operand, f32* top_value
     f32 R = ((a->y_type - yalign_middle) * 2.0f);
     return from + ((hsz + val) * (1.0f - R)) + ((hsz * 2.0f - val) * R) + r;
 }
+
+
+rotation rotation_with_string(rotation a, string s) {
+    array sp = split(s, " ");
+    verify(len(sp) == 4, "expected x y z Ndeg");
+    verify(ends_with((string)sp->elements[3], "deg"), "expected 1deg (for example)");
+
+    a->axis.x = real_value((string)sp->elements[0]);
+    a->axis.y = real_value((string)sp->elements[1]);
+    a->axis.z = real_value((string)sp->elements[2]);
+    a->degs   = real_value((string)sp->elements[3]);
+    return a;
+}
+
+rotation rotation_with_vec4f(rotation a, vec4f f) {
+    a->axis.x = f.x;
+    a->axis.y = f.y;
+    a->axis.z = f.z;
+    a->degs   = f.w;
+    return a;
+}
+
+rotation rotation_mix(rotation a, rotation b, f32 f) {
+    return rotation(
+        axis, vec3f_mix(&a->axis, &b->axis, f),
+        degs,   f32_mix( a->degs,  b->degs, f));
+}
+
+
+
+translation translation_with_string(translation a, string s) {
+    array sp = split(s, " ");
+    verify(len(sp) == 3, "expected x y z");
+    a->value.x = real_value((string)sp->elements[0]);
+    a->value.y = real_value((string)sp->elements[1]);
+    a->value.z = real_value((string)sp->elements[2]);
+    return a;
+}
+
+translation translation_with_vec3f(translation a, vec3f f) {
+    a->value.x = f.x;
+    a->value.y = f.y;
+    a->value.z = f.z;
+    return a;
+}
+
+translation translation_mix(translation a, translation b, f32 f) {
+    return translation(
+        value, vec3f_mix(&a->value, &b->value, f));
+}
+
+
+
+scaling scaling_with_string(scaling a, string s) {
+    array sp = split(s, " ");
+    verify(len(sp) == 3, "expected x y z");
+    a->value.x = real_value((string)sp->elements[0]);
+    a->value.y = real_value((string)sp->elements[1]);
+    a->value.z = real_value((string)sp->elements[2]);
+    return a;
+}
+
+scaling scaling_with_vec3f(scaling a, vec3f f) {
+    a->value.x = f.x;
+    a->value.y = f.y;
+    a->value.z = f.z;
+    return a;
+}
+
+scaling scaling_mix(scaling a, scaling b, f32 f) {
+    return scaling(
+        value, vec3f_mix(&a->value, &b->value, f));
+}
+
+define_class(rotation,    A)
+define_class(scaling,     A)
+define_class(translation, A)
+
+
+
+
+
+
+
+
+
+
+
 
 region region_with_f32(region reg, f32 f) {
     reg->l = (xcoord) { .x_type = xalign_left,   .offset = f };
@@ -523,7 +607,7 @@ map element_render(element a, array changed) {
 
 style style_with_path(style a, path css_path) {
     verify(exists(css_path), "css path does not exist");
-    string style_str = read(css_path, typeid(string));
+    string style_str = read(css_path, typeid(string), null);
     a->base    = array(alloc, 32);
     if (css_path != a->css_path) {
         a->css_path = css_path;
@@ -823,7 +907,7 @@ none parse_block(style_block bl, cstr* p_sc) {
 
             /// read value
             cstr vstart = cur;
-            verify(scan_to(&cur, string(";")), "expected member:[value;]");
+            verify(scan_to(&cur, string(";")), "expected member:value[, transition];");
             
             /// needs escape sequencing?
             size_t len      = distance(vstart, cur);
@@ -836,10 +920,34 @@ none parse_block(style_block bl, cstr* p_sc) {
                 cstr   cs = cstring(cb_value);
                 cb_value  = parse_quoted(&cs, len(cb_value));
             }
-
+            string  param = null;
+            object  value = null;
+            num         a = index_of(cb_value, "[");
             num         i = index_of(cb_value, ",");
-            string  param = i >= 0 ? trim(mid(cb_value, i + 1, len(cb_value) - (i + 1))) : null;
-            string  value = i >= 0 ? trim(mid(cb_value, 0, i))  : cb_value;
+
+            if (a != -1 && (i == -1 || a < i)) {
+                num ae = index_of(cb_value, "]");
+                verify(ae != -1, "expected ']' character");
+                string items = trim(mid(cb_value, a + 1, ae - 1));
+                int ln = len(cb_value) - ae;
+                param = trim(mid(cb_value, ae + 1, ln));
+                if (first(param) == ',') {
+                    param = trim(mid(param, 1, len(param) - 1));
+                } else {
+                    param = null;
+                }
+                array sp = split(items, ",");
+                value = array((i32)len(sp));
+                each(sp, string, raw) {
+                    push((array)value, trim(raw));
+                }
+
+                items = items;
+            } else {
+                param = i >= 0 ? trim(mid(cb_value, i + 1, len(cb_value) - (i + 1))) : null;
+                value = i >= 0 ? trim(mid(cb_value, 0, i))  : cb_value;
+            }
+
             style_transition trans = param ? style_transition(param) : null;
             
             /// check
@@ -916,11 +1024,6 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
     AType type = isa(i);
     array changed = array(alloc, 32);
 
-    if (eq(i->id, "iris")) {
-        int test2 = 2;
-        test2 += 2;
-    }
-
     while (type != typeid(A)) {
         for (int m = 0; m < type->member_count; m++) {
             type_member_t* mem = &type->members[m];
@@ -947,9 +1050,23 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
                 if (mem->type == typeid(object))
                     best->instance = hold(copy(best->value));
                 else {
-                    best->instance = hold(A_formatter(
-                        mem->type, null, (object)false,
-                        (symbol)"%s", best->value->chars));
+                    array a = instanceof(best->value, array);
+                    if (a || mem->type == typeid(array)) {
+                        best->instance = array((i32)(a ? len(a) : 1));
+                        if (!a) a = a((string)best->value);
+                        each(a, string, sv) {
+                            AType of_type = mem->args.meta_0;
+                            verify(of_type, "expected type of array member described: %s", mem->name);
+                            object v = A_formatter(
+                                of_type, null, (object)false,
+                                (symbol)"%s", sv->chars);
+                            push((array)best->instance, v);
+                        }
+                    } else {
+                        best->instance = hold(A_formatter(
+                            mem->type, null, (object)false,
+                            (symbol)"%s", best->value->chars));
+                    }
                 }
             }
             verify(best->instance, "instance must be initialized");
@@ -1028,11 +1145,11 @@ void animate_element(composer ux, element e) {
             } else {
                 type_member_t* fmix = A_member(ct->type, A_MEMBER_IMETHOD, "mix", false);
                 verify(fmix, "animate: implement mix for type %s", ct->type->name);
-                typedef object(*mix_fn)(object, object, f32);
+                
                 //drop(*ct->location);
                 AType atype = ct->type;
                 *ct->location = hold(((mix_fn)fmix->ptr)(ct->from, ct->to, cur_pos));
-                print("color = %o (millis: %i / %i, pos: %.2f)", *ct->location, (int)millis, (int)dur, cur_pos);
+                //print("color = %o (millis: %i / %i, pos: %.2f)", *ct->location, (int)millis, (int)dur, cur_pos);
             }
         }
     }
@@ -1441,28 +1558,37 @@ none scene_init(scene a) {
     verify(a->ux, "ux not set");
     window w = a->ux->w;
     if (a->render_scale == 0.0f) a->render_scale = 1.0f;
-    a->target = hold(target (w, w,
-        wscale,         a->render_scale,
-        clear_color,    a->clear_color,
-        models,         a->models));
-    a->target->color = hold(a->target->color);
-    set(w->element_targets, a->id, a->target);
-    // this needs to effectively render whenever the props update; composer is to do this itself.
-    //
-    // we could detect changes to shader-related objects inside of models 
-    //      (we should call these instances rather than models; its just a bit conflating with element instances here)
-    //       if the shader is the originating data, we could simply have an update() call made or not made by the user
-    //       this makes the most sense because shaders may receive outside data (if they are computing anyway), 
-    //       or be based on randoms..
 }
 
 // test drawing orbiter model in window pane
 
+none scene_load(scene a, window w) {
+    if (!a->target) {
+        int width  = (a->bounds ? a->bounds->w : w->width)  * a->render_scale;
+        int height = (a->bounds ? a->bounds->h : w->height) * a->render_scale;
+        a->target = hold(target (t, w->t, w, w,
+            width,          width,
+            height,         height,
+            reduce,         a->render_scale == 4.0 ? true : false,
+            clear_color,    a->clear_color,
+            models,         a->models));
+        a->target->color = hold(a->target->color);
+        if (a->target->reduction)
+            a->target->reduction = hold(a->target->reduction);
+        set(w->element_targets, a->id, a->target);
+    }
+}
+
 none scene_draw(scene a, window w) {
     verify(a->update, "not set");
-    a->target->width  = a->bounds->w * a->render_scale; // verify placement of output as well as scaling quality
-    a->target->height = a->bounds->h * a->render_scale;
-    a->target->wscale = 0.0f;
+
+    scene_load(a, w);
+
+    int width  = a->bounds->w * a->render_scale;
+    int height = a->bounds->h * a->render_scale;
+    a->target->width  = width; // verify placement of output as well as scaling quality
+    a->target->height = height;
+    a->target->wscale = 0.0f; // target needs to now support its own reduction copy; we cannot rely on skia to perform this action since it requires mipmaps
 
     update(a->target);
 
@@ -1475,11 +1601,55 @@ none scene_draw(scene a, window w) {
     if (a->update)
         invoke(a->update, a); // verify this is initialized here
 
+    array at = a->translate;
+    array ar = a->rotate;
+    array as = a->scale;
+
+    if (at || ar || as) {
+
+        each (a->target->models, model, m) {
+            // check for invalidation here
+            // no need to update if we have already processed and this is not in transition
+            free(m->transforms);
+
+            int ln0 = at ? len(at) : 0, ln1 = ar ? len(ar) : 0, ln2 = as ? len(as) : 0;
+            int  ln = (ln0 > ln1 && ln0 > ln2) ? ln0 : 
+                      (ln1 > ln0 && ln1 > ln2) ? ln1 : ln2;
+
+            m->transforms      = (mat4f*)calloc(ln, sizeof(mat4f));
+            m->transform_count = ln;
+
+            each (a->target->models, model, m) {
+                for (int i = 0; i < ln; i++) {
+                    mat4f mat = mat4f_ident();
+
+                    scaling s = as ? peek(as, i) : 0;
+                    if (s)
+                        mat = mat4f_scale(&mat, &s->value);
+
+                    rotation r = ar ? peek(ar, i) : 0;
+                    if (r) {
+                        vec4f v = vec4f(
+                            r->axis.x, r->axis.y, r->axis.z, radians(r->degs));
+                        quatf q = quatf(&v);
+                        mat     = mat4f_rotate(&mat, &q);
+                    }
+                    
+                    translation t = at ? peek(at, i) : 0;
+                    if (t)
+                        mat = mat4f_translate(&mat, &t->value);
+
+                    m->transforms[i] = mat;
+                }
+            }
+        }
+    }
+
     if (isa(a) == typeid(background))
         return; // already the first target in window's target list
 
     // draw onto canvas (somehow)
-    set_texture(w->overlay, a->target->color);
+    set_texture(w->overlay, a->target->reduction ? a->target->reduction : a->target->color);
     draw_fill(w->overlay);
 }
 
@@ -1489,69 +1659,68 @@ none scene_dealloc(scene a) {
 
 none sk_set_bs(texture tx);
 
-// this one calls above, because background is based on scene
-// it just does the busy work of 'implementing' the things it needs in window
-// yes, this is not so slick looking is it, but, we all have areas to improve.
-// it creates the view, and should also create the 3 canvases
 none background_init(background a) {
     window  w = a->ux->w; // lets make this class messed up looking rather than window, ok?
     trinity t = w->t;
+
+    scene_load(a, w); // the regular scene we want to load on first draw (where we have an idea of width/height), where as background should be loaded when the app loads
+
     if (a->frost) { // we must create the following in a 'background' object based on scene, or add a background boolean to scene
-        
         sk_set_bs(a->target->color);
 
-        w->m_reduce  = model (w, w, samplers, m("color", a->target->color));
-        w->r_reduce  = target(w, w, wscale, 1.0f, models, a(w->m_reduce));
+        w->m_reduce  = model (t, t, w, w, samplers, m("color", a->target->color));
+        w->r_reduce  = target(t, t, w, w, wscale, 1.0f, models, a(w->m_reduce));
 
-        w->m_reduce0 = model (w, w, samplers, m("color", w->r_reduce->color));
-        w->r_reduce0 = target(w, w, wscale, 0.5f, models, a(w->m_reduce0));
+        w->m_reduce0 = model (t, t, w, w, samplers, m("color", w->r_reduce->color));
+        w->r_reduce0 = target(t, t, w, w, wscale, 0.5f, models, a(w->m_reduce0));
         
-        w->m_reduce1 = model (w, w, samplers, m("color", w->r_reduce0->color));
-        w->r_reduce1 = target(w, w, wscale, 0.25f, models, a(w->m_reduce1));
+        w->m_reduce1 = model (t, t, w, w, samplers, m("color", w->r_reduce0->color));
+        w->r_reduce1 = target(t, t, w, w, wscale, 0.25f, models, a(w->m_reduce1));
 
         BlurV   fbv  = BlurV  (t, t, name, string("blur-v"), reduction_scale, 4.0f);
-        w->m_blur_v  = model  (w, w, s, fbv, samplers, m("color", w->r_reduce1->color));
-        w->r_blur_v  = target (w, w, wscale, 1.0, models, a(w->m_blur_v));
+        w->m_blur_v  = model  (t, t, w, w, s, fbv, samplers, m("color", w->r_reduce1->color));
+        w->r_blur_v  = target (t, t, w, w, wscale, 1.0, models, a(w->m_blur_v));
         
         Blur    fbl  = Blur   (t, t, name, string("blur"), reduction_scale, 4.0f);
-        w->m_blur    = model  (w, w, s, fbl, samplers, m("color", w->r_blur_v->color));
-        w->r_blur    = target (w, w, wscale, 1.0, models, a(w->m_blur));
+        w->m_blur    = model  (t, t, w, w, s, fbl, samplers, m("color", w->r_blur_v->color));
+        w->r_blur    = target (t, t, w, w, wscale, 1.0, models, a(w->m_blur));
 
-        w->m_reduce2 = model (w, w, samplers, m("color", w->r_reduce1->color));
-        w->r_reduce2 = target(w, w, wscale, 1.0f / 8.0f, models, a(w->m_reduce2));
+        w->m_reduce2 = model (t, t, w, w, samplers, m("color", w->r_reduce1->color));
+        w->r_reduce2 = target(t, t, w, w, wscale, 1.0f / 8.0f, models, a(w->m_reduce2));
 
-        w->m_reduce3 = model  (w, w, samplers, m("color", w->r_reduce2->color));
-        w->r_reduce3 = target (w, w, wscale, 1.0f / 16.0f, models, a(w->m_reduce3));
+        w->m_reduce3 = model  (t, t, w, w, samplers, m("color", w->r_reduce2->color));
+        w->r_reduce3 = target (t, t, w, w, wscale, 1.0f / 16.0f, models, a(w->m_reduce3));
 
         BlurV   bv   = BlurV  (t, t, name, string("blur-v"), reduction_scale, 16.0f);
-        w->m_frost_v = model  (w, w, s, bv, samplers, m("color", w->r_reduce3->color));
-        w->r_frost_v = target (w, w, wscale, 1.0f, models, a(w->m_frost_v));
+        w->m_frost_v = model  (t, t, w, w, s, bv, samplers, m("color", w->r_reduce3->color));
+        w->r_frost_v = target (t, t, w, w, wscale, 1.0f, models, a(w->m_frost_v));
 
         Blur    bl   = Blur   (t, t, name, string("blur"), reduction_scale, 16.0f);
-        w->m_frost   = model  (w, w, s, bl, samplers, m("color", w->r_frost_v->color));
-        w->r_frost   = target (w, w, wscale, 1.0f, models, a(w->m_frost));
+        w->m_frost   = model  (t, t, w, w, s, bl, samplers, m("color", w->r_frost_v->color));
+        w->r_frost   = target (t, t, w, w, wscale, 1.0f, models, a(w->m_frost));
 
-        w->m_view    = model  (w, w, s, UXCompose(t, t, name, string("ux")),
+        w->m_view    = model  (t, t, w, w, s, UXCompose(t, t, name, string("ux")),
             samplers, m(
                 "background", a->target->color,
                 "frost",      w->r_frost->color,
                 "blur",       w->r_blur->color,
                 "compose",    w->compose->tx,
                 "colorize",   w->colorize->tx,
-                "overlay",    w->overlay->tx));
+                "overlay",    w->overlay->tx,
+                "glyph",      w->glyph->tx));
 
-        w->r_view    = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
+        w->r_view    = target (t, t, w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
             models, a(w->m_view));
 
         UXCompose  ux_shader = w->m_view->s;
         ux_shader->low_color  = vec4f(0.0, 0.1, 0.2, 1.0);
         ux_shader->high_color = vec4f(1.0, 0.8, 0.8, 1.0); // is this the high low bit?
     } else {
-        w->m_view = model  (w, w, s, UXSimple(t, t, name, string("simple")),
+        w->m_view = model  (t, t, w, w, s, UXSimple(t, t, name, string("simple")),
             samplers, map_of(
                 "background", a->target->color,
                 "overlay",    w->overlay->tx, null));
-        w->r_view = target (w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
+        w->r_view = target (t, t, w, w, wscale, 1.0f, clear_color, vec4f(1.0, 1.0, 1.0, 1.0),
             models, a(w->m_view));
     }
     

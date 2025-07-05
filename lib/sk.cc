@@ -469,8 +469,9 @@ none sk_draw_fill_preserve(sk a) {
                 kUnpremul_SkAlphaType,
                 SkColorSpace::MakeSRGB()
             );
-            SkRect dst = SkRect::MakeXYWH(ds->x, ds->y, ds->w, ds->h);
-            SkSamplingOptions sampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
+            SkRect dst = SkRect::MakeXYWH(0, 0, ds->w, ds->h);
+            //SkSamplingOptions sampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
+            SkSamplingOptions sampling(SkCubicResampler::CatmullRom());
 
             paint.setColor(SK_ColorBLACK);
             //sk->drawRect(dst, paint);
@@ -599,6 +600,7 @@ none sk_clip(sk a, rect r, f32 radius_x, f32 radius_y) {
 none sk_stroke_size(sk a, f32 size) {
     SkCanvas* sk = (SkCanvas*)a->sk_canvas;
     draw_state ds = (draw_state)last(a->state);
+    //assert(size == 0, "size set to %f", size);
     ds->stroke_size = size;
 }
 
