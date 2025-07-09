@@ -1160,6 +1160,8 @@ void animate_element(composer ux, element e) {
 }
 
 void composer_animate(composer ux) {
+    if (!ux->root)
+        return;
     invalidate(ux);
     animate_element(ux, ux->root);
     remove_invalid(ux);
@@ -1185,10 +1187,11 @@ void composer_remove_invalid(composer ux) {
 }
 
 void composer_invalidate_element(composer ux, element e) {
-    pairs(e->transitions, i) {
-        style_transition t = i->value;
-        t->invalidate = true;
-    }
+    if (e && e->transitions)
+        pairs(e->transitions, i) {
+            style_transition t = i->value;
+            t->invalidate = true;
+        }
 }
 
 void composer_invalidate(composer ux) {
@@ -1421,7 +1424,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
     pairs(parent->elements, i) {
         string id = i->key;
         element e = i->value;
-        e->mark   = 1;
+        e->flags |= 1;
     }
 
     /// iterate through rendered elements
@@ -1433,7 +1436,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
         bool    restyle  = ux->restyle || e->restyle;
 
         if (instance) {
-            instance->mark = 0; // instance found (pandora tomorrow...)
+            instance->flags &= ~1; // instance found (pandora tomorrow...)
             if (!instance->id) {
                 A info = head(id);
                 instance->id = hold(id);
@@ -1504,8 +1507,8 @@ none composer_update(composer ux, element parent, map rendered_elements) {
         pairs(parent->elements, i) {
             string id = i->key;
             element e = i->value;
-            if (e->mark == 1) {
-                e->mark = 0;
+            if (e->flags & 1) {
+                e->flags = 0;
                 retry = true;
                 A info = head(e);
                 verify(info->refs == 2, "expected 2 ref count on object %s, element id: %o", info->type->name, e->id);
@@ -1655,7 +1658,7 @@ none scene_dealloc(scene a) {
 
 none sk_set_bs(texture tx);
 
-none background_init(background a) {
+none stage_init(stage a) {
     window  w = a->ux->w; // lets make this class messed up looking rather than window, ok?
     trinity t = w->t;
 
@@ -1733,8 +1736,33 @@ none background_init(background a) {
     }
 }
 
-none background_dealloc(background a) {
+none stage_dealloc(stage a) {
 }
+
+
+define_enum(Pattern)
+define_enum(Clip)
+
+define_class(mixable,    A) // mix
+define_class(shadow,     mixable)
+define_class(glow,       mixable)
+
+define_class(background, A) // mix, cstr 
+
+define_class(radius,   array, f32) // array can be mixed already (add primitives)
+define_class(layer,    A)
+define_class(text,     layer)
+define_class(border,   layer)
+define_class(fill,     layer)
+define_class(children, layer)
+
+
+
+
+
+
+
+
 
 
 define_struct(xcoord, f32)

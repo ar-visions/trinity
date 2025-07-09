@@ -1,0 +1,794 @@
+class trinity
+    intern instance : VkInstance
+    intern msaa_samples         : i64
+    intern physical_device      : VkPhysicalDevice
+    intern device               : VkDevice
+    intern queue                : VkQueue
+    intern debug                : VkDebugUtilsMessengerEXT
+    intern command_pool         : VkCommandPool
+    intern allocator            : VmaAllocator
+    public queue_family_index   : i32
+    intern device_memory        : map
+    public rt_support           : bool
+    public instance_exts        : array
+    public device_exts          : array
+
+    public environment[ vec3f: image ] -> texture
+    override init
+    override dealloc
+
+class mouse_state
+    public wheel_delta : vec2f
+    public pos : vec2f
+    public button : i32
+    public state : i32
+
+class keyboard_state
+    public unicode : u32
+    public scan_code : u32
+    public state : i32
+    public meta : bool
+    public shift : bool
+    public alt : bool
+    public text : str
+
+class event
+    public target : element
+    public mouse : mouse_state
+    public key : keyboard_state
+    public prevent_default : bool
+    public stop_propagation : bool
+
+    public prevent_default -> none
+    public is_default -> bool
+    public should_propagate -> bool
+    public stop_propagation -> bool
+    public clear -> none
+
+class line_info
+    intern data : str
+    intern len : num
+    intern adv : vector
+    intern bounds : rect
+    intern placement : rect
+
+class text_sel
+    intern column : num
+    intern row : num
+
+class text
+    intern lines : array
+    intern replace : text
+
+class style
+    intern mtx : mutex
+    public base : array
+    public css_path : path
+    intern mod_time : i64
+    public members : map
+    public reloader : watch
+    intern reloaded : bool
+    intern loaded : bool
+
+    public cache_members -> none
+    public compute -> map
+    public check_reload -> bool
+
+class style_block
+    public parent : style_block, weak
+    public quals : array
+    public entries : map
+    public blocks : array
+    public types : array
+
+    public score[ bool: element ] -> f32
+    override init
+
+class xcoord
+    public x_type : xalign
+    public offset : f32
+    public relative : bool
+    public percent : bool
+
+class ycoord
+    public y_type : yalign
+    public offset : f32
+    public relative : bool
+    public percent : bool
+
+class region
+    public l : xcoord
+    public t : ycoord
+    public r : xcoord
+    public b : ycoord
+    public set : bool
+
+    public rectangle[ rect: rect ] -> rect
+    public mix[ f32: region ] -> region
+
+class rotation
+    public axis : vec3f
+    public degs : f32
+
+    public mix[ f32: rotation ] -> rotation
+
+class translation
+    public value : vec3f
+
+    public mix[ f32: translation ] -> translation
+
+class scaling
+    public value : vec3f
+
+    public mix[ f32: scaling ] -> scaling
+
+class tcoord : unit, Duration
+
+class style_transition
+    public easing : Ease
+    public dir : Direction
+    public duration : tcoord
+    intern from : object
+    intern to : object
+    intern start : i64
+    intern invalidate : bool
+    intern reference : style_transition
+    intern is_inlay : bool
+    intern type : AType
+    intern location : object*
+
+    public pos -> f64
+    override bool
+
+class style_entry
+    public member : str
+    public value : str
+    public trans : style_transition
+    public bl : style_block
+    public instance : object
+
+class style_qualifier
+    intern ty : AType
+    public type : str
+    public id : str
+    public state : str
+    public oper : str
+    public value : str
+    public parent : object, weak
+
+class style_selection
+    public from : handle
+    public to : handle
+    public start : i64
+    public end : i64
+    public entry : style_entry
+
+class composer
+    public app : object, weak
+    public w : window, weak
+    intern root_styles : map
+    public root : element
+    public capture : element
+    public focus : element
+    public hovered : element
+    public action_pressed : element
+    public context_pressed : element
+    public args : map
+    public restyle : bool
+    public style : style
+    public mouse : vec2f
+    public buttons : array[ i32, 16 ]
+    public shift : bool
+    public alt : bool
+    public on_render : hook
+
+    public animate -> none
+    public update_all -> none
+    public invalidate -> none
+    public remove_invalid -> none
+    public set_capture -> none
+    public release_capture -> none
+    public set_focus -> none
+    public release_focus -> none
+    public find_target[ event: element ] -> element
+    public text_event -> none
+    public move_event -> none
+    public key_event -> none
+    public wheel_event -> none
+    public press_event -> none
+    public release_event -> none
+
+class arg
+    public name : str
+    public value : object
+    public offset : i32
+    public is_inlay : bool
+
+class mixable
+    public mix[ f32: mixable ] -> mixable
+
+class shadow : mixable
+    public blur : f32
+    public color : rgba
+    public offset : vec2f
+
+class glow : mixable
+    public blur : f32
+    public color : rgba
+
+class transform : mixable
+    public offset : vec2f
+    public scale : vec2f
+    public rotation : f32
+
+class background
+    public image : image
+    public transform : transform
+    public repeat : Pattern
+
+    public mix[ f32: background ] -> background
+
+class radius : array, f32
+
+class layer
+    public canvas : Canvas
+    public area : region
+    public radius : radius
+    public shadow : shadow
+    public color : rgba
+    public background : background
+    public overflow : Clip
+    public opacity : f32
+
+    public mix[ f32: layer ] -> layer
+
+class text : layer
+    public font : font
+    public xalign : xalign
+    public yalign : yalign
+    public label : str
+
+class border : layer
+    public size : f32
+    public cap : cap
+    public join : join
+    public miter : f32
+    public dash : array
+
+class fill : layer
+
+class children : layer
+    public scroll : vec2f
+
+class element
+    public parent : element, weak
+    public area : region
+    public value : object
+    public id : str
+    public flags : i64
+    public layers : array
+    public elements : map
+    public tags : array
+    public group : str
+    public tab_index : i32
+    public ghost : bool
+    public captured : bool
+    public selectable : bool
+    public selected : bool
+    public disabled : bool
+    public hovered : bool
+    public pressed : bool
+    public focused : bool
+    public action : subs
+    public wheel : subs
+    public context : subs
+    public text : subs
+    public hover : subs
+    public leave : subs
+    public key_down : subs
+    public key_up : subs
+    public press : subs
+    public move : subs
+    public release : subs
+    public got_capture : subs
+    public lost_capture : subs
+    public focus : subs
+    public blur : subs
+    public cursor : vec2f
+    intern ux : composer
+    intern boundaries : array
+    intern style_avail : map
+    intern selections : map
+    intern transitions : map
+    intern restyle : bool
+
+    public set_capture -> none
+    public release_capture -> none
+    public set_focus -> none
+    public release_focus -> none
+    public draw -> none
+    public render -> map
+    override compare
+
+class scene : element
+    public target : target
+    public models : array
+    public render_scale : f32
+    public clear_color : vec4f
+    public rotate : array
+    public translate : array
+    public scale : array
+    public update : subs
+
+    override draw
+    override init
+    override dealloc
+
+class stage : scene, element
+    public frost : bool
+
+    override init
+    override dealloc
+
+class pane : element
+
+class button : element
+
+class uniforms
+    required t : trinity, weak
+    required s : shader
+    public u_memory : array
+    public u_buffers : array
+
+    public update -> none
+    override init
+
+class shader
+    required t : trinity, weak
+    public name : str
+    public vert : str
+    public frag : str
+    public comp : str
+    public reloads : i32
+    intern vk_vert : VkShaderModule
+    intern vk_frag : VkShaderModule
+    intern vk_comp : VkShaderModule
+
+    public reload -> bool
+    override init
+    override dealloc
+
+class Basic : shader
+    public proj : mat4f
+    public model : mat4f
+    public view : mat4f
+
+class IBL
+    public placeholder : i32
+
+class PBR : shader
+    public pos : vec4f
+    public dir : vec4f
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+
+    override init
+
+class Env : shader
+    public view : mat4f
+    public proj : mat4f
+    public roughness_samples : vec2f
+
+    override init
+
+class Convolve : shader
+    public env : mat4f
+    public view : mat4f
+    public proj : mat4f
+    public roughness_samples : vec2f
+
+class buffer
+    required t : trinity, weak
+    required size : i64
+    public data : ARef
+    public u_src : bool
+    public u_dst : bool
+    public u_shader : bool
+    public u_uniform : bool
+    public u_vertex : bool
+    public u_index : bool
+    public u_storage : bool
+    public m_device_local : bool
+    public m_host_visible : bool
+    public m_host_coherent : bool
+    intern user : ARef
+    intern vma_alloc : VmaAllocation
+    intern vk_buffer : VkBuffer
+
+    public update -> none
+    public transfer -> none
+    public mmap -> ARef
+    public unmap -> none
+    override init
+    override dealloc
+
+class BlurV : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+    public reduction_scale : f32
+
+class Blur : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+    public reduction_scale : f32
+
+class UVQuad : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+
+    override init
+
+class UVReduce : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+
+    override init
+
+class UXCompose : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+    public low_color : vec4f
+    public high_color : vec4f
+
+    override init
+
+class UXSimple : shader
+    public model : mat4f
+    public view : mat4f
+    public proj : mat4f
+
+    override init
+
+class target
+    required t : trinity, weak
+    required w : window, weak
+    public id : i32
+    public wscale : f32
+    public width : i32
+    public height : i32
+    public reduce : bool
+    public models : array
+    public clear_color : vec4f
+    public reduction : texture
+    public color : texture
+    public depth : texture
+    intern reduce_model : model
+    intern vk_command_buffer : VkCommandBuffer
+    intern vk_swap_image : VkImage
+    intern vk_fence : VkFence
+    intern vk_semaphore : VkSemaphore
+    intern vk_image_available_semaphore : VkSemaphore
+    intern vk_render_finished_semaphore : VkSemaphore
+    intern last_width : i32
+    intern last_height : i32
+
+    public update -> none
+    public draw -> none
+    public sync_fence -> none
+    override init
+    override dealloc
+
+class app
+    public w : window
+    public ux : composer
+    public t : trinity
+    public app_context : ctx
+    public ason_path : path
+    public ason_render : map
+    intern ason_modified : i64
+    public style : style
+    intern arg : object
+    public on_render : callback
+
+    public initialize -> none
+    public run -> i32
+    override init
+    override dealloc
+
+class window
+    intern window : handle
+    required t : trinity, weak
+    public mouse : vec2f
+    public ux : composer
+    public element_targets : map
+    public list : array
+    intern swap_renders : array
+    intern swap_model : model
+    intern vk_swap_images : VkImage*
+    intern surface : VkSurfaceKHR
+    intern swapchain : VkSwapchainKHR
+    intern swap_targets : array
+    intern surface_caps : VkSurfaceCapabilitiesKHR*
+    intern surface_format : VkSurfaceFormatKHR
+    intern present_mode : VkPresentModeKHR
+    intern extent : VkExtent2D
+    intern swap_render_current : target
+    intern semaphore_frame : target
+    intern swap_image_count : u32
+    intern swap_image_current : u32
+    required width : u32
+    required height : u32
+    intern ev : event
+    public app : app, weak
+    public compose : sk
+    public colorize : sk
+    public overlay : sk
+    public glyph : sk
+    public format : Pixel
+    public title : str
+    public debug_value : f32
+    public current_swap_index : i32
+    intern resized : bool
+    public backbuffer : bool
+    intern last_target : target
+    public m_reduce : model
+    public r_reduce : target
+    public m_reduce0 : model
+    public r_reduce0 : target
+    public m_reduce1 : model
+    public r_reduce1 : target
+    public m_reduce2 : model
+    public r_reduce2 : target
+    public m_reduce3 : model
+    public r_reduce3 : target
+    public m_blur_v : model
+    public r_blur_v : target
+    public m_blur : model
+    public r_blur : target
+    public m_frost_v : model
+    public r_frost_v : target
+    public m_frost : model
+    public r_frost : target
+    public m_view : model
+    public r_view : target
+
+    public update_canvas -> none
+    public resize[ i32: i32 ] -> none
+    public final_target -> target
+    public draw -> none
+    public draw_element -> none
+    override init
+    override dealloc
+
+class SVG
+    public w : f32
+    public h : f32
+    public rw : f32
+    public rh : f32
+    public svg_dom : handle
+
+    override dealloc
+
+class draw_state
+    public blur_radius : f32
+    public stroke_size : f32
+    public stroke_cap : cap
+    public stroke_join : join
+    public stroke_miter_limit : f32
+    public stroke_dash_offset : f32
+    public font : font
+    public tx : texture, weak
+    public x : f32
+    public y : f32
+    public w : f32
+    public h : f32
+    public fill_color : u32
+    public stroke_color : u32
+    public opacity : f32
+
+    public set_default -> none
+
+class canvas : image
+    required t : trinity, weak
+    public tx : texture
+    public state : array
+
+    interface save -> none
+    interface restore -> none
+    interface move_to[ f32: f32 ] -> none
+    interface line_to[ f32: f32 ] -> none
+    interface arc_to[ f32: f32, f32: f32 ] -> none
+    interface arc[ f32: f32, f32: f32 ] -> none
+    interface rect_to[ f32: f32, f32: f32 ] -> none
+    interface rounded_rect_to[ f32: f32, f32: f32, f32: f32 ] -> none
+    interface fill_color -> none
+    interface stroke_color -> none
+    interface clear -> none
+    interface set_stroke -> none
+    interface set_font -> none
+    interface cubic[ f32: f32, f32: f32, f32: f32 ] -> none
+    interface quadratic[ f32: f32, f32: f32 ] -> none
+    interface draw_fill -> none
+    interface draw_stroke -> none
+    interface draw_fill_preserve -> none
+    interface draw_stroke_preserve -> none
+    interface blur_radius -> none
+    interface prepare -> none
+    interface set_texture -> none
+    interface translate[ f32: f32 ] -> none
+    interface scale -> none
+    interface clip[ f32: rect ] -> none
+    interface stroke_size -> none
+    interface stroke_cap -> none
+    interface stroke_join -> none
+    interface stroke_miter_limit -> none
+    interface stroke_dash_offset -> none
+    override resize
+
+class sk : canvas, image
+    intern sk_context : ARef
+    intern sk_surface : ARef
+    intern sk_canvas : ARef
+    intern sk_path : ARef
+    intern once : bool
+    intern skia : struct Skia*
+    intern vk_layout : VkImageLayout
+
+    public save -> none
+    public restore -> none
+    public draw_svg[ rect: SVG, vec2f: vec2f ] -> none
+    public draw_image[ rect: image, vec2f: vec2f ] -> none
+    public measure -> text_metrics
+    public draw_text[ rect: str, vec2f: vec2f ] -> rect
+    public move_to[ f32: f32 ] -> none
+    public line_to[ f32: f32 ] -> none
+    public arc_to[ f32: f32, f32: f32 ] -> none
+    public arc[ f32: f32, f32: f32 ] -> none
+    public rect_to[ f32: f32, f32: f32 ] -> none
+    public rounded_rect_to[ f32: f32, f32: f32, f32: f32 ] -> none
+    public fill_color -> none
+    public clear -> none
+    public set_font -> none
+    public cubic[ f32: f32, f32: f32, f32: f32 ] -> none
+    public quadratic[ f32: f32, f32: f32 ] -> none
+    public draw_fill -> none
+    public draw_stroke -> none
+    public draw_fill_preserve -> none
+    public draw_stroke_preserve -> none
+    public blur_radius -> none
+    public prepare -> none
+    public translate[ f32: f32 ] -> none
+    public scale -> none
+    public clip[ f32: rect ] -> none
+    public set_texture -> none
+    public stroke_color -> none
+    public stroke_size -> none
+    public stroke_cap -> none
+    public stroke_join -> none
+    public stroke_miter_limit -> none
+    public stroke_dash_offset -> none
+    public opacity -> none
+    public ellipsis[ rect: str ] -> str
+    override resize
+
+class command
+    required t : trinity, weak
+    intern vk : VkCommandBuffer
+
+    public begin -> none
+    public submit -> none
+    override init
+    override dealloc
+
+class texture
+    required t : trinity, weak
+    public w : window, weak
+    public format : Pixel
+    public sampler : object
+    public width : i32
+    public height : i32
+    public swap : bool
+    public mip_levels : i32
+    public layer_count : i32
+    public surface : Surface
+    public linear : bool
+    intern vk_layout : VkImageLayout
+    intern vk_format : VkFormat
+    intern vk_image : VkImage
+    intern vk_image_view : VkImageView
+    intern vk_sampler : VkSampler
+    intern vma_alloc : VmaAllocation
+
+    public resize[ i32: i32 ] -> none
+    public transition -> none
+    override init
+    override dealloc
+
+class gpu
+    required t : trinity, weak
+    required name : str
+    public sampler : image
+    intern tx : texture
+    public vertex_data : object
+    public index_data : object
+    public members : ref vertex_member_t
+    public member_count : i32
+    public index_size : i32
+    public index_count : i32
+    public vertex_size : i32
+    public vertex_count : i32
+    intern vertex : buffer
+    intern index : buffer
+    intern vk_image : VkImage
+    intern vk_image_view : VkImageView
+    intern vk_sampler : VkSampler
+    intern vma_alloc : VmaAllocation
+    public compute : bool
+
+    public sync -> none
+    override init
+    override dealloc
+
+class pipeline
+    required t : trinity, weak
+    required w : window, weak
+    required r : target
+    required name : str
+    public render_id : i32
+    public default_model : mat4f
+    public shader_reloads : i32
+    public material : Material
+    public samplers : map
+    required s : shader
+    intern resources : array
+    intern shader_uniforms : uniforms
+    intern vbo : gpu
+    intern memory : gpu
+    intern descriptor_pool : VkDescriptorPool
+    intern bind : VkDescriptorSet
+    intern vk_render : VkPipeline
+    intern vk_compute : VkPipeline
+    intern layout : VkPipelineLayout
+
+    public rebind -> none
+    public draw -> none
+    public bind_resources -> none
+    public reassemble -> none
+    override init
+    override dealloc
+
+class gltf_part
+    required id : Primitive
+
+class gltf_node
+    public id : Node
+    public parts : array
+
+class model
+    required t : trinity, weak
+    required w : window, weak
+    public r : target, weak
+    intern transforms : mat4f*
+    intern transform_count : i32
+    public id : Model
+    public nodes : array
+    public s : shader
+    public samplers : map
+    intern pipelines : array
+
+    public rebind_model -> none
+    public finish[ i32: target ] -> none
+    override init
+    override dealloc
+
+class particle
+    public pos : vec2f
+    public velocity : vec2f
+    public density : f32
+    public pressure : f32

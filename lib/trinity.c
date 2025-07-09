@@ -3487,7 +3487,7 @@ define_class(draw_state,    A)
 define_class(canvas,        A)
 
 // abstract identifier to indicate functionality 
-// of non-texture case of attribute, still under the enumerable Surface
+// of non-texture case of attribute, still under the enumeration Surface
 
 define_class(particle,      A)
 

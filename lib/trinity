@@ -342,8 +342,7 @@ declare_class(arg)
 #define Fill_schema(E,T,Y,...) \
     enum_value(E,T,Y, none,       0.00f) \
     enum_value(E,T,Y, blur,       0.50f) \
-    enum_value(E,T,Y, frost,      0.75f) \
-    enum_value(E,T,Y, solid,      1.00f)
+    enum_value(E,T,Y, frost,      1.00f)
 declare_typed_enum(Fill, f32)
 
 #define Canvas_schema(E,T,Y,...) \
@@ -353,71 +352,108 @@ declare_typed_enum(Fill, f32)
     enum_value(E,T,Y, glyph,         3)
 declare_typed_enum(Canvas, i32)
 
+#define Pattern_schema(E,T,Y,...) \
+    enum_value(E,T,Y, none,          0) \
+    enum_value(E,T,Y, repeat_x,      1) \
+    enum_value(E,T,Y, repeat_y,      2) \
+    enum_value(E,T,Y, repeat_xy,     3)
+declare_typed_enum(Pattern, i32)
+
+#define Clip_schema(E,T,Y,...) \
+    enum_value(E,T,Y, none,          0) \
+    enum_value(E,T,Y, clip,          1) \
+    enum_value(E,T,Y, ellipsis,      2)
+declare_typed_enum(Clip, i32)
+
+
+#define mixable_schema(X,Y,...) \
+    i_ctr   (X,Y, public, string) \
+    i_method(X,Y, public, mixable, mix, mixable, f32)
+declare_class(mixable)
+
+#define shadow_schema(X,Y,...) \
+    i_prop  (X,Y, public, f32,          blur) \
+    i_prop  (X,Y, public, rgba,         color) \
+    i_prop  (X,Y, public, vec2f,        offset)
+declare_class_2(shadow, mixable)
+
+#define glow_schema(X,Y,...) \
+    i_prop  (X,Y, public, f32,          blur) \
+    i_prop  (X,Y, public, rgba,         color)
+declare_class_2(glow, mixable)
+
+// zero reason to apply to general elements; only for background
+// we will never rotate text ROTEXT.VBX is for noob saibots
+#define transform_schema(X,Y,...) \
+    i_prop  (X,Y, public, vec2f,        offset) \
+    i_prop  (X,Y, public, vec2f,        scale) \
+    i_prop  (X,Y, public, f32,          rotation)
+declare_class_2(transform, mixable)
+
+#define background_schema(X,Y,...) \
+    i_prop  (X,Y, public, image,        image) \
+    i_prop  (X,Y, public, transform,    transform) \
+    i_prop  (X,Y, public, Pattern,      repeat) \
+    i_ctr   (X,Y, public, string) \
+    i_method(X,Y, public, background, mix, background, f32)
+declare_class(background)
+
+
+#define radius_schema(X,Y,...)
+declare_class_2(radius, array, f32)
+
+// for all layers, we will construct with field inference
+// that means the constructors need only be Type [ any str ]
+#define layer_schema(X,Y,...) \
+    i_prop  (X,Y, public, Canvas,       canvas) \
+    i_prop  (X,Y, public, region,       area) \
+    i_prop  (X,Y, public, radius,       radius) \
+    i_prop  (X,Y, public, shadow,       shadow) \
+    i_prop  (X,Y, public, rgba,         color) \
+    i_prop  (X,Y, public, background,   background) \
+    i_prop  (X,Y, public, Clip,         overflow) \
+    i_prop  (X,Y, public, f32,          opacity) \
+    i_ctr   (X,Y, public, string) \
+    i_method(X,Y, public, layer, mix, layer, f32)
+declare_class(layer)
+
+#define text_schema(X,Y,...) \
+    i_prop  (X,Y, public, font,         font) \
+    i_prop  (X,Y, public, xalign,       xalign) \
+    i_prop  (X,Y, public, yalign,       yalign) \
+    i_prop  (X,Y, public, string,       label)
+declare_class_2(text, layer)
+
+// all can be set by value except miter, the 2nd f32 which we specify miter:v
+#define border_schema(X,Y,...) \
+    i_prop  (X,Y, public, f32,          size) \
+    i_prop  (X,Y, public, cap,          cap) \
+    i_prop  (X,Y, public, join,         join) \
+    i_prop  (X,Y, public, f32,          miter) \
+    i_prop  (X,Y, public, array,        dash, meta, f32)
+declare_class_2(border, layer)
+
+
+#define fill_schema(X,Y,...)
+declare_class_2(fill, layer)
+
+// cant inherently scroll in any element that doesnt have a defined children region
+#define children_schema(X,Y,...) \
+    i_prop(X,Y, public,   vec2f,       scroll)
+declare_class_2(children, layer)
 
 #define element_schema(X,Y,...) \
-    i_prop(X,Y, intern,   composer,    ux) \
+    i_prop(X,Y, public,   element,     parent, meta, weak) \
+    i_prop(X,Y, public,   region,      area) \
     i_prop(X,Y, public,   object,      value) \
     i_prop(X,Y, public,   string,      id) \
-    i_prop(X,Y, public,   i32,         mark) \
-    i_prop(X,Y, public,   map,         args) \
+    i_prop(X,Y, public,   i64,         flags) \
+    i_prop(X,Y, public,   array,       layers,       layer) \
     i_prop(X,Y, public,   map,         elements) \
-    i_prop(X,Y, public,   element,     parent, meta, weak) \
-    i_prop(X,Y, intern,   map,         style_avail) \
-    i_prop(X,Y, intern,   map,         selections) \
-    i_prop(X,Y, intern,   composer,    composer) \
-    i_prop(X,Y, intern,   map,         transitions) \
-    i_prop(X,Y, intern,   bool,        restyle) \
     i_prop(X,Y, public,   array,       tags) \
-    i_prop(X,Y, public,   bool,        ghost) \
     i_prop(X,Y, public,   string,      group) \
-    i_prop(X,Y, public,   region,      area) \
-    i_prop(X,Y, public,   region,      text_area) \
-    i_prop(X,Y, public,   region,      border_area) \
-    i_prop(X,Y, public,   region,      clip_area) \
-    i_prop(X,Y, public,   region,      child_area) \
     i_prop(X,Y, public,   i32,         tab_index) \
-    i_prop(X,Y, public,   vec2f,       cursor) \
-    i_prop(X,Y, public,   cap,         border_cap) \
-    i_prop(X,Y, public,   join,        border_join) \
-    i_prop(X,Y, public,   f32,         border_blur) \
-    i_prop(X,Y, public,   f32,         border_size) \
-    i_prop(X,Y, public,   bool,        border_clip) \
-    i_prop(X,Y, public,   rgba,        border_color) \
-    i_prop(X,Y, public,   f32,         text_align_x) \
-    i_prop(X,Y, public,   f32,         text_align_y) \
-    i_prop(X,Y, public,   f32,         text_scale) \
-    i_prop(X,Y, public,   rgba,        text_color) \
-    i_prop(X,Y, public,   f32,         text_shadow_x) \
-    i_prop(X,Y, public,   f32,         text_shadow_y) \
-    i_prop(X,Y, public,   f32,         fill_shadow_x) \
-    i_prop(X,Y, public,   f32,         fill_shadow_y) \
-    i_prop(X,Y, public,   bool,        fill_shadow_inset) \
-    i_prop(X,Y, public,   bool,        fill_shadow_blur) \
-    i_prop(X,Y, public,   rgba,        text_shadow_color) \
-    i_prop(X,Y, public,   bool,        text_ellipsis) \
-    i_prop(X,Y, public,   rgba,        fill_color) \
-    i_prop(X,Y, public,   f32,         fill_blur) \
-    i_prop(X,Y, public,   rgba,        sel_color) \
-    i_prop(X,Y, public,   rgba,        sel_background) \
-    i_prop(X,Y, public,   vec2f,       scroll) \
-    i_prop(X,Y, public,   vec2f,       text_spacing) \
-    i_prop(X,Y, public,   object,      content) \
-    i_prop(X,Y, public,   f32,         opacity) \
-    i_prop(X,Y, public,   font,        font) \
-    i_prop(X,Y, public,   text_sel,    sel_start) \
-    i_prop(X,Y, public,   text_sel,    sel_end) \
-    i_prop(X,Y, public,   f32,         border_radius_x) \
-    i_prop(X,Y, public,   f32,         border_radius_y) \
-    i_prop(X,Y, public,   f32,         fill_radius_x) \
-    i_prop(X,Y, public,   f32,         fill_radius_y) \
-    i_prop(X,Y, intern,   text,        lines) \
-    i_prop(X,Y, intern,   rect,        bounds) \
-    i_prop(X,Y, intern,   rect,        clip_bounds) \
-    i_prop(X,Y, intern,   rect,        child_bounds) \
-    i_prop(X,Y, intern,   rect,        fill_bounds) \
-    i_prop(X,Y, intern,   rect,        text_bounds) \
-    i_prop(X,Y, intern,   rect,        border_bounds) \
-    i_prop(X,Y, public,   image,       background) \
+    i_prop(X,Y, public,   bool,        ghost) \
     i_prop(X,Y, public,   bool,        captured) \
     i_prop(X,Y, public,   bool,        selectable) \
     i_prop(X,Y, public,   bool,        selected) \
@@ -440,8 +476,13 @@ declare_typed_enum(Canvas, i32)
     i_prop(X,Y, public,   subs,        lost_capture) \
     i_prop(X,Y, public,   subs,        focus) \
     i_prop(X,Y, public,   subs,        blur) \
-    i_prop(X,Y, public,   Canvas,      border_canvas) \
-    i_prop(X,Y, public,   Canvas,      fill_canvas) \
+    i_prop(X,Y, public,   vec2f,       cursor) \
+    i_prop(X,Y, intern,   composer,    ux) \
+    i_prop(X,Y, intern,   array,       boundaries, rect) \
+    i_prop(X,Y, intern,   map,         style_avail) \
+    i_prop(X,Y, intern,   map,         selections) \
+    i_prop(X,Y, intern,   map,         transitions) \
+    i_prop(X,Y, intern,   bool,        restyle) \
     i_method(X,Y, public, none,        set_capture) \
     i_method(X,Y, public, none,        release_capture) \
     i_method(X,Y, public, none,        set_focus) \
@@ -450,6 +491,7 @@ declare_typed_enum(Canvas, i32)
     i_method(X,Y, public, map,         render,          array) \
     i_override(X,Y, method, compare)
 declare_class(element)
+
 
 forward(target)
 forward(model)
@@ -468,11 +510,11 @@ forward(model)
     i_override(X,Y, method, dealloc)
 declare_class_2(scene, element)
 
-#define background_schema(X,Y,...) \
+#define stage_schema(X,Y,...) \
     i_prop(X,Y, public, bool, frost) \
     i_override(X,Y, method, init) \
     i_override(X,Y, method, dealloc)
-declare_class_3(background, scene, element)
+declare_class_3(stage, scene, element)
 
 #define pane_schema(X,Y,...)
 declare_class_2(pane, element)
@@ -520,7 +562,7 @@ declare_class_2(Basic, shader)
     i_prop   (X,Y, public,     i32, placeholder)
 declare_class(IBL)
 
-/// attribute is a type, and a value; name is baked into enumerables
+/// attribute is a type, and a value; name is baked into enumeration
 #define PBR_schema(X,Y,...) \
     i_prop   (X,Y, public,     vec4f,   pos) \
     i_prop   (X,Y, public,     vec4f,   dir) \
