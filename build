@@ -1,7 +1,7 @@
 import:
 	A 		https://github.com/ar-visions/A 		main
 	gltf 	https://github.com/ar-visions/gltf 		main
-	img 	https://github.com/ar-visions/img 		main
+	mx 		https://github.com/ar-visions/mx 		main
 	glfw 	https://github.com/glfw/glfw 			7b6aead
 		-DBUILD_SHARED_LIBS=ON
 		-DGLFW_BUILD_WAYLAND=OFF
@@ -32,15 +32,15 @@ import:
 		> # cd .. && python3 tools/git-sync-deps
 		> # cd .. && bin/gn gen $BUILD_TYPE --args='$BUILD_CONFIG'
 		> # cd .. && ninja -C $BUILD_TYPE
-		> # rsync -a *.a $TAPESTRY/lib/
+		> # rsync -a *.a $IMPORT/lib/
 		-lskia
 		-lm
-	-I$TAPESTRY/checkout/skia
-	-I$TAPESTRY/checkout/skia/src
-	-I$TAPESTRY/checkout/skia/src/gpu/vk/vulkanmemoryallocator
-	-I$TAPESTRY/checkout/skia/include
-	-I$TAPESTRY/skia/include
-	-I$TAPESTRY/checkout/skia/modules/svg/include
+	-I$IMPORT/checkout/skia
+	-I$IMPORT/checkout/skia/src
+	-I$IMPORT/checkout/skia/src/gpu/vk/vulkanmemoryallocator
+	-I$IMPORT/checkout/skia/include
+	-I$IMPORT/skia/include
+	-I$IMPORT/checkout/skia/modules/svg/include
 	linux: 
 		-lasound
 		-lvulkan
