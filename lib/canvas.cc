@@ -793,7 +793,7 @@ void sk_image_dealloc(image img) {
 }
 
 void sk_draw_image(sk a, image img, rect r, vec2f align, vec2f offset) {
-    SVG svg = (SVG)A_instanceof((object)img, typeid(SVG));
+    SVG svg = (SVG)instanceof((object)img, typeid(SVG));
     if (svg) return sk_draw_svg(a, svg, r, align, offset);
     
     SkCanvas*  sk = (SkCanvas*)a->sk_canvas;

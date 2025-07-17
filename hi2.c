@@ -1,7 +1,7 @@
 //#include <import>
 /*
 int main(int argc, char *argv[]) {
-    A_start(argv);
+    startup(argv);
     trinity t = trinity();
     shader  s = shader(t, t, name, str("shader.wgsl"));
     window  w = window(t, t, shader, s, width, 800, height, 600);
@@ -160,7 +160,7 @@ void log_callback(WGPULoggingType level, char const* message, void* userdata) {
     fprintf(stderr, "[%s] %s\n", level_str, message);
 }
 int main(int argc, char *argv[]) {
-    A_start(argv);
+    startup(argv);
     verify(glfwInit(), "glfw init");
 
     struct demo demo = {0};

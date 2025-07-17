@@ -651,7 +651,7 @@ void target_draw(target r) {
             each (r->models, model, m)
                 each (m->pipelines, pipeline, p) {
                     /// css transitions affect this (from scene element)
-                    if (m->transform_count && instanceof(p->s, PBR)) {
+                    if (m->transform_count && instanceof(p->s, typeid(PBR))) {
                         PBR s = p->s;
                         s->model = p->default_model; // we may perform all of this in code, otherwise
                         for (int i = 0; i < m->transform_count; i++) {
@@ -1610,7 +1610,7 @@ num uniform_size(AType type) {
 /// sub procedure of shader; transfer one type at a time
 /// we may perform this in meta as well, but i think poly should be a base implementation
 i64 uniform_transfer(shader instance, u8* data, AType type) {
-    verify(instanceof(instance, shader), "shader instance not provided");
+    verify(instanceof(instance, typeid(shader)), "shader instance not provided");
     num   index = 0;
     u8*   src   = instance;
 
@@ -1626,7 +1626,7 @@ i64 uniform_transfer(shader instance, u8* data, AType type) {
                     &src[mem->offset], type_size);
             else
                 memcpy(&data[index],
-                    A_data((object) &src[mem->offset]), type_size);
+                    vdata((object) &src[mem->offset]), type_size);
             index += type_size;
         }
     }
@@ -1654,9 +1654,9 @@ none gpu_sync(gpu a, window w) {
     }
 
     if (a->sampler && !a->tx) {
-        image   img = instanceof(a->sampler, image);
-        texture tx  = instanceof(a->sampler, texture);
-        target  re  = instanceof(a->sampler, target);
+        image   img = instanceof(a->sampler, typeid(image));
+        texture tx  = instanceof(a->sampler, typeid(texture));
+        target  re  = instanceof(a->sampler, typeid(target));
 
         verify(!re, "target given to samplers");
 
@@ -1704,12 +1704,12 @@ static VkFormat vk_format(Pixel f, bool linear) {
 
 static none placeholder_image(
         object sampler, int size, u8* fill, int* sampler_size, Pixel* format) {
-    vector_i8    v_i8       = instanceof(sampler, vector_i8);     // grayscale i8
-    vector_f32   v_f32      = instanceof(sampler, vector_f32);    // grayscale f32
-    vector_rgb8  v_rgb8     = instanceof(sampler, vector_rgb8);   // rgb bytes
-    vector_rgbf  v_rgbf     = instanceof(sampler, vector_rgbf);   // rgb floats
-    vector_rgba8 v_rgba8    = instanceof(sampler, vector_rgba8);  // rgba bytes
-    vector_rgbaf v_rgbaf    = instanceof(sampler, vector_rgbaf);  // rgba floats
+    vector_i8    v_i8       = instanceof(sampler, typeid(vector_i8));     // grayscale i8
+    vector_f32   v_f32      = instanceof(sampler, typeid(vector_f32));    // grayscale f32
+    vector_rgb8  v_rgb8     = instanceof(sampler, typeid(vector_rgb8));   // rgb bytes
+    vector_rgbf  v_rgbf     = instanceof(sampler, typeid(vector_rgbf));   // rgb floats
+    vector_rgba8 v_rgba8    = instanceof(sampler, typeid(vector_rgba8));  // rgba bytes
+    vector_rgbaf v_rgbaf    = instanceof(sampler, typeid(vector_rgbaf));  // rgba floats
     i8*          data_i8    = v_i8    ? data(v_i8)    : null;
     f32*         data_f32   = v_f32   ? data(v_f32)   : null;
     rgb8*        data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
@@ -2105,13 +2105,13 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
     pairs (p->samplers, i) {
         string name = i->key;
         image img   = i->value;
-        i32 evalue = *A_enum_value(surface_enum_type, name->chars);
+        i32 evalue = *evalue(surface_enum_type, name->chars);
         AType ty = isa(img);
-        texture tx = instanceof((object)img, texture);
-        target  re = instanceof((object)img, target);
+        texture tx = instanceof((object)img, typeid(texture));
+        target  re = instanceof((object)img, typeid(target));
         if (re) tx = re->color;
         if (evalue == surface_value) {
-            verify(tx || instanceof(img, image), "expected texture or image");
+            verify(tx || instanceof(img, typeid(image)), "expected texture or image");
             res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler,
                 (object)(tx ? (object)hold(tx) : (object)hold(img)));
             push(result, res);
@@ -2240,7 +2240,7 @@ void pipeline_bind_resources(pipeline p) {
             verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
                 "unexpected len(samplers) for value on attrib");
             each(all, gpu, res) {
-                verify(instanceof(res, gpu), "expected gpu resource");
+                verify(instanceof(res, typeid(gpu)), "expected gpu resource");
 
                 /// add gpu resource; this is what will be updated when required
                 sync(res, p->w);
@@ -2775,7 +2775,7 @@ void window_draw_element(window a, element e) {
         restore(cv);
     }
 
-    string content = instanceof(e->content, string);
+    string content = instanceof(e->content, typeid(string));
     if (content && e->text_color) {
         sk cv = a->glyph;
         save(cv);
@@ -2843,7 +2843,7 @@ static none app_render(app a) {
                 object from = A_member_object(a, mem);
                 if (!from) continue;
                 object ctx_val = get(a->app_context, mem->sname);
-                if (from && !ctx_val || (A_memcmp(from, ctx_val) != 0))
+                if (from && !ctx_val || (compare(from, ctx_val) != 0))
                     set(a->app_context, mem->sname, from);
             }
             t = t->parent_type;
@@ -3048,7 +3048,7 @@ bool shader_reload(shader s, ARef _reloads) {
         if (!spv_exists || source_stat.st_mtime > spv_stat.st_mtime) {
             // mktemp, and start reading input
             string ext = ext(input);
-            path tmp = path_temp(ext->chars); // src = path of temp file
+            path tmp = tempfile(ext->chars); // src = path of temp file
             replace_includes(input->chars, tmp->chars);
 
             // parse #include <file> and replace with contents of file
@@ -3196,8 +3196,8 @@ none buffer_init(buffer b) {
 }
 
 void buffer_transfer(buffer b, object arg) { // arg can be texture or window
-    window  w  = instanceof(arg, window);
-    texture tx = instanceof(arg, texture);
+    window  w  = instanceof(arg, typeid(window));
+    texture tx = instanceof(arg, typeid(texture));
 
     verify(tx || w->last_target,
         "expected texture or window (with render pass run prior)");
