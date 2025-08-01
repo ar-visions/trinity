@@ -1,0 +1,20 @@
+
+# import vulkan.h (we have a .c attached, so it gets this as well -- it need not import anything other than import, though)
+# only it gets that header; there is more integrity.
+
+import <vulkan/vulkan.h> [ https://github.com/KhronosGroup/Vulkan-Headers ]
+
+import [ https://github.com/KhronosGroup/Vulkan-Tools ]
+     -DVULKAN_HEADERS_INSTALL_DIR={silver_install}
+
+class test_vulkan
+    intern      instance            : VkInstance
+    intern      physical_device     : VkPhysicalDevice
+    intern      device              : VkDevice
+    intern      allocator           : VmaAllocator
+    intern      extent              : VkExtent2D
+    intern      device_memory       : map   
+    public      queue_family_index  : i32
+    public      ray_tracing         : bool
+    override fn init                [ ]
+    override fn dealloc             [ ]

@@ -478,7 +478,6 @@ declare_class_2(children, layer)
     i_prop(X,Y, public,   subs,        blur) \
     i_prop(X,Y, public,   vec2f,       cursor) \
     i_prop(X,Y, intern,   composer,    ux) \
-    i_prop(X,Y, intern,   array,       boundaries, rect) \
     i_prop(X,Y, intern,   map,         style_avail) \
     i_prop(X,Y, intern,   map,         selections) \
     i_prop(X,Y, intern,   map,         transitions) \

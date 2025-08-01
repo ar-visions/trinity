@@ -1,0 +1,278 @@
+import vec
+
+enum ComponentType
+    NONE           : 0
+    BYTE           : 5120
+    UNSIGNED_BYTE  : 5121
+    SHORT          : 5122
+    UNSIGNED_SHORT : 5123
+    UNSIGNED_INT   : 5125
+    FLOAT          : 5126
+
+enum CompoundType
+    NONE   : 0
+    SCALAR : 1
+    VEC2   : 2
+    VEC3   : 3
+    VEC4   : 4
+    MAT2   : 5
+    MAT3   : 6
+    MAT4   : 7
+
+enum TargetType
+    NONE           : 0
+    ARRAY_BUFFER   : 34962
+    ELEMENT_BUFFER : 34963
+
+enum Mode
+    NONE           : 0
+    LINES          : 1
+    LINE_LOOP      : 2
+    TRIANGLES      : 4
+    TRIANGLE_STRIP : 5
+    TRIANGLE_FAN   : 6
+    QUADS          : 7
+
+enum Interpolation
+    LINEAR      : 0
+    STEP        : 1
+    CUBICSPLINE : 2
+
+class Sampler
+    public input         : u64
+    public output        : u64
+    public interpolation : Interpolation
+
+class ChannelTarget
+    public node : u64
+    public path : string
+
+class Channel
+    public sampler : u64
+    public target  : ChannelTarget
+
+class Animation
+    public name     : string
+    public samplers : array Sampler
+
+class SparseInfo
+    public bufferView     : u64
+    public componentType  : ComponentType
+
+class Sparse
+    public count   : u64
+    public indices : SparseInfo
+    public values  : SparseInfo
+
+class Accessor
+    public normalized    : bool
+    public bufferView    : u64
+    public componentType : ComponentType
+    public type          : CompoundType
+    public count         : u64
+    public min           : vec3f
+    public max           : vec3f
+    public sparse        : Sparse
+    public stride        : u64
+    public total_bytes   : u64
+    public fn vcount         [ ] -> u64
+    public fn component_size [ ] -> u64
+    public fn member_type    [ ] -> AType
+    override fn init [ ]
+
+class BufferView
+    public buffer     : u64
+    public byteLength : u64
+    public byteOffset : u64
+    public target     : TargetType
+
+class Skin
+    public name                 : string
+    public joints               : vector i64
+    public inverseBindMatrices  : i32
+    public extras               : object
+    public extensions           : object
+
+class JData
+    public states     : vector mat4f
+    public transforms : array Transform
+    public local      : mat4f
+
+class Transform
+    public jdata         : JData
+    public istate        : i32
+    public local         : mat4f
+    public local_default : mat4f
+    public iparent       : i32
+    public ichildren     : vector i64
+    public fn multiply     [ mat4f ] -> none
+    public fn set          [ mat4f ] -> none
+    public fn set_default  [ ] -> none
+    public fn propagate    [ ] -> none
+
+class Node
+    public name        : string
+    public parent      : Node
+    public skin        : i32
+    public mesh        : i32
+    public translation : vec3f
+    public rotation    : quatf
+    public scale       : vec3f
+    public weights     : vector f32
+    public children    : vector i64
+    public joint_index : i32
+    public processed   : bool
+    public mx_joints   : object
+    public fn primitive [ Model cstr ] -> Primitive
+
+class Primitive
+    public name       : string
+    public attributes : map
+    public indices    : u64
+    public material   : i32
+    public mode       : Mode
+    public targets    : array map
+
+class MeshExtras
+    public target_names : array string
+
+class Mesh
+    public name         : string
+    public primitives   : array Primitive
+    public weights      : vector f32
+    public extras       : MeshExtras
+    public fn primitive [ cstr ] -> Primitive
+
+class Scene
+    public name         : string
+    public nodes        : vector i64
+
+class AssetDesc
+    public generator    : string
+    public copyright    : string
+    public version      : string
+
+class Buffer
+    public byteLength   : u64
+    public uri          : path
+    public data         : vector
+    override fn init [ ]
+
+class TextureInfo
+    public index        : i64
+    public texCoord     : u32
+    public scale        : f32
+
+class pbrMetallicRoughness
+    # Core PBR Properties
+    public ior                          : f32
+    public baseColorFactor              : vec4f
+    public baseColorTexture             : TextureInfo
+    public metallicFactor               : f32
+    public roughnessFactor              : f32
+    public metallicRoughnessTexture     : TextureInfo
+    public normalTexture                : TextureInfo
+    public occlusionTexture             : TextureInfo
+    public emissiveFactor               : vec3f
+    public emissiveTexture              : TextureInfo
+    # Specular Glossiness (KHR_materials_pbrSpecularGlossiness)
+    public diffuseFactor                : vec4f
+    public specularFactor               : vec3f
+    public glossinessFactor             : f32
+    public specularGlossinessTexture    : TextureInfo
+    # Sheen (KHR_materials_sheen)
+    public sheenColorFactor             : vec3f
+    public sheenColorTexture            : TextureInfo
+    public sheenRoughnessFactor         : f32
+    public sheenRoughnessTexture        : TextureInfo
+    # Clear Coat (KHR_materials_clearcoat)
+    public clearcoatFactor              : f32
+    public clearcoatTexture             : TextureInfo
+    public clearcoatRoughnessFactor     : f32
+    public clearcoatRoughnessTexture    : TextureInfo
+    public clearcoatNormalTexture       : TextureInfo
+    # Transmission (KHR_materials_transmission)
+    public transmissionFactor           : f32
+    public transmissionTexture          : TextureInfo
+    # Volume (KHR_materials_volume)
+    public thicknessFactor              : f32
+    public thicknessTexture             : TextureInfo
+    public attenuationColor             : vec3f
+    public attenuationDistance          : f32
+    # Specular (KHR_materials_specular)
+    public specularTexture              : TextureInfo
+    public specularColorFactor          : vec3f
+    public specularColorTexture         : TextureInfo
+    # Emissive Strength (KHR_materials_emissive_strength)
+    public emissiveStrength             : f32
+    # Iridescence (KHR_materials_iridescence)
+    public iridescenceFactor            : f32
+    public iridescenceTexture           : TextureInfo
+    public iridescenceIor               : f32
+    public iridescenceThicknessMinimum  : f32
+    public iridescenceThicknessMaximum  : f32
+
+class Material
+    public name           : string
+    public pbr            : pbrMetallicRoughness
+    public normalTexture  : TextureInfo
+    public occlusionTexture : TextureInfo
+    public emissiveTexture : TextureInfo
+    public emissiveFactor : vec3f
+    public alphaMode      : string
+    public alphaCutoff    : f32
+    public doubleSided    : bool
+
+class Model
+    public nodes       : array Node
+    public skins       : array Skin
+    public accessors   : array Accessor
+    public bufferViews : array BufferView
+    public meshes      : array Mesh
+    public buffers     : array Buffer
+    public animations  : array Animation
+    public scenes      : array Scene
+    public materials   : array Material
+    public scene       : u64
+    public asset       : AssetDesc
+    public fn node_transform [ JData, mat4f, i32, Transform ] -> Transform
+    public fn find           [ cstr ] -> Node
+    public fn index_of       [ cstr ] -> i32
+    public index             [ string ] -> Node
+    public fn joints         [ Node ] -> JData
+
+enum Polygon
+    undefined : 0
+    tri       : 1
+    quad      : 2
+    wire      : 3
+    mixed     : 4
+    ngon      : 5
+
+enum Asset
+    undefined     : 0
+    color         : 1
+    normal        : 2
+    material      : 3
+    reflect       : 4
+    env           : 5
+    attachment    : 6
+    depth_stencil : 7
+    multisample   : 8
+
+enum Sampling
+    undefined : 0
+    nearest   : 1
+    linear    : 2
+    ansio     : 3
+
+struct HumanVertex
+    public pos      : vec3f
+    public normal   : vec3f
+    public uv0      : vec2f
+    public uv1      : vec2f
+    public tangent  : vec3f
+    public joints0  : vec3f
+    public joints1  : vec3f
+    public weights0 : vec3f
+    public weights1 : vec3f
