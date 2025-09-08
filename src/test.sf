@@ -1,20 +1,20 @@
+import <vulkan/vulkan.h> [ https://github.com/KhronosGroup/Vulkan-Headers main ]
+import <stdio.h>
 
-# import vulkan.h (we have a .c attached, so it gets this as well -- it need not import anything other than import, though)
-# only it gets that header; there is more integrity.
+import [ https://github.com/KhronosGroup/Vulkan-Tools main ]
+	-DVULKAN_HEADERS_INSTALL_DIR={install}
+	-DWAYLAND_PROTOCOLS_DIR={install}/checkout/wayland-protocols
 
-import <vulkan/vulkan.h> [ https://github.com/KhronosGroup/Vulkan-Headers ]
+class Vulkan
+	public instance : VkInstance
 
-import [ https://github.com/KhronosGroup/Vulkan-Tools ]
-     -DVULKAN_HEADERS_INSTALL_DIR={silver_install}
+	fn init[]
+        instance: VkInstance[null]
 
-class test_vulkan
-    intern      instance            : VkInstance
-    intern      physical_device     : VkPhysicalDevice
-    intern      device              : VkDevice
-    intern      allocator           : VmaAllocator
-    intern      extent              : VkExtent2D
-    intern      device_memory       : map   
-    public      queue_family_index  : i32
-    public      ray_tracing         : bool
-    override fn init                [ ]
-    override fn dealloc             [ ]
+main test
+	cast string
+		return 'a certain kind of string...'
+	
+	fn init[]
+		rep = string [ a ]
+		printf['we are printing this: %s', cstr[ rep ]]

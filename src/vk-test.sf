@@ -1,0 +1,56 @@
+
+# checkout the Vulkan-Headers project and build, then import vulkan.h
+# we have a .c attached, so it compiles this as peer module
+# it only includes import to receive all of what we import here
+# question is how many silver objects can be imported from that .c
+# for now I think its ok for it to be in isolation from other .sf (not set in stone though)
+# .c/.cc have internal access (theres no need to export our import keyword for example)
+# only that module.c may read that header
+# we must generate the import in silver
+
+# import [ https://gitlab.freedesktop.org/wayland/wayland-protocols 810f1adaf33521cc55fc510566efba2a1418174f ]
+
+import <vulkan/vulkan.h> [ https://github.com/KhronosGroup/Vulkan-Headers main ]
+
+import [ https://github.com/KhronosGroup/Vulkan-Tools main ]
+	-DVULKAN_HEADERS_INSTALL_DIR={install}
+	-DWAYLAND_PROTOCOLS_DIR={install}/checkout/wayland-protocols
+
+# args are not constant anymore, this is so we may have : as mutable assign; its bad looking syntax to have = everywhere
+
+main test_vulkan
+	intern      instance : VkInstance
+	intern      physical_device : VkPhysicalDevice
+	intern      device2 : VkDevice
+	intern      allocator           : VkDevice
+	intern      extent              : VkExtent2D
+	public      queue_family_index  : i32[2]
+	public      ray_tracing         : bool
+
+	fn init [ ]
+		aa : i32[1]
+		aa += 1
+		ray_tracing   : false
+		extent.width  : 2
+		extent.width  : 4
+		extent.height : extent.width + 1
+
+##
+	[ ] once the above is working, we can get to the following:
+
+	intern a : map <string int> [
+		'str': 		2
+		'another': 	22
+	]
+
+	public b : array <int 4x2> [ # array must be made to hold primitives outside of the container
+		2 2, 1 1, 4 4, 2 2		 # in doing so, we will not need vector
+	]
+
+	public a-map : map <string int> [
+		'a-string': 2
+		'another' :	4
+	]
+
+	[ ] then we can make the class based on 'main', a built-in type for apps
+##
