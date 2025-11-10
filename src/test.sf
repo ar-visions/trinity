@@ -12,9 +12,9 @@ class Vulkan
         instance: VkInstance[null]
 
 main test
-	cast string
-		return 'a certain kind of string...'
+	public test-me : i32
+	cast string [ 'a certain kind of string... {test-me}' ]
 	
 	fn init[]
 		rep = string [ a ]
-		printf['we are printing this: %s', cstr[ rep ]]
+		printf[ 'we are printing this: %s', cstr[ rep ] ]

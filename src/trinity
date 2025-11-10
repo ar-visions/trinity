@@ -262,14 +262,14 @@ declare_class(style_transition)
 declare_class(style_entry)
 
 
-#define style_qualifier_schema(X,Y,...) \
-    i_prop(X,Y, intern,   AType,                   ty) \
-    i_prop(X,Y, public,   string,                  type) \
-    i_prop(X,Y, public,   string,                  id) \
-    i_prop(X,Y, public,   string,                  state) \
-    i_prop(X,Y, public,   string,                  oper) \
-    i_prop(X,Y, public,   string,                  value) \
-    i_prop(X,Y, public,   object,                  parent, meta, weak)
+#define style_qualifier_schema(T,Y,...) \
+    M(T,Y, prop, intern,   AType,                   ty) \
+    M(T,Y, prop, public,   string,                  type) \
+    M(T,Y, prop, public,   string,                  id) \
+    M(T,Y, prop, public,   string,                  state) \
+    M(T,Y, prop, public,   string,                  oper) \
+    M(T,Y, prop, public,   string,                  value) \
+    M(T,Y, prop, public,   object,                  parent, meta, weak)
 declare_class(style_qualifier)
 
 

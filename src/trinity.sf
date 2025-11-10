@@ -14,6 +14,9 @@ alias handle_t : ref void
 skia_t skia_init_vk(trinity t, handle_t vk_instance, handle_t vma_allocator, handle_t phys, handle_t device, 
     handle_t queue, unsigned int graphics_family, unsigned int vk_version)
 
+import chatgpt
+    model:'gpt-5'
+
 class trinity
     intern      instance            : VkInstance               
     intern      msaa_samples        : i64                      
@@ -31,23 +34,26 @@ class trinity
     public   fn texture             [ environment image vec3f f32 ]
     override fn init                [ ]
     override fn dealloc             [ ]
+    fn a-method-dictated[] using chatgpt 
 
+# ---------------------------
 # we support structs
+# ---------------------------
 struct mouse_state
     wheel_delta : vec2f       
     pos         : vec2f       
     button      : i32         
     state       : i32         
 
-
 struct keyboard_state
-    unicode   : u32,      
-    scan_code : u32,          
-    state     : i32,      
-    meta      : bool,     
-    shift     : bool,         
-    alt       : bool,     
-    text      : string    
+    unicode   : u32     
+    scan_code : u32          
+    state     : i32      
+    meta      : bool     
+    shift     : bool         
+    alt       : bool     
+    text      : string
+
 
 # we need to support forward declarations, the same way we do with our resolver
 # so this means we must process these the same way, with an different method for generation (make_class -> make_decl)
@@ -57,11 +63,11 @@ class event
     public  key              : keyboard_state 
     public  prevent_default  : bool           
     public  stop_propagation : bool           
-    public  fn prevent_default  [ ] -> none       
+    public  fn prevent_default  [ ] -> none [ ]      
     public  fn is_default       [ ] -> bool       
     public  fn should_propagate [ ] -> bool       
     public  fn stop_propagation [ ] -> bool       
-    public  fn clear            [ ] -> none       
+    public  fn clear            [ ] -> none
 
 # enums can be exported to our A-type 
 enum Ease
@@ -77,12 +83,10 @@ enum Ease
     elastic : 9
     bounce  : 10
 
-
 enum Direction
     in      : 0
     out     : 1
     in_out  : 2
-
 
 class line_info
     intern data            :  string                      
@@ -91,11 +95,9 @@ class line_info
     intern bounds          :  rect                       
     intern placement       :  rect                       
 
-
 class text_sel
     public column : num   
     public row    : num   
-
 
 class text
     public lines   : array line_info     
@@ -197,7 +199,7 @@ class scaling
     public fn mix [ scaling  f32 ] -> scaling
 declare_class(scaling)
 
-unit tcoord [ Duration ]
+# unit tcoord [ Duration ]
 
 class style_transition
     public easing : Ease
@@ -272,7 +274,7 @@ class composer
     public fn release_capture   [ element ]
     public fn set_focus         [ element ]
     public fn release_focus     [ element ]
-    public fn find_target       [ element event element ] -> element
+    public fn find_target       [ element, event, element ] -> element
     public fn text_event        [ event ]
     public fn move_event        [ event ]
     public fn key_event         [ event ]
