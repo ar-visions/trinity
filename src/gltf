@@ -109,7 +109,7 @@ declare_class(Sparse)
     i_prop(X, Y, public, u64,           total_bytes) \
     i_method(X, Y, public, u64,         vcount) \
     i_method(X, Y, public, u64,         component_size) \
-    i_method(X, Y, public, AType,       member_type) \
+    i_method(X, Y, public, Au_t,       member_type) \
     i_override(X,Y, method, init)
 declare_class(Accessor)
 

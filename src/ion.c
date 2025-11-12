@@ -165,9 +165,9 @@ scaling scaling_mix(scaling a, scaling b, f32 f) {
         value, vec3f_mix(&a->value, &b->value, f));
 }
 
-define_class(rotation,    A)
-define_class(scaling,     A)
-define_class(translation, A)
+define_class(rotation,    Au)
+define_class(scaling,     Au)
+define_class(translation, Au)
 
 
 
@@ -462,7 +462,7 @@ style_entry style_best_match(style a, element n, string prop_name, array entries
   //array       blocks     = get(members, prop_name);
     style_entry match      = null; /// key is always a symbol, and maps are keyed by symbol
     real        best_score = 0;
-    AType       type       = isa(n);
+    Au_t       type       = isa(n);
     each (entries, style_entry, e) {
         style_block  bl = e->bl;
         real   sc = score(bl, n, true);
@@ -536,7 +536,7 @@ i64 tcoord_get_millis(tcoord a) {
 
 bool style_applicable(style s, element n, string prop_name, array result) {
     array blocks = get(s->members, prop_name); // style free'd?
-    AType type   = isa(n);
+    Au_t type   = isa(n);
     bool  ret    = false;
 
     clear(result);
@@ -545,7 +545,7 @@ bool style_applicable(style s, element n, string prop_name, array result) {
             if (!len(block->types) || index_of(block->types, type) >= 0) {
                 item f = lookup(block->entries, prop_name); // this returns the wrong kind of item reference
                 if (f && score(block, n, false) > 0) {
-                    AType ftype = isa(f->value);
+                    Au_t ftype = isa(f->value);
                     push(result, f->value);
                     ret = true;
                 }
@@ -569,7 +569,7 @@ none element_draw(element a, window w) {
 }
 
 int element_compare(element a, element b) {
-    AType type = isa(a);
+    Au_t type = isa(a);
     if (type != isa(b))
         return -1;
     if (a == b)
@@ -640,7 +640,7 @@ none style_watch_reload(style a, array css, ARef arg) {
 }
 
 style style_with_object(style a, object app) {
-    AType  app_type  = isa(app);
+    Au_t  app_type  = isa(app);
     string root_type = string(app_type->name);
     path   css_path  = form(path, "style/%o.css", root_type);
     /*a->reloader = watch(
@@ -793,15 +793,15 @@ static array parse_qualifiers(style_block bl, cstr *p) {
 /// compute available entries for props on a Element
 map style_compute(style a, element n) {
     map avail = map(hsize, 16);
-    AType ty = isa(n);
+    Au_t ty = isa(n);
     verify(instanceof(n, element), "must inherit element");
-    while (ty != typeid(A)) {
+    while (ty != typeid(Au)) {
         array all = array(alloc, 32);
         for (int m = 0; m < ty->member_count; m++) {
             type_member_t* mem = &ty->members[m];
             if (mem->member_type != A_MEMBER_PROP)
                 continue;
-            AType sname_type = isa(mem->sname);
+            Au_t sname_type = isa(mem->sname);
             A sname_header = A_header(mem->sname);
             string name = mem->sname;
             if (applicable(a, n, name, all)) {
@@ -977,12 +977,12 @@ void style_process(style a, string code) {
 }
 
 array composer_apply_args(composer ux, element i, element e) {
-    AType type    = isa(e);
+    Au_t type    = isa(e);
     array changed = array(alloc, 32);
     u64   f_user  = AF_bits(e);
 
     // check the difference between members (not elements within)
-    while (type != typeid(A)) { 
+    while (type != typeid(Au)) { 
         for (int m = 0; m < type->member_count; m++) {
             type_member_t* mem = &type->members[m];
             bool is_prop = mem->member_type & A_MEMBER_PROP;
@@ -1021,10 +1021,10 @@ array composer_apply_args(composer ux, element i, element e) {
 }
 
 array composer_apply_style(composer ux, element i, map style_avail, array exceptions) {
-    AType type = isa(i);
+    Au_t type = isa(i);
     array changed = array(alloc, 32);
 
-    while (type != typeid(A)) {
+    while (type != typeid(Au)) {
         for (int m = 0; m < type->member_count; m++) {
             type_member_t* mem = &type->members[m];
             bool is_prop = mem->member_type & A_MEMBER_PROP;
@@ -1055,7 +1055,7 @@ array composer_apply_style(composer ux, element i, map style_avail, array except
                         best->instance = array((i32)(a ? len(a) : 1));
                         if (!a) a = a((string)best->value);
                         each(a, string, sv) {
-                            AType of_type = mem->args.meta_0;
+                            Au_t of_type = mem->args.meta_0;
                             verify(of_type, "expected type of array member described: %s", mem->name);
                             object v = A_formatter(
                                 of_type, null, (object)false,
@@ -1134,10 +1134,10 @@ void animate_element(composer ux, element e) {
             i64 dur = tcoord_get_millis(ct->duration);
             i64 millis = cur_millis - ct->start;
             f64 cur_pos = style_transition_pos(ct, (f64)millis / (f64)dur);
-            if (ct->type->traits & A_TRAIT_PRIMITIVE) {
+            if (ct->type->traits & AU_TRAIT_PRIMITIVE) {
                 verify(ct->is_inlay, "unsupported member type (primitive in object form)");
                 /// mix these primitives; lets support i32 / enum, i64, f32, f64
-                AType ct_type = ct->type;
+                Au_t ct_type = ct->type;
                 if (ct->type == typeid(f32)) {
                     *(f32*)ct->location = *(f32*)ct->from * (1.0f - cur_pos) + 
                                           *(f32*)ct->to   * cur_pos;
@@ -1147,7 +1147,7 @@ void animate_element(composer ux, element e) {
                 verify(fmix, "animate: implement mix for type %s", ct->type->name);
                 
                 //drop(*ct->location);
-                AType atype = ct->type;
+                Au_t atype = ct->type;
                 *ct->location = hold(((mix_fn)fmix->ptr)(ct->from, ct->to, cur_pos));
                 //print("color = %o (millis: %i / %i, pos: %.2f)", *ct->location, (int)millis, (int)dur, cur_pos);
             }
@@ -1385,8 +1385,8 @@ none composer_bind_subs(composer ux, element instance, element parent) {
     string id     = instance->id;
 
     if (!id) return;
-    AType type = isa(instance);
-    while (type != typeid(A)) {
+    Au_t type = isa(instance);
+    while (type != typeid(Au)) {
         for (int m = 0; m < type->member_count; m++) {
             type_member_t* mem = &type->members[m];
             bool is_prop = mem->member_type & A_MEMBER_PROP;
@@ -1432,7 +1432,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
         string  id       = ir->key;
         element e        = ir->value;
         element instance = parent->elements ? get(parent->elements, id) : null; // needs hook for free on a very specific object
-        AType   type     = isa(e);
+        Au_t   type     = isa(e);
         bool    restyle  = ux->restyle || e->restyle;
 
         if (instance) {
@@ -1471,7 +1471,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
             A_hold_members(instance);
             bind_subs(ux, instance, parent);
             
-            AType itype = isa(instance);
+            Au_t itype = isa(instance);
 
             if (!parent->elements)
                  parent->elements = hold(map(hsize, 44));
@@ -1743,14 +1743,14 @@ none stage_dealloc(stage a) {
 define_enum(Pattern)
 define_enum(Clip)
 
-define_class(mixable,    A) // mix
+define_class(mixable,    Au) // mix
 define_class(shadow,     mixable)
 define_class(glow,       mixable)
 
-define_class(background, A) // mix, cstr 
+define_class(background, Au) // mix, cstr 
 
 define_class(radius,   array, f32) // array can be mixed already (add primitives)
-define_class(layer,    A)
+define_class(layer,    Au)
 define_class(text,     layer)
 define_class(border,   layer)
 define_class(fill,     layer)
@@ -1771,24 +1771,24 @@ define_struct(ycoord, f32)
 define_typed_enum(xalign, f32)
 define_typed_enum(yalign, f32)
 
-define_class(region,            A)
+define_class(region,            Au)
 define_struct(mouse_state,       i32)
 define_struct(keyboard_state,    i32)
-define_class(line_info,         A)
-define_class(text_sel,          A)
-define_class(text,              A)
-define_class(composer,          A)
-define_class(arg,               A)
-define_class(style,             A)
-define_class(style_block,       A)
-define_class(style_entry,       A)
-define_class(style_qualifier,   A)
-define_class(style_transition,  A)
-define_class(style_selection,   A)
+define_class(line_info,         Au)
+define_class(text_sel,          Au)
+define_class(text,              Au)
+define_class(composer,          Au)
+define_class(arg,               Au)
+define_class(style,             Au)
+define_class(style_block,       Au)
+define_class(style_entry,       Au)
+define_class(style_qualifier,   Au)
+define_class(style_transition,  Au)
+define_class(style_selection,   Au)
 
-define_class(event,             A)
+define_class(event,             Au)
 
-define_any(element, A, sizeof(struct _element), A_TRAIT_USER_INIT)
+define_any(element, A, sizeof(struct _element), AU_TRAIT_USER_INIT)
 
 define_element(scene,      element)
 define_element(background, scene)

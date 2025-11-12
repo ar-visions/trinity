@@ -211,7 +211,7 @@ class style_transition
     intern invalidate : bool
     intern reference : style_transition
     intern is_inlay : bool
-    intern type : AType
+    intern type : Au_t
     intern location : ref object
     public ctr [ string ]
     public fn pos [ f64 ] -> f64
@@ -227,7 +227,7 @@ class style_entry
 
 
 class style_qualifier
-    intern ty       : AType
+    intern ty       : Au_t
     public type     : string
     public id       : string
     public state    : string
@@ -887,7 +887,7 @@ enum shader_local
     _undefined : 0
 
 struct vertex_member_t
-    type    : AType
+    type    : Au_t
     ac      : Accessor
     size    : i64
     offset  : i64
@@ -981,7 +981,7 @@ class particle
 // user init lets the developer control when the init calls, so they may set properties for mounted components in a tree
 // this, without introducing a 'mount' call in addition to init; which is an anti pattern
 // #define define_element(A0, A1, ...) \
-//    define_any(A0, A1, sizeof(struct _##A0), A_TRAIT_USER_INIT, __VA_ARGS__)
+//    define_any(A0, A1, sizeof(struct _##A0), AU_TRAIT_USER_INIT, __VA_ARGS__)
 
 
 #endif

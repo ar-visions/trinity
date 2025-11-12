@@ -1,8 +1,8 @@
 #ifndef _TRINITY_
 #define _TRINITY_
 
-#include <A>
-#include <A-public>
+#include <Au>
+#include <Au-public>
 #include <gltf-public>
 #include <img-intern>
 #include <img>
@@ -245,7 +245,7 @@ declare_class_2(tcoord, unit, Duration)
     i_prop(X,Y, intern,   bool,                    invalidate) \
     i_prop(X,Y, intern,   style_transition,        reference) \
     i_prop(X,Y, intern,   bool,                    is_inlay) \
-    i_prop(X,Y, intern,   AType,                   type) \
+    i_prop(X,Y, intern,   Au_t,                   type) \
     i_prop(X,Y, intern,   object*,                 location) \
     i_ctr     (X,Y,  public,  string) \
     i_method  (X,Y,  public,  f64,   pos, f64) \
@@ -263,7 +263,7 @@ declare_class(style_entry)
 
 
 #define style_qualifier_schema(T,Y,...) \
-    M(T,Y, prop, intern,   AType,                   ty) \
+    M(T,Y, prop, intern,   Au_t,                   ty) \
     M(T,Y, prop, public,   string,                  type) \
     M(T,Y, prop, public,   string,                  id) \
     M(T,Y, prop, public,   string,                  state) \
@@ -994,7 +994,7 @@ declare_enum(shader_local)
 
 typedef struct _Accessor* Accessor;
 typedef struct vertex_member_t {
-    AType    type;
+    Au_t    type;
     Accessor ac;
     i64      size;
     i64      offset;
@@ -1099,7 +1099,7 @@ declare_class(model)
 declare_class(particle)
 
 #define define_element(A0, A1, ...) \
-    define_any(A0, A1, sizeof(struct _##A0), A_TRAIT_USER_INIT, __VA_ARGS__)
+    define_any(A0, A1, sizeof(struct _##A0), AU_TRAIT_USER_INIT, __VA_ARGS__)
 
 
 #endif

@@ -77,7 +77,7 @@ class Accessor
     public total_bytes   : u64
     public fn vcount         [ ] -> u64
     public fn component_size [ ] -> u64
-    public fn member_type    [ ] -> AType
+    public fn member_type    [ ] -> Au_t
     override fn init [ ]
 
 class BufferView

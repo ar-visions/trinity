@@ -305,7 +305,7 @@ none sk_init(sk a) {
             surface, Surface_color,
             format, Pixel_rgba8,
             linear, true, mip_levels, 1, layer_count, 1);
-        a->tx = (texture)A_hold((A)tx);
+        a->tx = (texture)A_hold((Au)tx);
     }
      
     Skia* sk = a->skia;
@@ -759,7 +759,7 @@ void SVG_dealloc(SVG a) {
     //delete (sk_sp<SkSVGDOM>*)a->svg_dom;
 }
 
-define_class(SVG, A)
+define_class(SVG, Au)
 
 void sk_draw_svg(sk a, SVG svg, rect r, vec2f align, vec2f offset) {
     SkCanvas*  sk = (SkCanvas*)a->sk_canvas;

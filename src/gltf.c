@@ -93,7 +93,7 @@ JData Model_joints(Model a, Node node) {
             Node node = a->nodes->elements[node_index];
             each (node->children, object, i) {
                 verify(!contains(all_children, i), "already contained");
-                set(all_children, i, A_bool(true));
+                set(all_children, i, _bool(true));
             }
         }
 
@@ -163,7 +163,7 @@ u64 Accessor_component_size(Accessor a) {
     return scalar_sz;
 };
 
-AType Accessor_member_type(Accessor a) {
+Au_t Accessor_member_type(Accessor a) {
     switch (a->componentType) {
         case ComponentType_BYTE:
         case ComponentType_UNSIGNED_BYTE:
@@ -261,26 +261,26 @@ define_enum(TargetType)
 define_enum(Mode)
 define_enum(Interpolation)
 
-define_class(Sampler,       A)
-define_class(ChannelTarget, A)
-define_class(Channel,       A)
-define_class(Animation,     A)
-define_class(SparseInfo,    A)
-define_class(Sparse,        A)
-define_class(Accessor,      A)
-define_class(BufferView,    A)
-define_class(Skin,          A)
-define_class(JData,         A)
-define_class(Transform,     A)
-define_class(Node,          A)
-define_class(Primitive,     A)
-define_class(MeshExtras,    A)
-define_class(Mesh,          A)
-define_class(Scene,         A)
-define_class(AssetDesc,     A)
-define_class(Buffer,        A)
-define_class(Model,         A)
+define_class(Sampler,       Au)
+define_class(ChannelTarget, Au)
+define_class(Channel,       Au)
+define_class(Animation,     Au)
+define_class(SparseInfo,    Au)
+define_class(Sparse,        Au)
+define_class(Accessor,      Au)
+define_class(BufferView,    Au)
+define_class(Skin,          Au)
+define_class(JData,         Au)
+define_class(Transform,     Au)
+define_class(Node,          Au)
+define_class(Primitive,     Au)
+define_class(MeshExtras,    Au)
+define_class(Mesh,          Au)
+define_class(Scene,         Au)
+define_class(AssetDesc,     Au)
+define_class(Buffer,        Au)
+define_class(Model,         Au)
 
-define_class(pbrMetallicRoughness, A)
-define_class(TextureInfo, A)
-define_class(Material, A)
+define_class(pbrMetallicRoughness, Au)
+define_class(TextureInfo, Au)
+define_class(Material, Au)

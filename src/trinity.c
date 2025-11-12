@@ -1092,7 +1092,7 @@ void app_init(app a) {
          a->on_render = bind(a, a, false, typeid(map), typeid(window), null, "render");
     
     if (!a->on_render) {
-        AType type   = isa(a);
+        Au_t type   = isa(a);
         a->ason_path = f(path, "apps/%s.ason", type->name);
         verify(file_exists("%o", a->ason_path), "app path not found: %o", a->ason_path);
     }
@@ -1130,7 +1130,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         i64        indices      = prim->indices;
         Accessor   ai           = get(mdl->accessors, indices);
         i64        mat_id       = prim->material;
-        AType      itype        = Accessor_member_type(ai);
+        Au_t      itype        = Accessor_member_type(ai);
         BufferView iview        = get(mdl->bufferViews, ai->bufferView);
         Buffer     ibuffer      = get(mdl->buffers,     iview->buffer);
         
@@ -1147,7 +1147,7 @@ void model_init_pipeline(model m, Node n, Primitive prim, shader s) {
         A attr_obj = head(prim->attributes);
         pairs (prim->attributes, i) {
             string   name     = (string)i->key;
-            AType    vtype    = isa(i->value);
+            Au_t    vtype    = isa(i->value);
             i64      ac_index = *(i64*)i->value;
             Accessor ac       = get(mdl->accessors, ac_index);
             BufferView bv     = get(mdl->bufferViews, ac->bufferView);
@@ -1587,12 +1587,12 @@ texture trinity_environment(
 i64 A_virtual_size(type_member_t* m) {
     if (m->args.meta_0 == typeid(functional)) return 0;
     i64 type_size = m->type->size;
-    if (!(m->type->traits & A_TRAIT_STRUCT || m->type->traits & A_TRAIT_PRIMITIVE))
+    if (!(m->type->traits & AU_TRAIT_STRUCT || m->type->traits & AU_TRAIT_PRIMITIVE))
         type_size -= sizeof(ARef);
     return type_size;
 }
 
-num uniform_size(AType type) {
+num uniform_size(Au_t type) {
     num   total = 0;
     while (type) {
         for (int m = 0; m < type->member_count; m++) {
@@ -1609,7 +1609,7 @@ num uniform_size(AType type) {
 
 /// sub procedure of shader; transfer one type at a time
 /// we may perform this in meta as well, but i think poly should be a base implementation
-i64 uniform_transfer(shader instance, u8* data, AType type) {
+i64 uniform_transfer(shader instance, u8* data, Au_t type) {
     verify(instanceof(instance, typeid(shader)), "shader instance not provided");
     num   index = 0;
     u8*   src   = instance;
@@ -1620,8 +1620,8 @@ i64 uniform_transfer(shader instance, u8* data, AType type) {
         if (mem->member_type == A_MEMBER_PROP || inlay) {
             int type_size = A_virtual_size(mem);
             if (type_size == 0) continue;
-            if (inlay || mem->type->traits & A_TRAIT_STRUCT ||
-                mem->type->traits & A_TRAIT_PRIMITIVE)
+            if (inlay || mem->type->traits & AU_TRAIT_STRUCT ||
+                mem->type->traits & AU_TRAIT_PRIMITIVE)
                 memcpy(&data[index],
                     &src[mem->offset], type_size);
             else
@@ -1685,7 +1685,7 @@ none gpu_dealloc(gpu a) {
     //vkFreeMemory   (a->t->device, a->vk_memory, null);
 }
 
-define_class(gpu, A);
+define_class(gpu, Au);
 
 
 static VkFormat vk_format(Pixel f, bool linear) {
@@ -2004,7 +2004,7 @@ none texture_dealloc(texture a) {
     a->vk_sampler    = null;
 }
 
-define_class(texture, A)
+define_class(texture, Au)
 
 
 VkIndexType gpu_index_type(gpu a) {
@@ -2097,7 +2097,7 @@ void model_dealloc(model m) {
 }
 
 
-array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline p) {
+array Surface_resources(Au_t surface_enum_type, Surface surface_value, pipeline p) {
     gpu res = null;
     trinity t = p->t;
     /// check if user provides an image
@@ -2106,7 +2106,7 @@ array Surface_resources(AType surface_enum_type, Surface surface_value, pipeline
         string name = i->key;
         image img   = i->value;
         i32 evalue = *evalue(surface_enum_type, name->chars);
-        AType ty = isa(img);
+        Au_t ty = isa(img);
         texture tx = instanceof((object)img, typeid(texture));
         target  re = instanceof((object)img, typeid(target));
         if (re) tx = re->color;
@@ -2218,7 +2218,7 @@ void pipeline_bind_resources(pipeline p) {
     }
 
     // use enum type with value and meta type (context)
-    AType shader_schema = isa(p->s);
+    Au_t shader_schema = isa(p->s);
     while (shader_schema != typeid(shader)) {
         for (int i = 0; i < shader_schema->member_count; i++) {
             type_member_t* mem = &shader_schema->members[i];
@@ -2228,9 +2228,9 @@ void pipeline_bind_resources(pipeline p) {
                 continue;
 
             // get enum type, and value
-            AType  enum_type  = mem->type;
+            Au_t  enum_type  = mem->type;
             i64    enum_value = mem->id;
-            AType  meta_type  = mem->args.meta_0;
+            Au_t  meta_type  = mem->args.meta_0;
             verify(meta_type, "meta data not set on Surface/extension");
 
             //type_member_t* fn = A_member(enum_type, A_MEMBER_SMETHOD, "resource", false);
@@ -2834,10 +2834,10 @@ static none app_render(app a) {
             a->app_context = hold(ctx(hsize, 32));
         }
 
-        AType type = isa(a);
+        Au_t type = isa(a);
         // app -> context
-        AType t = type;
-        while (t != typeid(A)) {
+        Au_t t = type;
+        while (t != typeid(Au)) {
             for (num m = 0; m < t->member_count; m++) {
                 type_member_t* mem = &t->members[m];
                 object from = A_member_object(a, mem);
@@ -2854,7 +2854,7 @@ static none app_render(app a) {
 
         // context -> app
         t = type;
-        while (t != typeid(A)) {
+        while (t != typeid(Au)) {
             for (num m = 0; m < t->member_count; m++) {
                 type_member_t* mem = &t->members[m];
                 if (!(mem->member_type & A_MEMBER_PROP)) continue;
@@ -2919,7 +2919,7 @@ i32 app_run(app a) {
     return 0;
 }
 
-define_class(app, A)
+define_class(app, Au)
 
 #define BUFFER_SIZE         4096
 #define MAX_IMPORT_NAME     256
@@ -2976,7 +2976,7 @@ void replace_includes(const char *src, const char *dst) {
 /// instance uniforms data for a shader with uniforms
 void uniforms_update(uniforms a) {
     each(a->u_buffers, buffer, b) {
-        uniform_transfer(a->s, b->data, (AType)b->user);
+        uniform_transfer(a->s, b->data, (Au_t)b->user);
         update(b, null);
     }
 }
@@ -2986,7 +2986,7 @@ void uniforms_init(uniforms a) {
     list types = list(unmanaged, true);
     Basic basic = a->s;
 
-    AType ty = isa(a->s);
+    Au_t ty = isa(a->s);
     while (ty != typeid(shader)) {
         insert_after(types, ty, -1);
         ty = ty->parent_type;
@@ -2995,7 +2995,7 @@ void uniforms_init(uniforms a) {
     i32    total_uniform = 0;
 
     for (item i = types->first; i; i = i->next) {
-        AType ty       = i->value;
+        Au_t ty       = i->value;
         i32   u_size   = uniform_size(ty);
         total_uniform += u_size;
     }
@@ -3004,7 +3004,7 @@ void uniforms_init(uniforms a) {
     a->u_memory = A_alloc(typeid(u8), total_uniform);
     u8*     src = a->u_memory;
     for (item i = types->first; i; i = i->next) {
-        AType ty = i->value;
+        Au_t ty = i->value;
         num u_size = uniform_size(ty);
         buffer uniform = buffer(t, t, size, u_size,
             u_uniform, true, u_dst, true, m_host_visible, true, m_host_coherent, true,
@@ -3122,7 +3122,7 @@ void shader_init(shader s) {
     s->comp = f(string, "shaders/%o.comp", s->name);
 
     if (!s->name) {
-        AType type = isa(s);
+        Au_t type = isa(s);
         verify(type != typeid(shader), "base shader usage requires a shader name");
         s->name = string(type->name);
     }
@@ -3384,7 +3384,7 @@ static u8 nib(char n) {
 }
 
 SkColor sk_color(object any) {
-    AType type = isa(any);
+    Au_t type = isa(any);
     i32 ia = 255, ir, ig, ib;
 
     if (type == typeid(string)) {
@@ -3452,8 +3452,8 @@ none draw_state_set_default(draw_state ds) {
     ds->opacity      = 1.0f; 
 }
 
-define_class(trinity,   A)
-define_class(shader,    A)
+define_class(trinity,   Au)
+define_class(shader,    Au)
 
 define_class(BlurV,     shader)
 define_class(Blur,      shader)
@@ -3472,24 +3472,24 @@ define_enum(Polygon)
 define_enum(Asset)
 define_enum(Sampling)
 
-define_class(pipeline,      A)
-define_class(gltf_part,     A)
-define_class(gltf_node,     A)
-define_class(model,         A)
-define_class(window,        A)
-define_class(target,        A)
-define_class(buffer,        A)
-define_class(command,       A)
-define_class(uniforms,      A) 
-define_class(IBL,           A)
+define_class(pipeline,      Au)
+define_class(gltf_part,     Au)
+define_class(gltf_node,     Au)
+define_class(model,         Au)
+define_class(window,        Au)
+define_class(target,        Au)
+define_class(buffer,        Au)
+define_class(command,       Au)
+define_class(uniforms,      Au) 
+define_class(IBL,           Au)
 
-define_class(draw_state,    A)
-define_class(canvas,        A)
+define_class(draw_state,    Au)
+define_class(canvas,        Au)
 
 // abstract identifier to indicate functionality 
 // of non-texture case of attribute, still under the enumeration Surface
 
-define_class(particle,      A)
+define_class(particle,      Au)
 
 define_enum(Surface)
 define_enum(UXSurface)
