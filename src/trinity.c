@@ -174,7 +174,7 @@ VkInstance vk_create(trinity t) {
                 .apiVersion             = vk_version,
             },
             .enabledExtensionCount      = t->instance_exts->len,
-            .ppEnabledExtensionNames    = t->instance_exts->elements,
+            .ppEnabledExtensionNames    = t->instance_exts->origin,
             .enabledLayerCount          = (u32)enable_validation,
             .ppEnabledLayerNames        = &validation_layer
         }, null, &instance);
@@ -192,8 +192,8 @@ VkInstance vk_create(trinity t) {
 void trinity_init(trinity t) {
     verify(glfwInit(), "glfw init");
 
-    t->instance_exts = array(alloc, 128, unmanaged, true);
-    t->device_exts   = array(alloc, 128, unmanaged, true);
+    t->instance_exts = array(alloc, 128);
+    t->device_exts   = array(alloc, 128);
     
     int wsize2 = sizeof(struct _window);
     int bsize2 = sizeof(struct _Basic);
@@ -880,8 +880,8 @@ void window_resize(window w, i32 width, i32 height) {
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
-            drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = hold(target(t, t, w, w,
+            drop(w->swap_renders->origin[i]);
+            w->swap_renders->origin[i] = hold(target(t, t, w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
@@ -889,7 +889,7 @@ void window_resize(window w, i32 width, i32 height) {
         }
         w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
-        w->swap_render_current = w->swap_renders->elements[0];
+        w->swap_render_current = w->swap_renders->origin[0];
     }
 
     update_canvas(w);
@@ -2617,7 +2617,7 @@ none window_draw(window w) {
             handle_glfw_framebuffer_size(w->window, w->width, w->height);
         else {
             verify(result == VK_SUCCESS, "failed to acquire swapchain image");
-            w->swap_render_current = w->swap_renders->elements[w->swap_image_current];
+            w->swap_render_current = w->swap_renders->origin[w->swap_image_current];
             
             transition(w->last_target->color,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -2645,7 +2645,7 @@ none window_draw(window w) {
             
             /// swap next semaphore frame (trinity will never use triple buffering for a UI)
             w->semaphore_frame = 
-                w->swap_renders->elements[w->semaphore_frame == first(w->swap_renders)];
+                w->swap_renders->origin[w->semaphore_frame == first(w->swap_renders)];
             
             if (result != VK_ERROR_OUT_OF_DATE_KHR && result != VK_SUBOPTIMAL_KHR) {
                 verify(result == VK_SUCCESS, "present");
@@ -2805,7 +2805,7 @@ void window_draw_element(window a, element e) {
     /// could be done with a 'bind' too!
     draw(e, w);
 
-    pairs(e->elements, i) {
+    pairs(e->origin, i) {
         string  id = i->key;
         element ee = i->value;
         draw_element(a, ee);
