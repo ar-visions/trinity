@@ -1007,7 +1007,7 @@ typedef struct vertex_member_t {
     i_prop(X,Y, intern,   texture,      tx) \
     i_prop(X,Y, public,   object,       vertex_data) \
     i_prop(X,Y, public,   object,       index_data) \
-    i_vprop(X,Y, public,  vertex_member_t, members) \
+    i_ref(X,Y, public,  vertex_member_t, members) \
     i_prop(X,Y, public,   i32,          member_count) \
     i_prop(X,Y, public,   i32,          index_size) \
     i_prop(X,Y, public,   i32,          index_count) \

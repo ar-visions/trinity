@@ -1740,6 +1740,7 @@ none stage_dealloc(stage a) {
 }
 
 
+/*
 define_enum(Pattern)
 define_enum(Clip)
 
@@ -1755,6 +1756,7 @@ define_class(text,     layer)
 define_class(border,   layer)
 define_class(fill,     layer)
 define_class(children, layer)
+*/
 
 
 

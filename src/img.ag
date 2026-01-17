@@ -1,0 +1,112 @@
+import AcademySoftwareFoundation:Imath/c0396a0 
+
+import AcademySoftwareFoundation:openexr/0b83825 <OpenEXR/ImfRgbaFile.h, OpenEXR/ImfArray.h, OpenEXR/ImfInputFile.h, OpenEXR/ImfHeader.h>
+    -DBUILD_SHARED_LIBS=ON
+
+import madler:zlib/51b7f2a <zlib.h>
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+import glennrp:libpng/07b8803 <png.h>
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    -DZLIB_LIBRARY=$SILVER/lib/libz.so
+    -DZLIB_INCLUDE_DIR=$IMPORT/include
+    -DCMAKE_C_STANDARD_LIBRARIES="-lm"
+
+
+none set_font_manager [ hook init, hook dealloc ]
+
+enum Pixel
+    none            : 0
+    rgba8           : 1
+    rgb8            : 2
+    rgbf32          : 3
+    u8              : 4
+    rgbaf32         : 5
+    f32             : 6
+
+
+enum Filter
+    none            : 0
+    nearest         : 1
+    bilinear        : 3
+    trilinear       : 4
+    low             : 5
+    med             : 6
+    high            : 7
+
+
+enum Surface
+    none            : 0
+    color           : 1
+    normal          : 2
+    emission        : 3
+    rough           : 4
+    metal           : 5
+    height          : 6
+    ao              : 7
+    ior             : 8
+    environment     : 9
+
+
+enum join
+    none            : 0
+    miter           : 1
+    round           : 2
+    bevel           : 3
+
+
+enum cap
+    none            : 0
+    round           : 1
+    square          : 2
+
+
+enum variant
+    none            : 0
+    small_caps      : 1
+    mono            : 2
+
+
+class font
+    path            uri
+    bool            bold
+    bool            italic
+    bool            underline
+    variant         var
+    f32             size
+    f32             kerning
+    handle          res
+    handle          tf
+    font copy[]
+    none init[]
+    none dealloc[]
+
+
+class image
+    path            uri
+    Surface         surface
+    Pixel           format
+    i32             pixel_size
+    i32             width
+    i32             height
+    i32             channels
+    Au              source
+    Filter          filter
+    Au              user
+    handle          res
+    hook            res_dealloc
+    ARef            res_bits
+    image           gaussian [ f32 ]
+    image           resize   [ i32, i32 ]
+    i32             png      [ path ]
+    i32             exr      [ path ]
+    i64             byte_count[]
+    i64             len       []
+    Au              get      [ num ]
+
+    construct [ string ]
+    construct [ symbol ]
+    construct [ cstr   ]
+    none    init[]
+    none    dealloc[]
+    image   copy[]

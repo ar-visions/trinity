@@ -1,0 +1,980 @@
+import gltf
+import img
+import KhronosGroup:Vulkan-Headers <vulkan/vulkan.h>
+import KhronosGroup:Vulkan-Tools
+    -DVULKAN_HEADERS_INSTALL_DIR={install}
+
+alias skia_t   : handle
+alias handle_t : handle
+
+skia_t skia_init_vk[trinity t, handle_t vk_instance, handle_t vma_allocator, handle_t phys, handle_t device, 
+    handle_t queue, unsigned int graphics_family, unsigned int vk_version]
+
+class trinity
+    intern VkInstance               instance
+    intern i64                      msaa_samples
+    intern VkPhysicalDevice         physical_device
+    intern VkDevice                 device
+    intern VkQueue                  queue
+    intern VkDebugUtilsMessengerEXT debug
+    intern VkCommandPool            command_pool
+    intern VmaAllocator             allocator
+    intern map                      device_memory
+    i32                             queue_family_index
+    bool                            rt_support
+    array                           instance_exts
+    array                           device_exts
+    texture                         [image environment, vec3f, f32]
+    none init[]
+    none dealloc[]
+
+# ---------------------------
+# we support structs
+# ---------------------------
+struct mouse_state
+    vec2f wheel_delta
+    vec2f pos
+    i32   button
+    i32   state
+
+struct keyboard_state
+    u32    unicode
+    u32    scan_code
+    i32    state
+    bool   meta
+    bool   shift
+    bool   alt
+    string text
+
+
+# we need to support forward declarations, the same way we do with our resolver
+# so this means we must process these the same way, with an different method for generation (make_class -> make_decl)
+class event
+    element        target
+    mouse_state    mouse
+    keyboard_state key
+    bool           prevent_default
+    bool           stop_propagation
+    none prevent_default[]
+    bool is_default[]
+    bool should_propagate[]
+    bool stop_propagation[]
+    none clear[]
+
+# enums can be exported to our A-type 
+enum Ease
+    linear  : 0
+    quad    : 1
+    cubic   : 2
+    quart   : 3
+    quint   : 4
+    sine    : 5
+    expo    : 6
+    circ    : 7
+    back    : 8
+    elastic : 9
+    bounce  : 10
+
+enum Direction
+    in      : 0
+    out     : 1
+    in_out  : 2
+
+class line_info
+    intern string      data
+    intern num         len
+    intern f64[...]    adv
+    intern rect        bounds
+    intern rect        placement
+
+class text_sel
+    num column
+    num row
+
+class text
+    line_info[...]  lines
+    text            replace
+
+
+class style
+    path              css_path
+    map               members
+    watch             reloader
+    array style_block base
+    intern mutex      mtx
+    intern i64        mod_time
+    intern bool       reloaded
+    intern bool       loaded
+
+    bool applicable[element, string, array]
+    none process[string]
+
+    none cache_members[]
+    style_entry best_match[element, string, array]
+    map compute[element]
+    bool check_reload[]
+    construct [path]
+    construct [object]
+
+class style_block
+    style_block       parent
+    array             quals
+    map               entries
+    array             blocks
+    array             types
+    f32 score[element, bool]
+    none init[]
+
+enum Duration
+    ms : 2
+    ns : 1
+    s  : 3
+
+enum xalign : f32
+    undefined : 0
+    left      : 0.0
+    middle    : 0.5
+    right     : 1.0
+    width     : 2.0
+
+enum yalign : f32
+    undefined : 0
+    top       : 0.0
+    middle    : 0.5
+    bottom    : 1.0
+    height    : 2.0
+
+struct xcoord
+    xalign x_type
+    f32    offset
+    bool   relative
+    bool   percent
+    construct [string]
+
+struct ycoord
+    yalign y_type
+    f32    offset
+    bool   relative
+    bool   percent
+    construct [string]
+
+class region
+    xcoord l
+    ycoord t
+    xcoord r
+    ycoord b
+    bool set
+    construct [rect]
+    construct [f32]
+    construct [string]
+    rect   rectangle[rect, rect]
+    region mix[region, f32]
+
+class rotation
+    vec3f axis
+    f32   degs
+    construct [vec4f]
+    construct [string]
+    rotation mix[rotation, f32]
+
+class translation
+    vec3f value
+    construct [vec3f]
+    construct [string]
+    translation mix[translation, f32]
+
+
+class scaling
+    vec3f value
+    construct [vec3f]
+    construct [string]
+    scaling mix[scaling, f32]
+
+
+# unit tcoord [ Duration ]
+class style_transition
+    Ease             easing
+    Direction        dir
+    tcoord           duration
+    intern object    from
+    intern object    to
+    intern i64       start
+    intern bool      invalidate
+    intern style_transition reference
+    intern bool      is_inlay
+    intern Au_t      type
+    intern ref object location
+    construct [string]
+    f64 pos[f64]
+    cast bool
+
+
+class style_entry
+    string           member
+    string           value
+    style_transition trans
+    style_block      bl
+    object           instance
+
+
+class style_qualifier
+    intern Au_t      ty
+    string           type
+    string           id
+    string           state
+    string           oper
+    string           value
+    object           parent
+
+
+class style_selection
+    handle      from
+    handle      to
+    i64         start
+    i64         end
+    style_entry entry
+
+
+class composer
+    object         app
+    window         w
+    intern map     root_styles
+    element        root
+    element        capture
+    element        focus
+    element        hovered
+    element        action_pressed
+    element        context_pressed
+    map            args
+    bool           restyle
+    style          style
+    vec2f          mouse
+    i32[16x1]      buttons
+    bool           shift
+    bool           alt
+    hook           on_render
+    array apply_args[element, element]
+    array apply_style[element, map, array]
+    none animate[]
+    none bind_subs[element, element]
+    none update[element, map]
+    none update_all[map]
+    none invalidate[]
+    none remove_invalid[]
+    none set_capture[element]
+    none release_capture[element]
+    none set_focus[element]
+    none release_focus[element]
+    element find_target[element, event, element]
+    none text_event[event]
+    none move_event[event]
+    none key_event[event]
+    none wheel_event[event]
+    none press_event[event]
+    none release_event[event]
+
+// holds onto arg state; its useful to have to facilitate
+// effective config from user (not including style!)
+// also inline data such as structs may hold their data here
+class arg
+    string name
+    object value
+    i32    offset
+    bool   is_inlay
+
+
+enum Fill : f32
+    none    : 0.00f
+    blur    : 0.50f
+    frost   : 1.00
+
+enum Canvas
+    overlay  : 0
+    compose  : 1
+    colorize : 2
+    glyph    : 3
+
+enum Pattern
+    none      : 0
+    repeat_x  : 1
+    repeat_y  : 2
+    repeat_xy : 3
+
+enum Clip
+    none     : 0
+    clip     : 1
+    ellipsis : 2
+
+
+class mixable
+    construct [string]
+    mixable mix[mixable, f32]
+
+class shadow of mixable 
+    f32  blur
+    rgba color
+    vec2f offset
+
+class glow of mixable
+    f32  blur
+    rgba color
+
+// zero reason to apply to general elements; only for background
+// we will never rotate text ROTEXT.VBX is for noob saibots
+class transform of mixable
+    vec2f offset
+    vec2f scale
+    f32   rotation
+
+class background
+    image     image
+    transform transform
+    Pattern   repeat
+    construct [string]
+    background mix[background, f32]
+
+# for all layers, we will construct with field inference
+# that means the constructors need only be Type [ any str ]
+class layer
+    Canvas     canvas
+    region     area
+    radius     radius
+    shadow     shadow
+    rgba       color
+    background background
+    Clip       overflow
+    f32        opacity
+    construct [string]
+    layer mix[layer, f32]
+
+
+class text of layer
+    font   font
+    xalign xalign
+    yalign yalign
+    string label
+
+
+# all can be set by value except miter, the 2nd f32 which we specify miter:v
+class border of layer
+    f32       size
+    cap       cap
+    join      join
+    f32       miter
+    array f32 dash
+
+class fill of layer
+
+# cant inherently scroll in any element that doesnt have a defined children region
+class children of layer
+    vec2f scroll
+
+class element
+    element       parent
+    region        area
+    object        value
+    string        id
+    i64           flags
+    layer[...]    layers
+    map           elements
+    array         tags
+    string        group
+    i32           tab_index
+    bool          ghost
+    bool          captured
+    bool          selectable
+    bool          selected
+    bool          disabled
+    bool          hovered
+    bool          pressed
+    bool          focused
+    subs          action
+    subs          wheel
+    subs          context
+    subs          text
+    subs          hover
+    subs          leave
+    subs          key_down
+    subs          key_up
+    subs          press
+    subs          move
+    subs          release
+    subs          got_capture
+    subs          lost_capture
+    subs          focus
+    subs          blur
+    vec2f         cursor
+    intern composer    ux
+    intern map         style_avail
+    intern map         selections
+    intern map         transitions
+    intern bool        restyle
+    none set_capture[]
+    none release_capture[]
+    none set_focus[]
+    none release_focus[]
+    none draw[window]
+    map render[array]
+    compare[element]
+
+element scene
+    target            target
+    array             models
+    f32               render_scale
+    vec4f             clear_color
+    array rotation    rotate
+    array translation translate
+    array scaling     scale
+    subs              update
+    none draw[window]
+    none init[]
+    none dealloc[]
+
+scene stage
+    bool frost
+    none init[]
+    none dealloc[]
+
+element pane
+
+element button
+
+
+class uniforms
+    trinity       t
+    required shader s
+    array         u_memory
+    array         u_buffers
+    none update[]
+    none init[]
+
+
+class shader
+    trinity        t
+    string         name
+    string         vert
+    string         frag
+    string         comp
+    i32            reloads
+    intern VkShaderModule vk_vert
+    intern VkShaderModule vk_frag
+    intern VkShaderModule vk_comp
+    bool reload[ARef]
+    none init[]
+    none dealloc[]
+
+
+class Basic of shader
+    mat4f proj
+    mat4f model
+    mat4f view
+    attrib Surface.color : rgbaf
+
+
+class IBL
+    i32 placeholder
+
+
+# attribute is a type, and a value; name is baked into enumeration
+# lets made class names first class citizens in the syntax of inheritence; that way our [args] may be meta-members only
+class PBR of shader
+    vec4f pos
+    vec4f dir
+    mat4f model
+    mat4f view
+    mat4f proj
+    attrib Surface.color       rgba8
+    attrib Surface.normal      rgba8
+    attrib Surface.emission    rgbaf
+    attrib Surface.rough       u8
+    attrib Surface.metal       u8
+    attrib Surface.height      f32
+    attrib Surface.ao          u8
+    attrib Surface.ior         f32
+    attrib Surface.environment rgbaf, IBL
+    none init[]
+
+
+class Env of shader
+    mat4f view
+    mat4f proj
+    vec2f roughness_samples
+    attrib Surface [color] : 1, rgbaf
+    none init[]
+
+
+class Convolve of shader
+    mat4f env
+    mat4f view
+    mat4f proj
+    vec2f roughness_samples
+    attrib Surface [environment] : 1, rgbaf
+
+
+class buffer
+    trinity       t
+    required i64  size
+    ARef          data
+    bool          u_src
+    bool          u_dst
+    bool          u_shader
+    bool          u_uniform
+    bool          u_vertex
+    bool          u_index
+    bool          u_storage
+    bool          m_device_local
+    bool          m_host_visible
+    bool          m_host_coherent
+    intern ARef          user
+    intern VmaAllocation vma_alloc
+    intern VkBuffer      vk_buffer
+    none update[ARef]
+    none transfer[object]
+    ARef mmap[]
+    none unmap[]
+    none init[]
+    none dealloc[]
+
+
+class BlurV of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    f32   reduction_scale
+    attrib Surface [color] : 1, rgba8
+
+
+class Blur of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    f32   reduction_scale
+    attrib Surface [color] : 1, rgba8
+
+
+class UVQuad of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    attrib Surface [color] : 1, rgba8
+    none init[]
+
+
+class UVReduce of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    attrib Surface [color] : 1, rgba8
+    none init[]
+
+
+enum UXSurface
+    background : 0
+    frost      : 1
+    blur       : 2
+    compose    : 3
+    colorize   : 4
+    overlay    : 5
+    glyph      : 6
+
+
+class UXCompose of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    vec4f low_color
+    vec4f high_color
+    attrib UXSurface.background : rgba8
+    attrib UXSurface.frost      : rgba8
+    attrib UXSurface.blur       : rgba8
+    attrib UXSurface.compose    : rgba8
+    attrib UXSurface.colorize   : rgba8
+    attrib UXSurface.overlay    : rgba8
+    attrib UXSurface.glyph      : rgba8
+    none init[]
+
+
+class UXSimple of shader
+    mat4f model
+    mat4f view
+    mat4f proj
+    attrib UXSurface.background : rgba8
+    attrib UXSurface.colorize   : rgba8
+    attrib UXSurface.overlay    : rgba8
+    attrib UXSurface.glyph      : rgba8
+    none init[]
+
+
+# when created with a mere window reference, it will create a texture the size of the window
+# the last render in list will draw to swap-image; trinity works simply
+# everything renders to texture (target == texture) or the swap (target == window)
+class target
+    trinity       t
+    window        w
+    i32           id
+    f32           wscale
+    i32           width
+    i32           height
+    bool          reduce
+    array         models
+    vec4f         clear_color
+    texture       reduction
+    texture       color
+    texture       depth
+    intern model         reduce_model
+    intern VkCommandBuffer vk_command_buffer
+    intern VkImage         vk_swap_image
+    intern VkFence         vk_fence
+    intern VkSemaphore     vk_semaphore
+    intern VkSemaphore     vk_image_available_semaphore
+    intern VkSemaphore     vk_render_finished_semaphore
+    intern array VkFramebuffer [2] vk_framebuffer
+    intern array VkRenderPass  [2] vk_render_pass
+    intern i32 last_width
+    intern i32 last_height
+    none update[]
+    none draw[]
+    none sync_fence[]
+    none init[]
+    none dealloc[]
+
+
+class ux
+    window      w
+    composer    ux
+    trinity     t
+    ctx         app_context
+    path        ason_path
+    map         ason_render
+    intern i64  ason_modified
+    style       style
+    intern object arg
+    callback    on_render
+    none initialize[window]
+    i32  run[]
+    none init[]
+    none dealloc[]
+
+
+class window
+    intern handle window
+    required u32    width
+    required u32    height
+    trinity t
+    vec2f         mouse
+    composer      ux
+    map           element_targets
+    array         list
+    intern array         swap_renders
+    intern model         swap_model
+    intern ref VkImage   vk_swap_images
+    intern VkSurfaceKHR  surface
+    intern VkSwapchainKHR swapchain
+    intern array         swap_targets
+    intern ref VkSurfaceCapabilitiesKHR surface_caps
+    intern VkSurfaceFormatKHR surface_format
+    intern VkPresentModeKHR   present_mode
+    intern VkExtent2D    extent
+    intern target        swap_render_current
+    intern target        semaphore_frame
+    intern u32           swap_image_count
+    intern u32           swap_image_current
+    intern event         ev
+    app           app_object
+    sk            compose
+    sk            colorize
+    sk            overlay
+    sk            glyph
+    Pixel         format
+    string        title
+    f32           debug_value
+    i32           current_swap_index
+    intern bool   resized
+    bool          backbuffer
+    intern target last_target
+    model         m_reduce
+    target        r_reduce
+    model         m_reduce0
+    target        r_reduce0
+    model         m_reduce1
+    target        r_reduce1
+    model         m_reduce2
+    target        r_reduce2
+    model         m_reduce3
+    target        r_reduce3
+    model         m_blur_v
+    target        r_blur_v
+    model         m_blur
+    target        r_blur
+    model         m_frost_v
+    target        r_frost_v
+    model         m_frost
+    target        r_frost
+    model         m_view
+    target        r_view
+    none update_canvas[]
+    none resize[i32, i32]
+    target final_target[]
+    none draw[]
+    none draw_element[element]
+    cast image
+    none init[]
+    none dealloc[]
+
+
+class SVG
+    f32    w
+    f32    h
+    f32    rw
+    f32    rh
+    handle svg_dom
+    none dealloc[]
+
+
+class draw_state
+    f32     blur_radius
+    f32     stroke_size
+    cap     stroke_cap
+    join    stroke_join
+    f32     stroke_miter_limit
+    f32     stroke_dash_offset
+    font    font
+    texture tx
+    f32     x
+    f32     y
+    f32     w
+    f32     h
+    u32     fill_color
+    u32     stroke_color
+    f32     opacity
+    none set_default[]
+
+
+class canvas of image
+    required     trinity t
+    texture      tx
+    draw_state[] state
+    none save[]
+    none restore[]
+    none move_to[f32, f32]
+    none line_to[f32, f32]
+    none arc_to[f32, f32, f32, f32, f32]
+    none arc[f32, f32, f32, f32, f32]
+    none rect_to[f32, f32, f32, f32]
+    none rounded_rect_to[f32, f32, f32, f32, f32, f32]
+    none fill_color[object]
+    none stroke_color[object]
+    none clear[object]
+    none set_stroke[stroke]
+    none set_font[font]
+    none cubic[f32, f32, f32, f32, f32, f32]
+    none quadratic[f32, f32, f32, f32]
+    none draw_fill[]
+    none draw_stroke[]
+    none draw_fill_preserve[]
+    none draw_stroke_preserve[]
+    none blur_radius[f32]
+    none prepare[]
+    none set_texture[texture]
+    none translate[f32, f32]
+    none scale[f32]
+    none clip[rect, f32, f32]
+    none stroke_size[f32]
+    none stroke_cap[cap]
+    none stroke_join[join]
+    none stroke_miter_limit[f32]
+    none stroke_dash_offset[f32]
+    resize[]
+
+
+struct text_metrics
+    f32 w
+    f32 h
+    f32 ascent
+    f32 descent
+    f32 line_height
+    f32 cap_height
+
+
+# our intern members need not have to resolve to users; we figure out the size once
+class sk of canvas
+    intern ARef         sk_context
+    intern ARef         sk_surface
+    intern ARef         sk_canvas
+    intern ARef         sk_path
+    intern bool         once
+    intern ref Skia     skia
+    intern VkImageLayout vk_layout
+    none save[]
+    none restore[]
+    none draw_svg[SVG, rect, vec2f, vec2f]
+    none draw_image[image, rect, vec2f, vec2f]
+    text_metrics measure[string]
+    rect draw_text[string, rect, vec2f, vec2f, bool]
+    none move_to[f32 x, f32 y]
+    none line_to[f32 x, f32 y]
+    none arc_to[f32, f32, f32, f32, f32]
+    none arc[f32, f32, f32, f32, f32]
+    none rect_to[f32, f32, f32, f32]
+    none rounded_rect_to[f32, f32, f32, f32, f32, f32]
+    none fill_color[object]
+    none clear[object]
+    none set_font[font]
+    none cubic[f32, f32, f32, f32, f32, f32]
+    none quadratic[f32, f32, f32, f32]
+    none draw_fill[]
+    none draw_stroke[]
+    none draw_fill_preserve[]
+    none draw_stroke_preserve[]
+    none blur_radius[f32]
+    none prepare[]
+    none translate[f32, f32]
+    none scale[f32]
+    none clip[rect, f32, f32]
+    none set_texture[texture]
+    none stroke_color[object]
+    none stroke_size[f32]
+    none stroke_cap[cap]
+    none stroke_join[join]
+    none stroke_miter_limit[f32]
+    none stroke_dash_offset[f32]
+    none opacity[f32]
+    string ellipsis[string, rect, ARef]
+    static none sync[]
+    none resize[i32, i32]
+    none init[]
+    none dealloc[]
+
+
+none sk_sync_all[]
+
+
+class command
+    trinity t
+    intern VkCommandBuffer vk
+    none begin[]
+    none submit[]
+    none init[]
+    none dealloc[]
+
+
+class texture
+    required trinity t
+    window        w
+    Pixel         format
+    object        sampler
+    i32           width
+    i32           height
+    bool          swap
+    i32           mip_levels
+    i32           layer_count
+    Surface       surface
+    bool          linear
+    intern VkImageLayout   vk_layout
+    intern VkFormat        vk_format
+    intern VkImage         vk_image
+    intern VkImageView     vk_image_view
+    intern VkSampler       vk_sampler
+    intern VmaAllocation   vma_alloc
+    none resize[i32, i32]
+    none transition[i32]
+    cast image
+    none init[]
+    none dealloc[]
+
+enum shader_local
+    _undefined : 0
+
+struct vertex_member_t
+    Au_t     type
+    Accessor ac
+    i64      size
+    i64      offset
+
+class gpu
+    required trinity t
+    required cstr    name
+    image         sampler
+    intern texture tx
+    object        vertex_data
+    object        index_data
+    ref vertex_member_t members
+    i32           member_count
+    i32           index_size
+    i32           index_count
+    i32           vertex_size
+    i32           vertex_count
+    intern buffer vertex
+    intern buffer index
+    intern VkImage     vk_image
+    intern VkImageView vk_image_view
+    intern VkSampler   vk_sampler
+    intern VmaAllocation vma_alloc
+    bool          compute
+    none sync[window]
+    none init[]
+    none dealloc[]
+
+
+class pipeline
+    required trinity t
+    public   window  w
+    required target  r
+    required shader  s
+    required string  name
+    i32           render_id
+    mat4f         default_model
+    i32           shader_reloads
+    Material      material
+    map           samplers
+    intern array  resources
+    intern uniforms shader_uniforms
+    intern gpu    vbo
+    intern gpu    memory
+    intern VkDescriptorSetLayout[2] descriptor_layouts
+    intern VkDescriptorSet      [2] descriptor_sets
+    intern VkDescriptorPool descriptor_pool
+    intern VkDescriptorSet  bind
+    intern VkPipeline       vk_render
+    intern VkPipeline       vk_compute
+    intern VkPipelineLayout layout
+    none rebind[]
+    none draw[handle]
+    none bind_resources[]
+    none reassemble[]
+    none init[]
+    none dealloc[]
+
+
+class gltf_part
+    required Primitive id
+    shader s
+
+
+class gltf_node
+    Node            id
+    array gltf_part parts
+
+
+class model
+    trinity t
+    window  w
+    target  r
+    intern ref mat4f transforms
+    intern i32       transform_count
+    Model         id
+    array         nodes
+    shader        s
+    map           samplers
+    intern array  pipelines
+    none rebind_model[]
+    none finish[target, i32]
+    none init[]
+    none dealloc[]
+
+
+class particle
+    vec2f pos
+    vec2f velocity
+    f32   density
+    f32   pressure
