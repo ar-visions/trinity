@@ -11,8 +11,8 @@ import [ https://github.com/KhronosGroup/Vulkan-Tools ]
 alias skia_t   : ref void
 alias handle_t : ref void
 
-skia_t skia_init_vk(trinity t, handle_t vk_instance, handle_t vma_allocator, handle_t phys, handle_t device, 
-    handle_t queue, unsigned int graphics_family, unsigned int vk_version)
+func skia_init_vk[ trinity t, handle_t vk_instance, handle_t vma_allocator, handle_t phys, handle_t device, 
+    handle_t queue, unsigned int graphics_family, unsigned int vk_version ] -> skia_t
 
 import chatgpt
     model:'gpt-5'
@@ -27,14 +27,132 @@ class trinity
     intern      command_pool        : VkCommandPool            
     intern      allocator           : VmaAllocator                               
     intern      device_memory       : map                      
-    public      queue_family_index  : i32    
+    public      queue_family_index  : i32 -1 
     public      rt_support          : bool                     
-    public      instance_exts       : array                    
-    public      device_exts         : array                    
-    public   fn texture             [ environment image vec3f f32 ]
-    override fn init                [ ]
-    override fn dealloc             [ ]
-    fn a-method-dictated[] using chatgpt 
+    public      instance_exts       : array [ alloc:128, unmanaged:true ]
+    public      device_exts         : array [ alloc:128, unmanaged:true ]
+    public   func texture             [ environment image vec3f f32 ]
+    func init                [ ]
+        verify glfwInit(), "glfw init"
+
+        wsize2 : sizeof(struct _window);
+        bsize2 : sizeof(struct _Basic);
+
+        // this takes 4-5 seconds, and its not needed
+        #ifndef NDEBUG
+        if (!glfwVulkanSupported()) {
+            fault("glfw does not support vulkan");
+            glfwTerminate();
+            return;
+        }
+        #endif
+
+        instance = vk_create[ t ]
+        verify instance, "vk instance failure"
+
+        // enumerate physical devices (adapter in WebGPU)
+        deviceCount : u32 0
+        vkEnumeratePhysicalDevices[ instance, deviceCount, null ]
+        verify deviceCount > 0, "failed to find GPUs with Vulkan support"
+
+        physical_devices : new VkPhysicalDevice[ deviceCount ]
+        vkEnumeratePhysicalDevices[ instance, ref deviceCount, physical_devices ]
+        t->physical_device = physical_devices[0] // Choose the first device or implement selection logic
+
+        // Check for device extensions
+        extension_count : u32 0
+        vkEnumerateDeviceExtensionProperties t->physical_device, null, ref extension_count, null
+        verify extension_count > 0, "failed to find device extensions"
+
+        extensions : new VkExtensionProperties[ extension_count ]
+
+        vkEnumerateDeviceExtensionProperties
+            physical_device
+            null
+            ref extension_count
+            extensions
+        
+        # Check for required extensions
+        swapchain_supported : false
+
+        device_extensions: stack symbol[]
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+            # "VK_KHR_sampler_cubic"
+        
+        total_extension_count : sizeof device_extensions / sizeof device_extensions[0]
+        
+        # Track which RT extensions are found
+        found_extensions: stack bool[total_extension_count]
+        # redundant
+        #memset(found_extensions, 0, sizeof(found_extensions));
+        
+        # check which extensions are available
+        pr : getenv[ "VERBOSE" ] != null
+
+        for [ i: 0, i < extension_count, i++ ]
+            push device_exts, strdup[ extensions[i].extensionName ]
+            if [ pr ]
+                puts "[supported] device extension: %s", extensions[i].extensionName
+
+            if [ extensions[i].extensionName == VK_KHR_SWAPCHAIN_EXTENSION_NAME ]
+                swapchain_supported = true
+            
+            for [ j = 0; j < total_extension_count; j++ ]
+                if [ extensions[i].extensionName == device_extensions[j] ]
+                    found_extensions[j] = true;
+                    break
+
+        for [ j : 0, j < total_extension_count, j++ ]
+            verify found_extensions[j], "extension not found: %s", device_extensions[j]
+
+        verify swapchain_supported, "VK_KHR_swapchain extension is not supported by the physical device"
+        
+        bufferDeviceAddressFeatures: VkPhysicalDeviceBufferDeviceAddressFeatures
+            sType: VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES
+            bufferDeviceAddress: VK_TRUE
+
+        features2: VkPhysicalDeviceFeatures2
+            sType: VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2
+            pNext: ref bufferDeviceAddressFeatures
+
+        # t->msaa_samples = max_sample_count(t->physical_device);
+        vkGetPhysicalDeviceFeatures2[ physical_device, ref features2 ] # Fetch the features from the physical device
+
+        // Prepare device extensions
+        queuePriority: float 1.0f
+        verify vkCreateDevice[ t->physical_device, &(VkDeviceCreateInfo ]
+        [
+            [
+                sType                      : VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
+                pNext                      : ref features2
+                queueCreateInfoCount       : 1
+                pQueueCreateInfos          : [
+                    sType                  : VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+                    queueFamilyIndex       : 0 # Replace with actual graphics queue family index
+                    queueCount             : 1
+                    pQueuePriorities       : ref queuePriority
+                ]
+                enabledExtensionCount      : 1
+                ppEnabledExtensionNames    : device_extensions
+
+            ], null, ref device
+        ] == VK_SUCCESS, "cannot create logical device"
+
+        verify vmaCreateAllocator[
+            [
+                physicalDevice   : physical_device
+                device           : device
+                instance         : instance
+                vulkanApiVersion : vk_version
+                pVulkanFunctions : NULL
+                flags            : VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT
+            
+            ], ref allocator
+        
+        ] == VK_SUCCESS, "cannot create vma allocator"
+
+    func dealloc [ ]
+    func a-method-dictated[] using chatgpt 
 
 # ---------------------------
 # we support structs
@@ -63,11 +181,11 @@ class event
     public  key              : keyboard_state 
     public  prevent_default  : bool           
     public  stop_propagation : bool           
-    public  fn prevent_default  [ ] -> none [ ]      
-    public  fn is_default       [ ] -> bool       
-    public  fn should_propagate [ ] -> bool       
-    public  fn stop_propagation [ ] -> bool       
-    public  fn clear            [ ] -> none
+    public  func prevent_default  [ ] -> none [ ]      
+    public  func is_default       [ ] -> bool       
+    public  func should_propagate [ ] -> bool       
+    public  func stop_propagation [ ] -> bool       
+    public  func clear            [ ] -> none
 
 # enums can be exported to our A-type 
 enum Ease
@@ -91,7 +209,7 @@ enum Direction
 class line_info
     intern data            :  string                      
     intern len             :  num                        
-    intern adv             :  vector, f64                          
+    intern adv             :  array f64[]                       
     intern bounds          :  rect                       
     intern placement       :  rect                       
 
@@ -114,24 +232,24 @@ class style
     intern  reloaded  : bool       
     intern  loaded    : bool 
 
-    public fn applicable [ element string array ] -> bool
-    public fn process    [ string ] -> none 
+    public func applicable [ element string array ] -> bool
+    public func process    [ string ] -> none 
 
-    public fn cache_members [ ] -> none
-    public fn best_match    [ element string array ] -> style_entry
-    public fn compute       [ element ] -> map
-    public fn check_reload  [ ] -> bool
+    public func cache_members [ ] -> none
+    public func best_match    [ element string array ] -> style_entry
+    public func compute       [ element ] -> map
+    public func check_reload  [ ] -> bool
     public ctr [ path ]
     public ctr [ object ]
 
 class style_block
-    public parent : style_block, weak
+    public parent : style_block
     public quals : array
     public entries : map
     public blocks : array
     public types : array
-    public fn score [ element  bool ] -> f32
-    override fn init [ ]
+    public func score [ element  bool ] -> f32
+    func init [ ]
 
 enum Duration
     ms : 2
@@ -175,28 +293,28 @@ class region
     public ctr [ rect ]
     public ctr [ f32 ]
     public ctr [ string ]
-    public fn rectangle [ rect  rect ] -> rect
-    public fn mix [ region  f32 ] -> region
+    public func rectangle [ rect  rect ] -> rect
+    public func mix [ region  f32 ] -> region
 
 class rotation
     public axis : vec3f
     public degs : f32
     public ctr [ vec4f  ]
     public ctr [ string ]
-    public fn mix [ rotation  f32 ] -> rotation
+    public func mix [ rotation  f32 ] -> rotation
 
 class translation
     public value : vec3f
     public ctr [ vec3f ]
     public ctr [ string ]
-    public fn mix [ translation  f32 ] -> translation
+    public func mix [ translation  f32 ] -> translation
 declare_class(translation)
 
 class scaling
     public value : vec3f
     public ctr [ vec3f ]
     public ctr [ string ]
-    public fn mix [ scaling  f32 ] -> scaling
+    public func mix [ scaling  f32 ] -> scaling
 declare_class(scaling)
 
 # unit tcoord [ Duration ]
@@ -214,8 +332,8 @@ class style_transition
     intern type : Au_t
     intern location : ref object
     public ctr [ string ]
-    public fn pos [ f64 ] -> f64
-    override cast bool
+    public func pos [ f64 ] -> f64
+    cast bool
 
 
 class style_entry
@@ -233,7 +351,7 @@ class style_qualifier
     public state    : string
     public oper     : string
     public value    : string
-    public parent   : object, weak
+    public parent   : object
 
 
 class style_selection
@@ -245,8 +363,8 @@ class style_selection
 
 
 class composer
-    public app                  : object, weak
-    public w                    : window, weak
+    public app                  : object
+    public w                    : window
     intern root_styles          : map
     public root                 : element
     public capture              : element
@@ -264,23 +382,23 @@ class composer
     public on_render            : hook
     public apply_args           [ element element ]   -> array
     public apply_style          [ element map array ] -> array
-    public fn animate           [ ]
-    public fn bind_subs         [ element element ]
-    public fn update            [ element map ]
-    public fn update_all        [ map ]
-    public fn invalidate        [ ]
-    public fn remove_invalid    [ ]
-    public fn set_capture       [ element ]
-    public fn release_capture   [ element ]
-    public fn set_focus         [ element ]
-    public fn release_focus     [ element ]
-    public fn find_target       [ element, event, element ] -> element
-    public fn text_event        [ event ]
-    public fn move_event        [ event ]
-    public fn key_event         [ event ]
-    public fn wheel_event       [ event ]
-    public fn press_event       [ event ]
-    public fn release_event     [ event ]
+    public func animate           [ ]
+    public func bind_subs         [ element element ]
+    public func update            [ element map ]
+    public func update_all        [ map ]
+    public func invalidate        [ ]
+    public func remove_invalid    [ ]
+    public func set_capture       [ element ]
+    public func release_capture   [ element ]
+    public func set_focus         [ element ]
+    public func release_focus     [ element ]
+    public func find_target       [ element, event, element ] -> element
+    public func text_event        [ event ]
+    public func move_event        [ event ]
+    public func key_event         [ event ]
+    public func wheel_event       [ event ]
+    public func press_event       [ event ]
+    public func release_event     [ event ]
 
 // holds onto arg state; its useful to have to facilitate
 // effective config from user (not including style!)
@@ -317,7 +435,7 @@ enum Clip
 
 class mixable
     public ctr [ string ]
-    public fn mix [ mixable  f32 ] -> mixable
+    public func mix [ mixable  f32 ] -> mixable
 
 mixable shadow
     public blur : f32
@@ -340,7 +458,7 @@ class background
     public transform    : transform
     public repeat       : Pattern
     public ctr [ string ]
-    public fn mix [ background  f32 ] -> background
+    public func mix [ background  f32 ] -> background
 
 array radius [ f32 ]
 
@@ -356,7 +474,7 @@ class layer
     public overflow : Clip
     public opacity : f32
     public ctr [ string ]
-    public fn mix [ layer  f32 ] -> layer
+    public func mix [ layer  f32 ] -> layer
 
 
 layer text
@@ -381,7 +499,7 @@ layer children
     public scroll : vec2f
 
 class element
-    public parent : element, weak
+    public parent : element
     public area : region
     public value : object
     public id : string
@@ -420,13 +538,13 @@ class element
     intern selections : map
     intern transitions : map
     intern restyle : bool
-    public fn set_capture [ ] -> none
-    public fn release_capture [ ] -> none
-    public fn set_focus [ ] -> none
-    public fn release_focus [ ] -> none
-    public fn draw [ window ] -> none
-    public fn render [ array ] -> map
-    override fn compare [ element ]
+    public func set_capture [ ] -> none
+    public func release_capture [ ] -> none
+    public func set_focus [ ] -> none
+    public func release_focus [ ] -> none
+    public func draw [ window ] -> none
+    public func render [ array ] -> map
+    func compare [ element ]
 
 element scene
     public target : target
@@ -437,29 +555,29 @@ element scene
     public translate : array translation
     public scale     : array scaling
     public update : subs
-    override fn draw[ window ]
-    override fn init    [ ]
-    override fn dealloc [ ]
+    func draw[ window ]
+    func init    [ ]
+    func dealloc [ ]
 
 scene stage
     public frost : bool
-    override fn init [ ]
-    override fn dealloc [ ]
+    func init [ ]
+    func dealloc [ ]
 
 element pane
 
 element button
 
 class uniforms
-    public t : trinity, weak
+    public t : trinity
     expect s : shader
     public u_memory : array
     public u_buffers : array
-    public fn update [ ] -> none
-    override fn init [ ]
+    public func update [ ] -> none
+    func init [ ]
 
 class shader
-    public t               : trinity, weak
+    public t               : trinity
     public name : string
     public vert : string
     public frag : string
@@ -468,9 +586,9 @@ class shader
     intern vk_vert : VkShaderModule
     intern vk_frag : VkShaderModule
     intern vk_comp : VkShaderModule
-    public fn reload [ ARef ] -> bool
-    override fn init [ ]
-    override fn dealloc [ ]
+    public func reload [ ARef ] -> bool
+    func init [ ]
+    func dealloc [ ]
 
 shader Basic
     public proj : mat4f
@@ -500,7 +618,7 @@ shader PBR
     attrib Surface [ ao ]       : 1, u8
     attrib Surface [ ior ]      : 1, f32
     attrib Surface [ environment ] : 1, rgbaf, IBL
-    override fn init [ ]
+    func init [ ]
 
 
 shader Env
@@ -508,7 +626,7 @@ shader Env
     public proj : mat4f
     public roughness_samples : vec2f
     attrib Surface [ color ] : 1, rgbaf
-    override fn init [ ]
+    func init [ ]
 
 shader Convolve
     public env : mat4f
@@ -518,7 +636,7 @@ shader Convolve
     attrib Surface [ environment ] : 1, rgbaf
 
 class buffer
-    public t                : trinity, weak
+    public t                : trinity
     expect size             : i64
     public data             : ARef
     public u_src            : bool
@@ -534,12 +652,12 @@ class buffer
     intern user             : ARef
     intern vma_alloc        : VmaAllocation
     intern vk_buffer        : VkBuffer
-    public fn update        [ ARef ] -> none
-    public fn transfer      [ object ] -> none
-    public fn mmap          [ ] -> ARef
-    public fn unmap         [ ] -> none
-    override fn init        [ ]
-    override fn dealloc     [ ]
+    public func update        [ ARef ] -> none
+    public func transfer      [ object ] -> none
+    public func mmap          [ ] -> ARef
+    public func unmap         [ ] -> none
+    func init        [ ]
+    func dealloc     [ ]
 declare_class(buffer)
 
 
@@ -564,7 +682,7 @@ shader UVQuad
     public view : mat4f
     public proj : mat4f
     attrib Surface [ color ] : 1, rgba8
-    override fn init [ ]
+    func init [ ]
 
 
 shader UVReduce
@@ -572,7 +690,7 @@ shader UVReduce
     public view     : mat4f
     public proj     : mat4f
     attrib Surface [ color ] : 1, rgba8
-    override fn init [ ]
+    func init [ ]
 
 
 enum UXSurface
@@ -598,7 +716,7 @@ shader UXCompose
     attrib UXSurface [ colorize ]   : 1, rgba8
     attrib UXSurface [ overlay ]    : 1, rgba8
     attrib UXSurface [ glyph ]      : 1, rgba8
-    override fn init [ ]
+    func init [ ]
 
 
 shader UXSimple
@@ -609,15 +727,15 @@ shader UXSimple
     attrib UXSurface [ colorize ]   : 1, rgba8
     attrib UXSurface [ overlay ]    : 1, rgba8
     attrib UXSurface [ glyph ]      : 1, rgba8
-    override fn init [ ]
+    func init [ ]
 
 
 /// when created with a mere window reference, it will create a texture the size of the window
 /// the last render in list will draw to swap-image; trinity works simply
 /// everything renders to texture (target == texture) or the swap (target == window)
 class target
-    public t               : trinity, weak
-    public w               : window, weak
+    public t               : trinity
+    public w               : window
     public id               : i32
     public wscale           : f32
     public width            : i32
@@ -639,11 +757,11 @@ class target
     intern vk_render_pass                   : array VkRenderPass  [ 2 ]
     intern last_width : i32
     intern last_height : i32
-    public fn update [ ] -> none
-    public fn draw [ ] -> none
-    public fn sync_fence [ ] -> none
-    override fn init [ ]
-    override fn dealloc [ ]
+    public func update [ ] -> none
+    public func draw [ ] -> none
+    public func sync_fence [ ] -> none
+    func init [ ]
+    func dealloc [ ]
 
 class app
     public w : window
@@ -656,17 +774,17 @@ class app
     public style : style
     intern arg : object
     public on_render : callback
-    public fn initialize [ window ] -> none
-    public fn run [ ] -> i32
-    override fn init [ ]
-    override fn dealloc [ ]
+    public func initialize [ window ] -> none
+    public func run [ ] -> i32
+    func init [ ]
+    func dealloc [ ]
 
 
 class window
     intern window               : handle
     expect width                : u32
     expect height               : u32
-    public t                    : trinity, weak
+    public t                    : trinity
     public mouse                : vec2f
     public ux                   : composer
     public element_targets      : map
@@ -686,7 +804,7 @@ class window
     intern swap_image_count     : u32
     intern swap_image_current   : u32
     intern ev                   : event
-    public app_object           : app, weak
+    public app_object           : app
     public compose              : sk
     public colorize             : sk
     public overlay              : sk
@@ -718,14 +836,14 @@ class window
     public r_frost              : target
     public m_view               : model
     public r_view               : target
-    public fn update_canvas [ ] -> none
-    public fn resize        [ i32  i32 ] -> none
-    public fn final_target  [ ] -> target
-    public fn draw          [ ] -> none
-    public fn draw_element  [ element ] -> none
+    public func update_canvas [ ] -> none
+    public func resize        [ i32  i32 ] -> none
+    public func final_target  [ ] -> target
+    public func draw          [ ] -> none
+    public func draw_element  [ element ] -> none
     public cast image
-    override fn init [ ]
-    override fn dealloc [ ]
+    func init [ ]
+    func dealloc [ ]
 
 class SVG
     public w        : f32
@@ -733,7 +851,7 @@ class SVG
     public rw       : f32
     public rh       : f32
     public svg_dom  : handle
-    override fn dealloc[]
+    func dealloc[]
 
 class draw_state
     public blur_radius          : f32
@@ -743,7 +861,7 @@ class draw_state
     public stroke_miter_limit   : f32
     public stroke_dash_offset   : f32
     public font                 : font
-    public tx                   : texture, weak
+    public tx                   : texture
     public x                    : f32
     public y                    : f32
     public w                    : f32
@@ -751,43 +869,43 @@ class draw_state
     public fill_color           : u32
     public stroke_color         : u32
     public opacity              : f32
-    public fn set_default [ ] -> none
+    public func set_default [ ] -> none
 
 image canvas
-    expect t     : trinity, weak
+    expect t     : trinity
     public tx    : texture
     public state : array draw_state
-    interface fn save            [ ] -> none
-    interface fn restore         [ ] -> none
-    interface fn move_to         [ f32  f32 ] -> none
-    interface fn line_to         [ f32  f32 ] -> none
-    interface fn arc_to          [ f32, f32, f32, f32, f32 ] -> none
-    interface fn arc             [ f32, f32, f32, f32, f32 ] -> none
-    interface fn rect_to         [ f32 f32 f32 f32 ] -> none
-    interface fn rounded_rect_to [ f32, f32, f32, f32, f32, f32 ] -> none
-    interface fn fill_color      [ object ] -> none
-    interface fn stroke_color    [ object ] -> none
-    interface fn clear           [ object ] -> none
-    interface fn set_stroke      [ stroke ] -> none
-    interface fn set_font        [ font ] -> none
-    interface fn cubic           [ f32, f32, f32, f32, f32, f32 ] -> none
-    interface fn quadratic       [ f32 f32 f32 f32 ] -> none
-    interface fn draw_fill       [ ] -> none
-    interface fn draw_stroke     [ ] -> none
-    interface fn draw_fill_preserve [ ] -> none
-    interface fn draw_stroke_preserve [ ] -> none
-    interface fn blur_radius [ f32 ] -> none
-    interface fn prepare [ ] -> none
-    interface fn set_texture [ texture ] -> none
-    interface fn translate [ f32  f32 ] -> none
-    interface fn scale [ f32 ] -> none
-    interface fn clip [ rect f32 f32 ] -> none
-    interface fn stroke_size [ f32 ] -> none
-    interface fn stroke_cap [ cap ] -> none
-    interface fn stroke_join [ join ] -> none
-    interface fn stroke_miter_limit [ f32 ] -> none
-    interface fn stroke_dash_offset [ f32 ] -> none
-    override resize[]
+    interface func save            [ ] -> none
+    interface func restore         [ ] -> none
+    interface func move_to         [ f32  f32 ] -> none
+    interface func line_to         [ f32  f32 ] -> none
+    interface func arc_to          [ f32, f32, f32, f32, f32 ] -> none
+    interface func arc             [ f32, f32, f32, f32, f32 ] -> none
+    interface func rect_to         [ f32 f32 f32 f32 ] -> none
+    interface func rounded_rect_to [ f32, f32, f32, f32, f32, f32 ] -> none
+    interface func fill_color      [ object ] -> none
+    interface func stroke_color    [ object ] -> none
+    interface func clear           [ object ] -> none
+    interface func set_stroke      [ stroke ] -> none
+    interface func set_font        [ font ] -> none
+    interface func cubic           [ f32, f32, f32, f32, f32, f32 ] -> none
+    interface func quadratic       [ f32 f32 f32 f32 ] -> none
+    interface func draw_fill       [ ] -> none
+    interface func draw_stroke     [ ] -> none
+    interface func draw_fill_preserve [ ] -> none
+    interface func draw_stroke_preserve [ ] -> none
+    interface func blur_radius [ f32 ] -> none
+    interface func prepare [ ] -> none
+    interface func set_texture [ texture ] -> none
+    interface func translate [ f32  f32 ] -> none
+    interface func scale [ f32 ] -> none
+    interface func clip [ rect f32 f32 ] -> none
+    interface func stroke_size [ f32 ] -> none
+    interface func stroke_cap [ cap ] -> none
+    interface func stroke_join [ join ] -> none
+    interface func stroke_miter_limit [ f32 ] -> none
+    interface func stroke_dash_offset [ f32 ] -> none
+    resize[]
 
 struct text_metrics
     w : f32
@@ -807,61 +925,61 @@ canvas sk
     intern once         : bool
     intern skia         : ref Skia
     intern vk_layout    : VkImageLayout
-    public fn save            [ ] -> none
-    public fn restore         [ ] -> none
-    public fn draw_svg        [ SVG rect vec2f vec2f ] -> none
-    public fn draw_image      [ image rect vec2f vec2f ] -> none
-    public fn measure         [ string ] -> text_metrics
-    public fn draw_text       [ string, rect, vec2f, vec2f, bool ] -> rect
-    public fn move_to         [ f32  f32 ]                -> none
-    public fn line_to         [ f32  f32 ]                -> none
-    public fn arc_to          [ f32, f32, f32, f32, f32 ] -> none
-    public fn arc             [ f32, f32, f32, f32, f32 ] -> none
-    public fn rect_to         [ f32 f32 f32 f32 ]         -> none
-    public fn rounded_rect_to [ f32, f32, f32, f32, f32, f32 ] -> none
-    public fn fill_color      [ object ] -> none
-    public fn clear           [ object ] -> none
-    public fn set_font        [ font ]   -> none
-    public fn cubic           [ f32, f32, f32, f32, f32, f32 ] -> none
-    public fn quadratic       [ f32 f32 f32 f32 ] -> none
-    public fn draw_fill       [ ] -> none
-    public fn draw_stroke     [ ] -> none
-    public fn draw_fill_preserve   [ ] -> none
-    public fn draw_stroke_preserve [ ] -> none
-    public fn blur_radius [ f32 ] -> none
-    public fn prepare [ ] -> none
-    public fn translate [ f32  f32 ] -> none
-    public fn scale [ f32 ] -> none
-    public fn clip [ rect f32 f32 ] -> none
-    public fn set_texture [ texture ] -> none
-    public fn stroke_color [ object ] -> none
-    public fn stroke_size [ f32 ] -> none
-    public fn stroke_cap [ cap ] -> none
-    public fn stroke_join [ join ] -> none
-    public fn stroke_miter_limit [ f32 ] -> none
-    public fn stroke_dash_offset [ f32 ] -> none
-    public fn opacity [ f32 ] -> none
-    public fn ellipsis [ string rect ARef ] -> string
-    static fn sync [ ] -> none
-    override fn resize  [ i32 i32 ]
-    override fn init    [ ]
-    override fn dealloc [ ]
+    public func save            [ ] -> none
+    public func restore         [ ] -> none
+    public func draw_svg        [ SVG rect vec2f vec2f ] -> none
+    public func draw_image      [ image rect vec2f vec2f ] -> none
+    public func measure         [ string ] -> text_metrics
+    public func draw_text       [ string, rect, vec2f, vec2f, bool ] -> rect
+    public func move_to         [ f32  f32 ]                -> none
+    public func line_to         [ f32  f32 ]                -> none
+    public func arc_to          [ f32, f32, f32, f32, f32 ] -> none
+    public func arc             [ f32, f32, f32, f32, f32 ] -> none
+    public func rect_to         [ f32 f32 f32 f32 ]         -> none
+    public func rounded_rect_to [ f32, f32, f32, f32, f32, f32 ] -> none
+    public func fill_color      [ object ] -> none
+    public func clear           [ object ] -> none
+    public func set_font        [ font ]   -> none
+    public func cubic           [ f32, f32, f32, f32, f32, f32 ] -> none
+    public func quadratic       [ f32 f32 f32 f32 ] -> none
+    public func draw_fill       [ ] -> none
+    public func draw_stroke     [ ] -> none
+    public func draw_fill_preserve   [ ] -> none
+    public func draw_stroke_preserve [ ] -> none
+    public func blur_radius [ f32 ] -> none
+    public func prepare [ ] -> none
+    public func translate [ f32  f32 ] -> none
+    public func scale [ f32 ] -> none
+    public func clip [ rect f32 f32 ] -> none
+    public func set_texture [ texture ] -> none
+    public func stroke_color [ object ] -> none
+    public func stroke_size [ f32 ] -> none
+    public func stroke_cap [ cap ] -> none
+    public func stroke_join [ join ] -> none
+    public func stroke_miter_limit [ f32 ] -> none
+    public func stroke_dash_offset [ f32 ] -> none
+    public func opacity [ f32 ] -> none
+    public func ellipsis [ string rect ARef ] -> string
+    static func sync [ ] -> none
+    func resize  [ i32 i32 ]
+    func init    [ ]
+    func dealloc [ ]
 declare_class_3(sk, canvas, image)
 
 none sk_sync_all();
 
 class command
-    public t : trinity, weak
+    public t : trinity
     intern vk : VkCommandBuffer
-    public fn begin [ ] -> none
-    public fn submit [ ] -> none
-    override fn init [ ]
-    override fn dealloc [ ]
+    public func begin [ ] -> none
+    public func submit [ ] -> none
+    func init [ ]
+    func dealloc [ ]
 
 
 class texture
-    expect t : trinity, weak
-    public w : window,  weak
+    expect t : trinity
+    public w : window
     public format           : Pixel
     public sampler          : object
     public width            : i32
@@ -877,11 +995,11 @@ class texture
     intern vk_image_view    : VkImageView     
     intern vk_sampler       : VkSampler       
     intern vma_alloc        : VmaAllocation   
-    public fn resize        [ i32  i32 ] -> none
-    public fn transition    [ i32 ] -> none
-    public cast -> image
-    override fn init        [ ]
-    override fn dealloc     [ ]
+    public func resize        [ i32  i32 ] -> none
+    public func transition    [ i32 ] -> none
+    public cast image
+    func init        [ ]
+    func dealloc     [ ]
 
 enum shader_local
     _undefined : 0
@@ -893,7 +1011,7 @@ struct vertex_member_t
     offset  : i64
 
 class gpu
-    public t             : trinity, weak
+    public t             : trinity
     expect name          : cstr
     public sampler       : image
     intern tx            : texture
@@ -912,14 +1030,14 @@ class gpu
     intern vk_sampler    : VkSampler
     intern vma_alloc     : VmaAllocation
     public compute       : bool
-    public   fn sync    [ window ] -> none
-    override fn init    [ ]
-    override fn dealloc [ ]
+    public   func sync    [ window ] -> none
+    func init    [ ]
+    func dealloc [ ]
 
 
 class pipeline
-    expect t                : trinity, weak
-    public w                : window,  weak
+    expect t                : trinity
+    public w                : window
     expect r                : target
     expect s                : shader
     expect name             : string
@@ -932,19 +1050,19 @@ class pipeline
     intern shader_uniforms  : uniforms
     intern vbo              : gpu
     intern memory           : gpu
-    intern descriptor_layouts : vector VkDescriptorSetLayout [ 2 ] # this works better than doing trickery with the [ inner syntax; and MORE readable ]
-    intern descriptor_sets    : vector VkDescriptorSet       [ 2 ]
+    intern descriptor_layouts : new VkDescriptorSetLayout [ 2 ] # this works better than doing trickery with the [ inner syntax; and MORE readable ]
+    intern descriptor_sets    : new VkDescriptorSet       [ 2 ]
     intern descriptor_pool    : VkDescriptorPool
     intern bind               : VkDescriptorSet
     intern vk_render          : VkPipeline
     intern vk_compute         : VkPipeline
     intern layout             : VkPipelineLayout
-    public   fn rebind         [ ] -> none
-    public   fn draw           [ handle ] -> none
-    public   fn bind_resources [ ] -> none
-    public   fn reassemble     [ ] -> none
-    override fn init           [ ]
-    override fn dealloc        [ ]
+    public   func rebind         [ ] -> none
+    public   func draw           [ handle ] -> none
+    public   func bind_resources [ ] -> none
+    public   func reassemble     [ ] -> none
+    func init           [ ]
+    func dealloc        [ ]
 
 class gltf_part
     expect id : Primitive
@@ -957,9 +1075,9 @@ class gltf_node
 // #define node_default null
 
 class model
-    public t                : trinity, weak
-    public w                : window,  weak
-    public r                : target,  weak
+    public t                : trinity
+    public w                : window
+    public r                : target
     intern transforms       : ref mat4f
     intern transform_count  : i32
     public id               : Model
@@ -967,10 +1085,10 @@ class model
     public s                : shader
     public samplers         : map
     intern pipelines        : array
-    public fn rebind_model  [ ] -> none
-    public fn finish        [ target  i32 ] -> none
-    override fn init        [ ]
-    override fn dealloc     [ ]
+    public func rebind_model  [ ] -> none
+    public func finish        [ target, i32 ] -> none
+    func init        [ ]
+    func dealloc     [ ]
 
 class particle
     public pos      : vec2f
