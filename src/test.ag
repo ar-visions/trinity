@@ -1,4 +1,4 @@
-import <vulkan/vulkan.h> [ https://github.com/KhronosGroup/Vulkan-Headers main ]
+import KhronosGroup:Vulkan-Headers <vulkan/vulkan.h>
 import <stdio.h>
 
 import [ https://github.com/KhronosGroup/Vulkan-Tools main ]
@@ -11,7 +11,7 @@ class Vulkan
 	fn init[]
         instance: VkInstance[null]
 
-main test
+class test of app
 	public test-me : i32
 	cast string [ 'a certain kind of string... {test-me}' ]
 	

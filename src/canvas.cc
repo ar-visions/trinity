@@ -115,7 +115,7 @@ font sk_font_init(font f) {
     font_resources_refs++;
 
     if (!font_resources) {
-         font_resources = hold(map(unmanaged, true));
+         font_resources = hold(map());
          verify(font_resources_refs == 1, "font resources out of sync");
     }
     f->res = map_get(font_resources, (object)f->uri);
@@ -223,8 +223,8 @@ skia_t skia_init_vk(
         grc.fGetProc,
         (VkInstance)vk_instance,
         (VkPhysicalDevice)phys,
-        t->instance_exts->len, (const char *const *)t->instance_exts->elements,
-        t->device_exts->len,   (const char *const *)t->device_exts->elements
+        t->instance_exts->len, (const char *const *)t->instance_exts->origin,
+        t->device_exts->len,   (const char *const *)t->device_exts->origin
     );
 
     grc.fVkExtensions = &extensions; // internal needs population perhaps
@@ -793,7 +793,7 @@ void sk_image_dealloc(image img) {
 }
 
 void sk_draw_image(sk a, image img, rect r, vec2f align, vec2f offset) {
-    SVG svg = (SVG)instanceof((object)img, typeid(SVG));
+    SVG svg = (SVG)instanceof((object)img, SVG);
     if (svg) return sk_draw_svg(a, svg, r, align, offset);
     
     SkCanvas*  sk = (SkCanvas*)a->sk_canvas;
@@ -895,7 +895,7 @@ none sk_sync() {
 
     int ln = len(canvases);
     for(int i = 0; i < ln; i++) {
-        sk cv = (sk)canvases->elements[i];
+        sk cv = (sk)canvases->origin[i];
         cv->tx->vk_layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         transition(cv->tx,  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
@@ -912,7 +912,7 @@ none sk_sync() {
 #endif
 
     for(int i = 0; i < ln; i++) {
-        sk cv = (sk)canvases->elements[i];
+        sk cv = (sk)canvases->origin[i];
         cv->tx->vk_layout  = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         transition(cv->tx, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }

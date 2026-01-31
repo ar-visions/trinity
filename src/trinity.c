@@ -174,7 +174,7 @@ VkInstance vk_create(trinity t) {
                 .apiVersion             = vk_version,
             },
             .enabledExtensionCount      = t->instance_exts->len,
-            .ppEnabledExtensionNames    = t->instance_exts->elements,
+            .ppEnabledExtensionNames    = t->instance_exts->origin,
             .enabledLayerCount          = (u32)enable_validation,
             .ppEnabledLayerNames        = &validation_layer
         }, null, &instance);
@@ -192,8 +192,8 @@ VkInstance vk_create(trinity t) {
 void trinity_init(trinity t) {
     verify(glfwInit(), "glfw init");
 
-    t->instance_exts = array(alloc, 128, unmanaged, true);
-    t->device_exts   = array(alloc, 128, unmanaged, true);
+    t->instance_exts = array(alloc, 128);
+    t->device_exts   = array(alloc, 128);
     
     int wsize2 = sizeof(struct _window);
     int bsize2 = sizeof(struct _Basic);
@@ -651,7 +651,7 @@ void target_draw(target r) {
             each (r->models, model, m)
                 each (m->pipelines, pipeline, p) {
                     /// css transitions affect this (from scene element)
-                    if (m->transform_count && instanceof(p->s, typeid(PBR))) {
+                    if (m->transform_count && instanceof(p->s, PBR)) {
                         PBR s = p->s;
                         s->model = p->default_model; // we may perform all of this in code, otherwise
                         for (int i = 0; i < m->transform_count; i++) {
@@ -880,8 +880,8 @@ void window_resize(window w, i32 width, i32 height) {
             t->device, w->swapchain, &w->swap_image_count, w->vk_swap_images);
         w->swap_image_current = 0;
         for (int i = 0; i < w->swap_image_count; i++) {
-            drop(w->swap_renders->elements[i]);
-            w->swap_renders->elements[i] = hold(target(t, t, w, w,
+            drop(w->swap_renders->origin[i]);
+            w->swap_renders->origin[i] = hold(target(t, t, w, w,
                 width,          w->width,
                 height,         w->height,
                 vk_swap_image,  w->vk_swap_images[i],
@@ -889,7 +889,7 @@ void window_resize(window w, i32 width, i32 height) {
         }
         w->swap_renders->len = w->swap_image_count;
         w->semaphore_frame = first(w->swap_renders);
-        w->swap_render_current = w->swap_renders->elements[0];
+        w->swap_render_current = w->swap_renders->origin[0];
     }
 
     update_canvas(w);
@@ -1610,7 +1610,7 @@ num uniform_size(Au_t type) {
 /// sub procedure of shader; transfer one type at a time
 /// we may perform this in meta as well, but i think poly should be a base implementation
 i64 uniform_transfer(shader instance, u8* data, Au_t type) {
-    verify(instanceof(instance, typeid(shader)), "shader instance not provided");
+    verify(instanceof(instance, shader), "shader instance not provided");
     num   index = 0;
     u8*   src   = instance;
 
@@ -1654,9 +1654,9 @@ none gpu_sync(gpu a, window w) {
     }
 
     if (a->sampler && !a->tx) {
-        image   img = instanceof(a->sampler, typeid(image));
-        texture tx  = instanceof(a->sampler, typeid(texture));
-        target  re  = instanceof(a->sampler, typeid(target));
+        image   img = instanceof(a->sampler, image);
+        texture tx  = instanceof(a->sampler, texture);
+        target  re  = instanceof(a->sampler, target);
 
         verify(!re, "target given to samplers");
 
@@ -1704,12 +1704,12 @@ static VkFormat vk_format(Pixel f, bool linear) {
 
 static none placeholder_image(
         object sampler, int size, u8* fill, int* sampler_size, Pixel* format) {
-    vector_i8    v_i8       = instanceof(sampler, typeid(vector_i8));     // grayscale i8
-    vector_f32   v_f32      = instanceof(sampler, typeid(vector_f32));    // grayscale f32
-    vector_rgb8  v_rgb8     = instanceof(sampler, typeid(vector_rgb8));   // rgb bytes
-    vector_rgbf  v_rgbf     = instanceof(sampler, typeid(vector_rgbf));   // rgb floats
-    vector_rgba8 v_rgba8    = instanceof(sampler, typeid(vector_rgba8));  // rgba bytes
-    vector_rgbaf v_rgbaf    = instanceof(sampler, typeid(vector_rgbaf));  // rgba floats
+    vector_i8    v_i8       = instanceof(sampler, vector_i8);     // grayscale i8
+    vector_f32   v_f32      = instanceof(sampler, vector_f32);    // grayscale f32
+    vector_rgb8  v_rgb8     = instanceof(sampler, vector_rgb8);   // rgb bytes
+    vector_rgbf  v_rgbf     = instanceof(sampler, vector_rgbf);   // rgb floats
+    vector_rgba8 v_rgba8    = instanceof(sampler, vector_rgba8);  // rgba bytes
+    vector_rgbaf v_rgbaf    = instanceof(sampler, vector_rgbaf);  // rgba floats
     i8*          data_i8    = v_i8    ? data(v_i8)    : null;
     f32*         data_f32   = v_f32   ? data(v_f32)   : null;
     rgb8*        data_rgb8  = v_rgb8  ? data(v_rgb8)  : null;
@@ -2107,11 +2107,11 @@ array Surface_resources(Au_t surface_enum_type, Surface surface_value, pipeline 
         image img   = i->value;
         i32 evalue = *evalue(surface_enum_type, name->chars);
         Au_t ty = isa(img);
-        texture tx = instanceof((object)img, typeid(texture));
-        target  re = instanceof((object)img, typeid(target));
+        texture tx = instanceof((object)img, texture);
+        target  re = instanceof((object)img, target);
         if (re) tx = re->color;
         if (evalue == surface_value) {
-            verify(tx || instanceof(img, typeid(image)), "expected texture or image");
+            verify(tx || instanceof(img, image), "expected texture or image");
             res = gpu(t, t, name, cstring(e_str(Surface, surface_value)), sampler,
                 (object)(tx ? (object)hold(tx) : (object)hold(img)));
             push(result, res);
@@ -2240,7 +2240,7 @@ void pipeline_bind_resources(pipeline p) {
             verify(mem->value == 0 && len(all) == 1 || len(all) == mem->value,
                 "unexpected len(samplers) for value on attrib");
             each(all, gpu, res) {
-                verify(instanceof(res, typeid(gpu)), "expected gpu resource");
+                verify(instanceof(res, gpu), "expected gpu resource");
 
                 /// add gpu resource; this is what will be updated when required
                 sync(res, p->w);
@@ -2617,7 +2617,7 @@ none window_draw(window w) {
             handle_glfw_framebuffer_size(w->window, w->width, w->height);
         else {
             verify(result == VK_SUCCESS, "failed to acquire swapchain image");
-            w->swap_render_current = w->swap_renders->elements[w->swap_image_current];
+            w->swap_render_current = w->swap_renders->origin[w->swap_image_current];
             
             transition(w->last_target->color,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -2645,7 +2645,7 @@ none window_draw(window w) {
             
             /// swap next semaphore frame (trinity will never use triple buffering for a UI)
             w->semaphore_frame = 
-                w->swap_renders->elements[w->semaphore_frame == first(w->swap_renders)];
+                w->swap_renders->origin[w->semaphore_frame == first(w->swap_renders)];
             
             if (result != VK_ERROR_OUT_OF_DATE_KHR && result != VK_SUBOPTIMAL_KHR) {
                 verify(result == VK_SUCCESS, "present");
@@ -2775,7 +2775,7 @@ void window_draw_element(window a, element e) {
         restore(cv);
     }
 
-    string content = instanceof(e->content, typeid(string));
+    string content = instanceof(e->content, string);
     if (content && e->text_color) {
         sk cv = a->glyph;
         save(cv);
@@ -2805,7 +2805,7 @@ void window_draw_element(window a, element e) {
     /// could be done with a 'bind' too!
     draw(e, w);
 
-    pairs(e->elements, i) {
+    pairs(e->origin, i) {
         string  id = i->key;
         element ee = i->value;
         draw_element(a, ee);
@@ -3196,8 +3196,8 @@ none buffer_init(buffer b) {
 }
 
 void buffer_transfer(buffer b, object arg) { // arg can be texture or window
-    window  w  = instanceof(arg, typeid(window));
-    texture tx = instanceof(arg, typeid(texture));
+    window  w  = instanceof(arg, window);
+    texture tx = instanceof(arg, texture);
 
     verify(tx || w->last_target,
         "expected texture or window (with render pass run prior)");

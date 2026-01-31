@@ -17,7 +17,7 @@ Node Model_find(Model a, cstr name) {
 Node Model_parent(Model a, Node n) {
     num node_index = index_of(a->nodes, n);
     verify(node_index >= 0, "invalid node memory");
-    each (a->nodes->elements, Node, node) {
+    each (a->nodes->origin, Node, node) {
         for (num i = 0, ln = len(node->children); i < ln; i++) {
             i64 id = 0;//get(node->children, i);
             if (node_index == id)
@@ -43,7 +43,7 @@ Node Model_index_string(Model a, string name) {
 
 /// builds Transform, separate from Model/Skin/Node and contains usable glm types
 Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node_index, Transform parent) {
-    Node node = a->nodes->elements[node_index];
+    Node node = a->nodes->origin[node_index];
 
     node->processed = true;
     Transform transform;
@@ -69,7 +69,7 @@ Transform Model_node_transform(Model a, JData joints, mat4f parent_mat, int node
             /// ch is referenced from the ops below, when called here (not released)
             Transform ch = node_transform(a, joints, state_mat, node_index, transform);
             if (ch) {
-                Node n = a->nodes->elements[node_index];
+                Node n = a->nodes->origin[node_index];
                 verify(n->joint_index == ch->istate, "joint index mismatch");
                 push(transform->ichildren, &ch->istate); /// there are cases where a referenced node is not part of the joints array; we dont add those.
             }
@@ -86,11 +86,11 @@ JData Model_joints(Model a, Node node) {
     JData joints;
     mat4f ident = mat4f_ident();
     if (node->skin != -1) {
-        Skin skin         = a->skins->elements[node->skin];
+        Skin skin         = a->skins->origin[node->skin];
         map  all_children = map();
         each (skin->joints, object, p_node_index) {
             int node_index = *(int*)p_node_index;
-            Node node = a->nodes->elements[node_index];
+            Node node = a->nodes->origin[node_index];
             each (node->children, object, i) {
                 verify(!contains(all_children, i), "already contained");
                 set(all_children, i, _bool(true));
@@ -99,7 +99,7 @@ JData Model_joints(Model a, Node node) {
 
         int j_index = 0;
         values (skin->joints, int, node_index)
-            ((Node)a->nodes->elements[node_index])->joint_index = j_index++;
+            ((Node)a->nodes->origin[node_index])->joint_index = j_index++;
 
         int n = len(skin->joints);
         joints->transforms = array(n); /// we are appending, so dont set size (just verify)
@@ -238,7 +238,7 @@ void Transform_propagate(Transform a) {
     mat4f* jstates = data(a->jdata->states);
     jstates[a->istate] = mat4f_mul(&m, &a->local);
     each (a->ichildren, i64*, i)
-        Transform_propagate(a->jdata->transforms->elements[*i]);
+        Transform_propagate(a->jdata->transforms->origin[*i]);
 }
 
 Primitive Node_primitive(Node a, Model mdl, cstr name) {

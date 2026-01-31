@@ -96,12 +96,12 @@ f32 ycoord_plot(ycoord* a, f32 from, f32 to, ycoord* top_operand, f32* top_value
 rotation rotation_with_string(rotation a, string s) {
     array sp = split(s, " ");
     verify(len(sp) == 4, "expected x y z Ndeg");
-    verify(ends_with((string)sp->elements[3], "deg"), "expected 1deg (for example)");
+    verify(ends_with((string)sp->origin[3], "deg"), "expected 1deg (for example)");
 
-    a->axis.x = real_value((string)sp->elements[0]);
-    a->axis.y = real_value((string)sp->elements[1]);
-    a->axis.z = real_value((string)sp->elements[2]);
-    a->degs   = real_value((string)sp->elements[3]);
+    a->axis.x = real_value((string)sp->origin[0]);
+    a->axis.y = real_value((string)sp->origin[1]);
+    a->axis.z = real_value((string)sp->origin[2]);
+    a->degs   = real_value((string)sp->origin[3]);
     return a;
 }
 
@@ -124,9 +124,9 @@ rotation rotation_mix(rotation a, rotation b, f32 f) {
 translation translation_with_string(translation a, string s) {
     array sp = split(s, " ");
     verify(len(sp) == 3, "expected x y z");
-    a->value.x = real_value((string)sp->elements[0]);
-    a->value.y = real_value((string)sp->elements[1]);
-    a->value.z = real_value((string)sp->elements[2]);
+    a->value.x = real_value((string)sp->origin[0]);
+    a->value.y = real_value((string)sp->origin[1]);
+    a->value.z = real_value((string)sp->origin[2]);
     return a;
 }
 
@@ -147,9 +147,9 @@ translation translation_mix(translation a, translation b, f32 f) {
 scaling scaling_with_string(scaling a, string s) {
     array sp = split(s, " ");
     verify(len(sp) == 3, "expected x y z");
-    a->value.x = real_value((string)sp->elements[0]);
-    a->value.y = real_value((string)sp->elements[1]);
-    a->value.z = real_value((string)sp->elements[2]);
+    a->value.x = real_value((string)sp->origin[0]);
+    a->value.y = real_value((string)sp->origin[1]);
+    a->value.z = real_value((string)sp->origin[2]);
     return a;
 }
 
@@ -201,16 +201,16 @@ region region_with_rect(region reg, rect r) {
 region region_with_string(region reg, string s) {
     array a = split(s, " ");
     if (len(a) == 4) {
-        reg->l = xcoord_with_string(a->elements[0]);
-        reg->t = ycoord_with_string(a->elements[1]);
-        reg->r = xcoord_with_string(a->elements[2]);
-        reg->b = ycoord_with_string(a->elements[3]);
+        reg->l = xcoord_with_string(a->origin[0]);
+        reg->t = ycoord_with_string(a->origin[1]);
+        reg->r = xcoord_with_string(a->origin[2]);
+        reg->b = ycoord_with_string(a->origin[3]);
 
     } else if (len(a) == 1) {
-        reg->l = xcoord_with_string(a->elements[0]);
-        reg->t = ycoord_with_string(a->elements[0]);
-        reg->r = xcoord_with_string(a->elements[0]);
-        reg->b = ycoord_with_string(a->elements[0]);
+        reg->l = xcoord_with_string(a->origin[0]);
+        reg->t = ycoord_with_string(a->origin[0]);
+        reg->r = xcoord_with_string(a->origin[0]);
+        reg->b = ycoord_with_string(a->origin[0]);
     }
     reg->set = true;
     return reg;
@@ -270,10 +270,10 @@ style_transition style_transition_with_string(style_transition a, string s) {
     /// syntax:
     /// 500ms [ease [out]]
     /// 0.2s -- will be linear with in (argument meaningless for linear but applies to all others)
-    string dur_string = sp->elements[0];
+    string dur_string = sp->origin[0];
     a->duration = unit_with_string(new(tcoord), dur_string);
-    a->easing = ln > 1 ? e_val(Ease,      sp->elements[1]) : Ease_linear;
-    a->dir    = ln > 2 ? e_val(Direction, sp->elements[2]) : Direction_in;
+    a->easing = ln > 1 ? e_val(Ease,      sp->origin[1]) : Ease_linear;
+    a->dir    = ln > 2 ? e_val(Direction, sp->origin[2]) : Direction_in;
     return a;
 }
 
@@ -601,7 +601,7 @@ int element_compare(element a, element b) {
 
 
 map element_render(element a, array changed) {
-    return a->elements; /// elements is not allocated for non-container elements, so default behavior is to not host components
+    return a->origin; /// elements is not allocated for non-container elements, so default behavior is to not host components
 }
 
 
@@ -732,7 +732,7 @@ static array parse_qualifiers(style_block bl, cstr *p) {
 
         /// iterate through reverse
         for (int i = len(parent_to_child) - 1; i >= 0; i--) {
-            string q = trim((string)parent_to_child->elements[i]);
+            string q = trim((string)parent_to_child->origin[i]);
             if (processed) {
                 v->parent = hold(style_qualifier()); //opaque, must hold
                 v = v->parent; /// dont need to cast this
@@ -746,7 +746,7 @@ static array parse_qualifiers(style_block bl, cstr *p) {
                 array sp = split(q, ".");
                 bool no_type = q->chars[0] == '.';
                 v->type   = no_type ? string("element") : trim((string)first(sp));
-                array sp2 = split((string)sp->elements[no_type ? 0 : 1], ":");
+                array sp2 = split((string)sp->origin[no_type ? 0 : 1], ":");
                 v->id     = first(sp2);
                 if (icol >= 0)
                     tail  = trim(mid(q, icol + 1, len(q) - (icol + 1))); /// likely fine to use the [1] component of the split
@@ -758,7 +758,7 @@ static array parse_qualifiers(style_block bl, cstr *p) {
                     v->type = trim(q);
             }
             if (v->type) { /// todo: verify idata is correctly registered and looked up
-                v->ty = A_find_type(v->type->chars);
+                v->ty = A_find_type(v->type->chars, null);
                 verify(v->ty, "type must exist: %o", v->type);
                 if (index_of(bl->types, v->ty) == -1)
                     push(bl->types, v->ty);
@@ -885,7 +885,7 @@ none parse_block(style_block bl, cstr* p_sc) {
         verify(scan_to(&sc, string(";{}")), "expected member expression or qualifier");
         if (*sc == '{') {
             ///
-            style_block bl_n = hold(style_block(types, array(unmanaged, true)));
+            style_block bl_n = hold(style_block(types, array()));
             push(bl->blocks, bl_n);
             bl_n->parent = bl;
             /// parse sub-block
@@ -970,7 +970,7 @@ none parse_block(style_block bl, cstr* p_sc) {
 void style_process(style a, string code) {
     a->base = array(alloc, 32);
     for (cstr sc = cstring(code); sc && *sc; ws(&sc)) {
-        style_block n_block = style_block(types, array(unmanaged, true));
+        style_block n_block = style_block(types, array());
         push(a->base, n_block);
         parse_block(n_block, &sc);
     }
@@ -1153,7 +1153,7 @@ void animate_element(composer ux, element e) {
             }
         }
     }
-    pairs(e->elements, i) { // todo: do we need mounts as separate map?
+    pairs(e->origin, i) { // todo: do we need mounts as separate map?
         element ee = i->value;
         animate_element(ux, ee);
     }
@@ -1214,7 +1214,7 @@ element composer_find_target(composer ux, element e, event ev, element must) {
     ev->mouse.pos.y = local_y + e->scroll.y;
 
     // Check children first (from topmost to bottommost if needed)
-    pairs(e->elements, i) {
+    pairs(e->origin, i) {
         element child = i->value;
         element hit   = find_target(ux, child, ev, must);
         if     (hit) return hit;
@@ -1421,7 +1421,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
     object target = ux->app; // app not defined in element, but we need only care about the A-type bind api
     
     /// mark for umount
-    pairs(parent->elements, i) {
+    pairs(parent->origin, i) {
         string id = i->key;
         element e = i->value;
         e->flags |= 1;
@@ -1431,7 +1431,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
     pairs(rendered_elements, ir) {
         string  id       = ir->key;
         element e        = ir->value;
-        element instance = parent->elements ? get(parent->elements, id) : null; // needs hook for free on a very specific object
+        element instance = parent->origin ? get(parent->origin, id) : null; // needs hook for free on a very specific object
         Au_t   type     = isa(e);
         bool    restyle  = ux->restyle || e->restyle;
 
@@ -1442,7 +1442,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
                 instance->id = hold(id);
                 instance->ux = ux;
                 instance->parent = parent;
-                //instance->elements = hold(instance->elements);
+                //instance->origin = hold(instance->origin);
                 // this is where we bind events between
                 // these components from component, to parent, 
                 // all the way to app controller
@@ -1464,7 +1464,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
             instance->ux     = ux;
             instance->parent = parent; /// weak reference
             A m_header = null;
-            map m = instance->elements;
+            map m = instance->origin;
             m_header = A_header(m);
             
             A_init_recur(instance, type, null);
@@ -1473,9 +1473,9 @@ none composer_update(composer ux, element parent, map rendered_elements) {
             
             Au_t itype = isa(instance);
 
-            if (!parent->elements)
-                 parent->elements = hold(map(hsize, 44));
-            set (parent->elements, id, instance);
+            if (!parent->origin)
+                 parent->origin = hold(map(hsize, 44));
+            set (parent->origin, id, instance);
         } else if (!restyle) {
             changed = apply_args(ux, instance, e);
             restyle = index_of(changed, string("tags")) >= 0; // tags effects style application
@@ -1504,7 +1504,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
     bool retry = true;
     while (retry) {
         retry = false;
-        pairs(parent->elements, i) {
+        pairs(parent->origin, i) {
             string id = i->key;
             element e = i->value;
             if (e->flags & 1) {
@@ -1514,7 +1514,7 @@ none composer_update(composer ux, element parent, map rendered_elements) {
                 verify(info->refs == 2, "expected 2 ref count on object %s, element id: %o", info->type->name, e->id);
                 e->parent = null;
                 A_drop_members(e);
-                rm(parent->elements, (object)id); // verify that this ALWAYS results in a ref of -1, and an A_dealloc()
+                rm(parent->origin, (object)id); // verify that this ALWAYS results in a ref of -1, and an A_dealloc()
                 break;
             }
         }
@@ -1740,6 +1740,7 @@ none stage_dealloc(stage a) {
 }
 
 
+/*
 define_enum(Pattern)
 define_enum(Clip)
 
@@ -1755,6 +1756,7 @@ define_class(text,     layer)
 define_class(border,   layer)
 define_class(fill,     layer)
 define_class(children, layer)
+*/
 
 
 
